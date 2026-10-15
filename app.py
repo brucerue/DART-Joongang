@@ -341,8 +341,8 @@ def num_amount(v, unit):
 
 
 def sorted_records(records):
-    # 최신 기간이 위로
-    return sorted(records, key=lambda r: r["sort"], reverse=True)
+    # 오래된 기간이 위로 (2023 → 2024 → 2025). 최신이 위로 오게 하려면 reverse=True를 추가
+    return sorted(records, key=lambda r: r["sort"])
 
 
 def build_table(records, period, unit, for_export=False):
