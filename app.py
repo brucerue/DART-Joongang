@@ -14,7 +14,7 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import requests
@@ -35,12 +35,19 @@ except ImportError:
 FS_DIV = "CFS"  # CFS = 연결재무제표, OFS = 별도(개별)재무제표
 MAX_YEAR_SPAN = 10  # 한 번에 조회 가능한 최대 연도 수 (API 사용량 보호)
 DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
-DART_API_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
+DART_API_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"  # 재무제표
+DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"  # 공시 목록
 
 MAX_WORKERS = 6  # 동시에 보낼 DART 요청 수 (한 번 조회에 최대 44번이라 분당 한도에는 여유)
 REQUEST_TIMEOUT = 20  # DART 응답을 기다리는 최대 시간(초)
-CACHE_TTL = 6 * 3600  # 조회 결과를 저장해두는 시간
+CACHE_TTL = 6 * 3600  # 재무 조회 결과를 저장해두는 시간
 EMPTY_TTL = 30 * 60  # '아직 공시 없음' 결과는 더 짧게 저장 (곧 공시될 수 있으므로)
+LIST_TTL = 10 * 60  # 공시 목록은 새 공시가 계속 올라오므로 짧게 저장
+LIST_PAGE_SIZE = 100  # DART 공시 목록 API가 한 번에 주는 최대 건수
+MAX_LIST_PAGES = 10  # 공시 목록은 최대 1,000건까지만 표시
+
+KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
+TODAY = datetime.now(KST).date()
 
 # 표에서 눈에 띄게 보여줄 금액 열의 글자색 (밝은 테마·어두운 테마 모두에서 읽히는 중간 톤)
 REVENUE_COLOR = "#1c7ed6"  # 매출액: 파랑
@@ -108,29 +115,36 @@ def slim(df):
     return rows[[c for c in KEEP_COLUMNS if c in rows.columns]].reset_index(drop=True)
 
 
-def fetch(session, store, corp_code, year, reprt_code):
-    """보고서 한 건 조회. 없으면 None, DART 오류·응답 없음이면 DartApiError.
+_MISSING = object()  # '저장된 값 없음' 표시 (None은 '조회했더니 데이터 없음'이라는 뜻이라 구분 필요)
 
-    ※ 작업 스레드에서 실행되므로 st.* 함수를 쓰지 않고, 세션·저장소는 인자로 받는다.
-    """
-    key = (corp_code, year, reprt_code)
+
+def cache_lookup(store, key, ttl):
+    """저장된 값이 유효하면 그 값을, 아니면 _MISSING을 돌려준다. 데이터 없음(None)은 짧게만 저장."""
     hit = store.get(key)
-    if hit is not None:
-        saved_at, cached = hit
-        if time.time() - saved_at < (CACHE_TTL if cached is not None else EMPTY_TTL):
-            return cached
+    if hit is None:
+        return _MISSING
+    saved_at, value = hit
+    if time.time() - saved_at < (ttl if value is not None else EMPTY_TTL):
+        return value
+    return _MISSING
 
-    params = {
-        "crtfc_key": API_KEY,
-        "corp_code": corp_code,
-        "bsns_year": year,
-        "reprt_code": reprt_code,
-        "fs_div": FS_DIV,
-    }
+
+def cache_save(store, key, value):
+    if len(store) > 2000:  # 메모리 보호
+        store.clear()
+    store[key] = (time.time(), value)
+
+
+def call_dart(session, url, params):
+    """DART API 호출 공통 처리.
+
+    정상이면 응답(dict), 조회된 데이터가 없으면(013) None,
+    응답 없음·호출 한도 초과·키 오류 등은 DartApiError.
+    """
     jo, last_error = None, None
     for attempt in range(3):  # 일시적인 네트워크 오류는 두 번까지 다시 시도
         try:
-            jo = session.get(DART_API_URL, params=params, timeout=REQUEST_TIMEOUT).json()
+            jo = session.get(url, params=params, timeout=REQUEST_TIMEOUT).json()
             break
         except Exception as e:  # 시간 초과, 연결 끊김, JSON 오류
             last_error = e
@@ -140,18 +154,91 @@ def fetch(session, store, corp_code, year, reprt_code):
 
     status = str(jo.get("status", ""))
     if "list" in jo:
-        df = slim(pd.DataFrame(jo["list"]))
-    elif status == "013":  # 조회된 데이터 없음 (아직 공시 전이거나 해당 보고서 없음)
-        df = None
-    elif status == "020":
+        return jo
+    if status == "013":  # 조회된 데이터 없음 (아직 공시 전이거나 해당 보고서 없음)
+        return None
+    if status == "020":
         raise DartApiError("DART API 하루 호출 한도를 초과했습니다. 잠시 후 또는 내일 다시 시도해주세요.")
-    else:
-        raise DartApiError(f"DART 응답 오류 [{status}] {jo.get('message', '')}".strip())
+    raise DartApiError(f"DART 응답 오류 [{status}] {jo.get('message', '')}".strip())
 
-    if len(store) > 2000:  # 메모리 보호
-        store.clear()
-    store[key] = (time.time(), df)
+
+def fetch(session, store, corp_code, year, reprt_code):
+    """보고서 한 건 조회. 없으면 None, DART 오류·응답 없음이면 DartApiError.
+
+    ※ 작업 스레드에서 실행되므로 st.* 함수를 쓰지 않고, 세션·저장소는 인자로 받는다.
+    """
+    key = (corp_code, year, reprt_code)
+    cached = cache_lookup(store, key, CACHE_TTL)
+    if cached is not _MISSING:
+        return cached
+
+    params = {
+        "crtfc_key": API_KEY,
+        "corp_code": corp_code,
+        "bsns_year": year,
+        "reprt_code": reprt_code,
+        "fs_div": FS_DIV,
+    }
+    jo = call_dart(session, DART_API_URL, params)
+    df = slim(pd.DataFrame(jo["list"])) if jo else None
+    cache_save(store, key, df)
     return df
+
+
+def fetch_disclosure_page(session, store, corp_code, bgn, end, page):
+    """공시 목록 한 페이지(최대 100건). 없으면 None."""
+    key = ("list", corp_code, bgn, end, page)
+    cached = cache_lookup(store, key, LIST_TTL)
+    if cached is not _MISSING:
+        return cached
+
+    params = {
+        "crtfc_key": API_KEY,
+        "corp_code": corp_code,
+        "bgn_de": bgn,  # 시작일 YYYYMMDD
+        "end_de": end,  # 종료일 YYYYMMDD
+        "last_reprt_at": "N",  # N = 정정 보고서까지 모두 (DART 사이트 목록과 같은 방식)
+        "page_no": page,
+        "page_count": LIST_PAGE_SIZE,
+    }
+    jo = call_dart(session, DART_LIST_URL, params)
+    cache_save(store, key, jo)
+    return jo
+
+
+def collect_disclosures(corp_code, start, end):
+    """기간 내 공시 목록(최신순). (행 목록, 전체 건수, 잘림 여부)를 돌려준다."""
+    session, store = get_session(), get_cache_store()
+    bgn, fin = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+
+    first = fetch_disclosure_page(session, store, corp_code, bgn, fin, 1)
+    if first is None:
+        return [], 0, False
+
+    total_count = int(first.get("total_count", len(first["list"])))
+    total_page = int(first.get("total_page", 1))
+    last_page = min(total_page, MAX_LIST_PAGES)
+
+    pages = {1: first}
+    if last_page > 1:  # 나머지 페이지는 동시에 조회
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+            futures = {
+                pool.submit(fetch_disclosure_page, session, store, corp_code, bgn, fin, p): p
+                for p in range(2, last_page + 1)
+            }
+            try:
+                for future in as_completed(futures):
+                    pages[futures[future]] = future.result()
+            except Exception:
+                for f in futures:
+                    f.cancel()
+                raise
+
+    rows = []
+    for p in range(1, last_page + 1):
+        if pages.get(p):
+            rows.extend(pages[p]["list"])
+    return rows, total_count, total_page > MAX_LIST_PAGES
 
 
 def fetch_many(corp_code, tasks, tick):
@@ -378,11 +465,188 @@ def safe_filename(text):
     return re.sub(r'[\\/:*?"<>|\s]+', "_", text).strip("_") or "기업"
 
 
+def disclosure_table(rows):
+    """공시 목록 API 응답(rows)을 화면용 표로 바꾼다."""
+    df = pd.DataFrame(rows).reindex(columns=["rcept_dt", "report_nm", "flr_nm", "rcept_no"]).fillna("")
+    dates = pd.to_datetime(df["rcept_dt"], format="%Y%m%d", errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+    return pd.DataFrame(
+        {
+            "접수일": dates,
+            "보고서명": df["report_nm"].astype(str).str.strip(),
+            "제출인": df["flr_nm"],
+            "원문": df["rcept_no"].astype(str).map(lambda n: DART_VIEW_URL.format(n) if n else None),
+        }
+    )
+
+
 # ------------------------------------------------------------
 # 화면
 # ------------------------------------------------------------
-st.set_page_config(page_title="DART 매출·영업이익 조회", layout="wide")
-st.title("매출액 · 영업이익 조회")
+LINK_COLUMN = st.column_config.LinkColumn("원문", display_text="공시 보기")
+
+
+def lookup_corp_code(corp):
+    """기업명(또는 종목코드) -> DART 고유번호. 못 찾으면 안내 문구를 띄우고 None."""
+    with st.spinner("기업 정보를 확인하는 중입니다... (서버를 처음 켠 뒤 첫 조회는 몇 초 더 걸릴 수 있어요)"):
+        corp_code = get_dart().find_corp_code(corp)
+    if not corp_code:
+        st.error(
+            f'"{corp}" 기업을 찾을 수 없습니다. '
+            "기업명은 공시된 이름과 정확히 같아야 합니다(예: 삼성전자). 종목코드 6자리로도 조회할 수 있어요."
+        )
+    return corp_code
+
+
+def render_financials():
+    """탭 1: 매출액·영업이익 조회"""
+    this_year = TODAY.year
+
+    with st.form("search"):
+        corp_text = st.text_input("기업명 또는 종목코드", value="삼성전자")
+        period = st.radio("조회 단위", ["연도별", "분기별"], horizontal=True)
+        c1, c2 = st.columns(2)
+        start = c1.number_input("시작연도", min_value=2015, max_value=this_year, value=2021, step=1)
+        end = c2.number_input("종료연도", min_value=2015, max_value=this_year, value=this_year - 1, step=1)
+        submitted = st.form_submit_button("조회")
+
+    if submitted:
+        corp = corp_text.strip()
+        if not corp:
+            st.error("기업명을 입력해주세요.")
+        elif start > end:
+            st.error("시작연도가 종료연도보다 늦을 수 없습니다.")
+        elif end - start + 1 > MAX_YEAR_SPAN:
+            st.error(f"한 번에 최대 {MAX_YEAR_SPAN}년까지만 조회할 수 있습니다.")
+        else:
+            start, end = int(start), int(end)
+            quarterly = period == "분기별"
+            st.session_state.pop("result", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+
+            corp_code = lookup_corp_code(corp)
+            if corp_code:
+                total = (end - start + 2) * (4 if quarterly else 1)  # 증감률 계산용 전년도 포함
+                done = [0]
+                progress = st.progress(0.0, text="조회 중입니다...")
+
+                def tick():
+                    done[0] += 1
+                    progress.progress(min(done[0] / total, 1.0), text=f"조회 중입니다... ({done[0]}/{total})")
+
+                collect = collect_quarterly if quarterly else collect_yearly
+                try:
+                    records = collect(corp_code, start, end, tick)
+                except DartApiError as e:
+                    progress.empty()
+                    st.error(str(e))
+                else:
+                    progress.empty()
+                    st.session_state["result"] = {"corp": corp, "records": records, "period": period}
+
+    result = st.session_state.get("result")
+    if not result:
+        return
+
+    if not result["records"]:
+        st.warning("조회된 데이터가 없습니다. 기업명(종목코드)과 연도를 확인해주세요.")
+        return
+
+    unit = st.radio("금액 단위", ["억원", "조원"], horizontal=True, key="unit")
+    is_q = result["period"] == "분기별"
+
+    notes = [result["corp"], f"단위: {unit}", "연결재무제표 기준", "증감률은 각 기간 보고서 수치로 계산한 값"]
+    if is_q:
+        notes.append("4분기 = 연간 − 3분기 누적(계산값)")
+    st.caption(" · ".join(notes))
+    st.caption("영업이익이 적자였던 구간은 증감률 대신 흑자전환 · 적자전환 · 적자지속으로 표시합니다. 원문 링크는 해당 기간 보고서(4분기는 사업보고서)로 연결됩니다.")
+
+    table = build_table(result["records"], result["period"], unit)
+    styled = table.style.set_properties(
+        subset=["매출액"], **{"font-weight": "bold", "color": REVENUE_COLOR}
+    ).set_properties(subset=["영업이익"], **{"font-weight": "bold", "color": OPERATING_COLOR})
+    st.dataframe(styled, hide_index=True, column_config={"원문": LINK_COLUMN})
+
+    export = build_table(result["records"], result["period"], unit, for_export=True)
+    base_name = f"DART_{safe_filename(result['corp'])}_{result['period']}_{TODAY:%Y%m%d}"
+    d1, d2, _ = st.columns([1, 1, 4])
+    d1.download_button(
+        "CSV 다운로드",
+        export.to_csv(index=False).encode("utf-8-sig"),  # 엑셀에서 한글이 깨지지 않도록 utf-8-sig
+        file_name=f"{base_name}.csv",
+        mime="text/csv",
+    )
+    if HAS_XLSX:
+        buffer = io.BytesIO()
+        export.to_excel(buffer, index=False, engine="openpyxl")
+        d2.download_button(
+            "엑셀 다운로드",
+            buffer.getvalue(),
+            file_name=f"{base_name}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+
+def render_disclosures():
+    """탭 2: 공시 목록 (DART에서 기업명을 눌렀을 때 나오는 목록)"""
+    first_day = date(1999, 1, 1)
+
+    with st.form("list_search"):
+        corp_text = st.text_input("기업명 또는 종목코드", value="삼성전자", key="list_corp")
+        c1, c2 = st.columns(2)
+        start = c1.date_input(
+            "시작일", value=TODAY - timedelta(days=365), min_value=first_day, max_value=TODAY, key="list_start"
+        )
+        end = c2.date_input("종료일", value=TODAY, min_value=first_day, max_value=TODAY, key="list_end")
+        submitted = st.form_submit_button("공시 조회")
+
+    if submitted:
+        corp = corp_text.strip()
+        if not corp:
+            st.error("기업명을 입력해주세요.")
+        elif start > end:
+            st.error("시작일이 종료일보다 늦을 수 없습니다.")
+        else:
+            st.session_state.pop("disclosures", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+            corp_code = lookup_corp_code(corp)
+            if corp_code:
+                with st.spinner("공시 목록을 불러오는 중입니다..."):
+                    try:
+                        rows, total, truncated = collect_disclosures(corp_code, start, end)
+                    except DartApiError as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state["disclosures"] = {
+                            "corp": corp,
+                            "rows": rows,
+                            "total": total,
+                            "truncated": truncated,
+                            "start": start,
+                            "end": end,
+                        }
+
+    res = st.session_state.get("disclosures")
+    if not res:
+        return
+
+    if not res["rows"]:
+        st.warning("조회된 공시가 없습니다. 기업명(종목코드)과 기간을 확인해주세요.")
+        return
+
+    name = res["rows"][0].get("corp_name") or res["corp"]
+    st.caption(f"{name} · {res['start']} ~ {res['end']} · 총 {res['total']:,}건 · 최신순 · 정정 공시 포함")
+    if res["truncated"]:
+        st.warning(
+            f"공시가 {res['total']:,}건이라 최신 {len(res['rows']):,}건만 보여드려요. 기간을 줄여서 다시 조회해보세요."
+        )
+
+    st.dataframe(
+        disclosure_table(res["rows"]),
+        hide_index=True,
+        column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
+    )
+
+
+st.set_page_config(page_title="DART 재무·공시 조회", layout="wide")
+st.title("DART 재무 · 공시 조회")
 
 if not API_KEY:
     st.error(
@@ -391,96 +655,8 @@ if not API_KEY:
     )
     st.stop()
 
-this_year = date.today().year
-
-with st.form("search"):
-    corp_text = st.text_input("기업명 또는 종목코드", value="삼성전자")
-    period = st.radio("조회 단위", ["연도별", "분기별"], horizontal=True)
-    c1, c2 = st.columns(2)
-    start = c1.number_input("시작연도", min_value=2015, max_value=this_year, value=2021, step=1)
-    end = c2.number_input("종료연도", min_value=2015, max_value=this_year, value=this_year - 1, step=1)
-    submitted = st.form_submit_button("조회")
-
-if submitted:
-    corp = corp_text.strip()
-    if not corp:
-        st.error("기업명을 입력해주세요.")
-    elif start > end:
-        st.error("시작연도가 종료연도보다 늦을 수 없습니다.")
-    elif end - start + 1 > MAX_YEAR_SPAN:
-        st.error(f"한 번에 최대 {MAX_YEAR_SPAN}년까지만 조회할 수 있습니다.")
-    else:
-        start, end = int(start), int(end)
-        quarterly = period == "분기별"
-        st.session_state.pop("result", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
-
-        with st.spinner("기업 정보를 확인하는 중입니다... (서버를 처음 켠 뒤 첫 조회는 몇 초 더 걸릴 수 있어요)"):
-            corp_code = get_dart().find_corp_code(corp)
-
-        if not corp_code:
-            st.error(
-                f'"{corp}" 기업을 찾을 수 없습니다. '
-                "기업명은 공시된 이름과 정확히 같아야 합니다(예: 삼성전자). 종목코드 6자리로도 조회할 수 있어요."
-            )
-        else:
-            total = (end - start + 2) * (4 if quarterly else 1)  # 증감률 계산용 전년도 포함
-            done = [0]
-            progress = st.progress(0.0, text="조회 중입니다...")
-
-            def tick():
-                done[0] += 1
-                progress.progress(min(done[0] / total, 1.0), text=f"조회 중입니다... ({done[0]}/{total})")
-
-            collect = collect_quarterly if quarterly else collect_yearly
-            try:
-                records = collect(corp_code, start, end, tick)
-            except DartApiError as e:
-                progress.empty()
-                st.error(str(e))
-            else:
-                progress.empty()
-                st.session_state["result"] = {"corp": corp, "records": records, "period": period}
-
-result = st.session_state.get("result")
-
-if result:
-    if not result["records"]:
-        st.warning("조회된 데이터가 없습니다. 기업명(종목코드)과 연도를 확인해주세요.")
-    else:
-        unit = st.radio("금액 단위", ["억원", "조원"], horizontal=True, key="unit")
-        is_q = result["period"] == "분기별"
-
-        notes = [result["corp"], f"단위: {unit}", "연결재무제표 기준", "증감률은 각 기간 보고서 수치로 계산한 값"]
-        if is_q:
-            notes.append("4분기 = 연간 − 3분기 누적(계산값)")
-        st.caption(" · ".join(notes))
-        st.caption("영업이익이 적자였던 구간은 증감률 대신 흑자전환 · 적자전환 · 적자지속으로 표시합니다. 원문 링크는 해당 기간 보고서(4분기는 사업보고서)로 연결됩니다.")
-
-        table = build_table(result["records"], result["period"], unit)
-        styled = table.style.set_properties(
-            subset=["매출액"], **{"font-weight": "bold", "color": REVENUE_COLOR}
-        ).set_properties(subset=["영업이익"], **{"font-weight": "bold", "color": OPERATING_COLOR})
-        st.dataframe(
-            styled,
-            hide_index=True,
-            column_config={"원문": st.column_config.LinkColumn("원문", display_text="공시 보기")},
-        )
-
-        export = build_table(result["records"], result["period"], unit, for_export=True)
-        base_name = f"DART_{safe_filename(result['corp'])}_{result['period']}_{date.today():%Y%m%d}"
-        d1, d2, _ = st.columns([1, 1, 4])
-        d1.download_button(
-            "CSV 다운로드",
-            export.to_csv(index=False).encode("utf-8-sig"),  # 엑셀에서 한글이 깨지지 않도록 utf-8-sig
-            file_name=f"{base_name}.csv",
-            mime="text/csv",
-        )
-        if HAS_XLSX:
-            buffer = io.BytesIO()
-            export.to_excel(buffer, index=False, engine="openpyxl")
-            d2.download_button(
-                "엑셀 다운로드",
-                buffer.getvalue(),
-                file_name=f"{base_name}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+tab_fin, tab_list = st.tabs(["재무 조회", "공시 목록"])
+with tab_fin:
+    render_financials()
+with tab_list:
+    render_disclosures()
