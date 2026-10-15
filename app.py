@@ -531,7 +531,27 @@ LETTER_NAMES = {
     "j": "제이", "k": "케이", "l": "엘", "m": "엠", "n": "엔", "o": "오", "p": "피", "q": "큐", "r": "알",
     "s": "에스", "t": "티", "u": "유", "v": "브이", "w": "더블유", "x": "엑스", "y": "와이", "z": "지",
 }
-SUGGEST_LIMIT = 8
+SUGGEST_LIMIT = 12
+
+# 추천 순서에서 먼저 보여줄 이름난 기업 (대략 유명한 순서). 목록에 없는 이름은 뒤로 밀릴 뿐 추천에서 빠지지는 않는다.
+# DART에 등록된 이름과 달라도 오류는 나지 않고, 그 기업만 우선 순위를 못 받는다. 필요하면 자유롭게 추가·수정하세요.
+FAMOUS = [
+    "삼성전자", "SK하이닉스", "LG에너지솔루션", "삼성바이오로직스", "현대자동차", "기아", "셀트리온", "삼성물산",
+    "KB금융", "한화에어로스페이스", "HD현대중공업", "NAVER", "두산에너빌리티", "신한지주", "현대모비스", "한화오션",
+    "삼성생명", "POSCO홀딩스", "SK스퀘어", "하나금융지주", "LG화학", "삼성SDI", "HD한국조선해양", "카카오",
+    "삼성화재해상보험", "현대로템", "우리금융지주", "한국전력공사", "SK텔레콤", "KT", "LG전자", "삼성전기",
+    "삼성중공업", "HD현대일렉트릭", "크래프톤", "SK이노베이션", "포스코퓨처엠", "현대글로비스", "삼성에스디에스",
+    "삼성증권", "삼성E&A", "두산로보틱스", "HMM", "한미반도체", "한화시스템", "LS ELECTRIC", "에코프로비엠",
+    "에코프로", "알테오젠", "한국항공우주산업", "현대건설", "고려아연", "대한항공", "아모레퍼시픽", "LG생활건강",
+    "롯데케미칼", "롯데쇼핑", "롯데지주", "신세계", "이마트", "CJ제일제당", "CJ", "하이브", "엔씨소프트", "넷마블",
+    "카카오뱅크", "카카오페이", "카카오게임즈", "한화", "한화솔루션", "GS", "GS건설", "GS리테일", "SK",
+    "SK바이오팜", "SK바이오사이언스", "SK네트웍스", "SK가스", "SK케미칼", "현대제철", "현대위아", "현대오토에버",
+    "현대백화점", "두산", "두산밥캣", "두산퓨얼셀", "KT&G", "대한전선", "한진칼", "LG디스플레이", "LG이노텍",
+    "LG유플러스", "LG씨엔에스", "LG", "포스코인터내셔널", "금호석유화학", "S-Oil", "HD현대", "HD현대건설기계",
+    "삼성카드", "DB손해보험", "메리츠금융지주", "미래에셋증권", "한국금융지주", "NH투자증권", "기업은행",
+    "BNK금융지주", "JB금융지주", "오리온", "농심", "삼양식품", "CJ대한통운", "한국타이어앤테크놀로지", "만도",
+    "효성", "효성중공업", "코웨이", "한온시스템", "에스엠", "와이지엔터테인먼트", "펄어비스", "컴투스", "위메이드",
+]
 
 
 def name_key(name):
@@ -550,6 +570,10 @@ def get_name_index():
     df["dup"] = df["corp_name"].duplicated(keep=False)  # 같은 이름이 여럿이면 종목코드로 구분
     df = df.sort_values("listed", ascending=False, kind="stable").drop_duplicates("corp_name")
     df["key"] = [name_key(n) for n in df["corp_name"]]
+    rank = {}
+    for i, n in enumerate(FAMOUS):
+        rank.setdefault(name_key(n), i)
+    df["fame"] = df["key"].map(rank).fillna(len(FAMOUS))  # 작을수록 유명
     return df.reset_index(drop=True)
 
 
@@ -570,7 +594,9 @@ def suggest_corps(query, limit=SUGGEST_LIMIT, listed_only=False, exclude=None):
     tier[keys.str.startswith(q)] = 1
     tier[keys == q] = 0  # 영문/한글 표기만 다른 경우 (에스케이하이닉스 -> SK하이닉스)
     found = idx[tier < 3].assign(tier=tier[tier < 3], n=keys[tier < 3].str.len())
-    found = found.sort_values(["tier", "listed", "n"], ascending=[True, False, True], kind="stable").head(limit)
+    found = found.sort_values(
+        ["tier", "fame", "listed", "n"], ascending=[True, True, False, True], kind="stable"
+    ).head(limit)
 
     if found.empty and not exclude:  # 오타 등: 상장사 중에서 글자가 비슷한 이름
         listed = idx[idx["listed"]]
