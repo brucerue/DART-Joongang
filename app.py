@@ -69,12 +69,12 @@ DISCLOSURE_TYPES = {
 # 뉴스 (네이버 뉴스 검색 API)
 NAVER_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
 NEWS_PAGE_SIZE = 100  # 한 번에 받는 최대 기사 수
-MAX_NEWS_PAGES = 5  # 최대 500건까지만 확인
+MAX_NEWS_PAGES = 10  # 최대 1,000건까지만 확인 (네이버가 한 검색에서 주는 최대치)
 NEWS_TTL = 5 * 60  # 같은 검색은 5분 동안 저장해 둔 결과를 재사용
 SIMILAR_TITLE = 0.8  # 제목이 이 정도(0~1) 이상 비슷하면 같은 기사로 묶는다
 NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7, "한 달": 30}
 # 이슈 버튼 -> 검색어에 덧붙일 말 (자유롭게 추가·수정 가능)
-NEWS_ISSUES = {"전체": "", "실적": "실적", "투자": "투자", "노조": "노조", "리콜": "리콜", "소송": "소송", "인수": "인수", "출시": "출시"}
+NEWS_ISSUES = {"전체": "", "단독": "단독", "실적": "실적", "투자": "투자", "노조": "노조", "리콜": "리콜", "소송": "소송", "인수": "인수", "출시": "출시"}
 
 # 뉴스에 보여줄 언론사. 기사 주소(도메인) -> (언론사 이름, 구분). 여기 없는 매체의 기사는 보이지 않는다.
 NEWS_CATEGORIES = ["종합일간지", "경제지", "통신사"]
@@ -650,6 +650,11 @@ def fetch_news(query, days, today_str):
     return items, (got_full_page and not reached_cutoff)
 
 
+def is_exclusive(title):
+    """제목에 [단독] 같은 단독 표기가 있는지. '단독주택', '단독 출시'처럼 다른 뜻의 단어는 제외."""
+    return bool(re.search(r"[\[\(<【〈]\s*단독\s*[\]\)>】〉]|^\s*단독\s*[:,\-…]|^\s*단독\s", title))
+
+
 def title_key(title):
     """제목 비교용: 기호·공백을 지우고 소문자로."""
     return re.sub(r"[^0-9a-z가-힣]", "", title.lower())
@@ -1044,16 +1049,19 @@ def render_news():
                     st.error(str(e))
                 else:
                     total = len(items)
+                    oldest = min((i["dt"] for i in items), default=None)  # 실제로 확인한 가장 오래된 기사 시각
                     items = [i for i in items if i["category"]]  # 목록에 있는 언론사만
                     if in_title:
                         want = name_key(corp)
                         items = [i for i in items if want in name_key(i["title"])]
+                    if issue == "단독":  # 검색은 제목·요약 어디든 '단독'이 있으면 잡으므로, 제목에 단독 표기가 있는 것만 남긴다
+                        items = [i for i in items if is_exclusive(i["title"])]
                     views = {"전체": cluster_news(items)}  # 전체는 한 줄로 쭉, 구분은 눌렀을 때 그것만
                     for cat in NEWS_CATEGORIES:
                         views[cat] = cluster_news([i for i in items if i["category"] == cat])
                     st.session_state["news"] = {
                         "corp": corp, "period": period, "total": total, "kept": len(items),
-                        "views": views, "capped": capped,
+                        "views": views, "capped": capped, "oldest": oldest,
                     }
 
     res = st.session_state.get("news")
@@ -1071,7 +1079,12 @@ def render_news():
 
     st.caption(f"{res['corp']} · 최근 {res['period']} · 기사 {res['kept']:,}건 → 묶음 {len(views['전체']):,}건")
     if res["capped"]:
-        st.warning(f"기사가 매우 많아 최신 {MAX_NEWS_PAGES * NEWS_PAGE_SIZE}건까지만 확인했어요. 기간을 줄이거나 이슈를 골라보세요.")
+        since = f"{res['oldest']:%m.%d %H:%M}" if res.get("oldest") else "?"
+        st.warning(
+            f"기사가 매우 많아 최신 {MAX_NEWS_PAGES * NEWS_PAGE_SIZE:,}건까지만 확인했어요. "
+            f"{since} 이후 기사만 보이고 그 이전은 빠져 있습니다. "
+            "더 긴 기간을 보려면 '단독', '실적' 같은 이슈를 골라 검색해보세요."
+        )
     # 결과를 다시 불러오지 않고, 누르는 즉시 그 구분만 보여준다
     view = st.radio(
         "언론사 구분",
