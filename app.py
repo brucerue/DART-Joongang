@@ -84,6 +84,7 @@ NEWS_ALIASES = {
     "현대자동차": ["현대차", "현차"],
     "현대차": ["현차"],
     "SK하이닉스": ["하닉"],
+    "LG에너지솔루션": ["LG엔솔", "엔솔"],
 }
 NEWS_VIEWS = ["전체"] + NEWS_CATEGORIES  # 결과 화면에서 고를 수 있는 보기
 PUBLISHERS = {
