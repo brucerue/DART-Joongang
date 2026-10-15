@@ -13,10 +13,13 @@ import io
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 
 import pandas as pd
+import requests
 import streamlit as st
+from requests.adapters import HTTPAdapter
 import OpenDartReader
 
 try:
@@ -32,10 +35,16 @@ except ImportError:
 FS_DIV = "CFS"  # CFS = 연결재무제표, OFS = 별도(개별)재무제표
 MAX_YEAR_SPAN = 10  # 한 번에 조회 가능한 최대 연도 수 (API 사용량 보호)
 DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
+DART_API_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
+
+MAX_WORKERS = 6  # 동시에 보낼 DART 요청 수 (한 번 조회에 최대 44번이라 분당 한도에는 여유)
+REQUEST_TIMEOUT = 20  # DART 응답을 기다리는 최대 시간(초)
+CACHE_TTL = 6 * 3600  # 조회 결과를 저장해두는 시간
+EMPTY_TTL = 30 * 60  # '아직 공시 없음' 결과는 더 짧게 저장 (곧 공시될 수 있으므로)
 
 # 표에서 눈에 띄게 보여줄 금액 열의 글자색 (밝은 테마·어두운 테마 모두에서 읽히는 중간 톤)
 REVENUE_COLOR = "#1c7ed6"  # 매출액: 파랑
-OPERATING_COLOR = "#1c7ed6"  # 영업이익: 주황
+OPERATING_COLOR = "#e8590c"  # 영업이익: 주황
 
 
 def load_api_key():
@@ -62,26 +71,104 @@ Q1, H1, Q3, ANNUAL = "11013", "11012", "11014", "11011"
 # ------------------------------------------------------------
 # 데이터 조회 함수
 # ------------------------------------------------------------
+class DartApiError(Exception):
+    """DART 서버 오류·호출 한도 초과 등 사용자에게 알려야 하는 조회 실패."""
+
+
 @st.cache_resource
 def get_dart():
+    """기업명 → 고유번호 변환용. (처음 한 번 기업 목록을 내려받느라 몇 초 걸릴 수 있음)"""
     return OpenDartReader(API_KEY)
 
 
-@st.cache_data(ttl=6 * 3600, show_spinner=False)
-def _fetch_cached(corp, year, reprt_code):
-    """같은 조회는 6시간 동안 저장해두고 재사용 (오류는 저장되지 않음)."""
-    df = get_dart().finstate_all(corp, year, reprt_code=reprt_code, fs_div=FS_DIV)
-    time.sleep(0.2)  # API 호출 제한 보호
-    return df if df is not None else pd.DataFrame()
+@st.cache_resource
+def get_session():
+    """연결을 재사용하는 HTTP 세션 (요청마다 새로 접속하는 시간을 줄임)."""
+    session = requests.Session()
+    session.mount("https://", HTTPAdapter(pool_maxsize=MAX_WORKERS))
+    return session
 
 
-def fetch(corp, year, reprt_code):
-    """전체 재무제표 조회. 데이터가 없거나 오류면 None."""
-    try:
-        df = _fetch_cached(corp, year, reprt_code)
-        return df if not df.empty else None
-    except Exception:
+@st.cache_resource
+def get_cache_store():
+    """{(고유번호, 연도, 보고서코드): (저장시각, 데이터)} - 서버가 켜져 있는 동안 유지."""
+    return {}
+
+
+KEEP_COLUMNS = ["rcept_no", "sj_div", "account_nm", "thstrm_amount", "thstrm_add_amount"]
+
+
+def slim(df):
+    """필요한 계정(매출·영업이익)과 열만 남겨 저장 용량을 줄인다. 없으면 None."""
+    if df is None or df.empty or "account_nm" not in df.columns:
         return None
+    rows = df[df["account_nm"].str.strip().isin(REVENUE_NAMES + OPERATING_NAMES)]
+    if rows.empty:
+        return None
+    return rows[[c for c in KEEP_COLUMNS if c in rows.columns]].reset_index(drop=True)
+
+
+def fetch(session, store, corp_code, year, reprt_code):
+    """보고서 한 건 조회. 없으면 None, DART 오류·응답 없음이면 DartApiError.
+
+    ※ 작업 스레드에서 실행되므로 st.* 함수를 쓰지 않고, 세션·저장소는 인자로 받는다.
+    """
+    key = (corp_code, year, reprt_code)
+    hit = store.get(key)
+    if hit is not None:
+        saved_at, cached = hit
+        if time.time() - saved_at < (CACHE_TTL if cached is not None else EMPTY_TTL):
+            return cached
+
+    params = {
+        "crtfc_key": API_KEY,
+        "corp_code": corp_code,
+        "bsns_year": year,
+        "reprt_code": reprt_code,
+        "fs_div": FS_DIV,
+    }
+    jo, last_error = None, None
+    for attempt in range(3):  # 일시적인 네트워크 오류는 두 번까지 다시 시도
+        try:
+            jo = session.get(DART_API_URL, params=params, timeout=REQUEST_TIMEOUT).json()
+            break
+        except Exception as e:  # 시간 초과, 연결 끊김, JSON 오류
+            last_error = e
+            time.sleep(0.5 * (attempt + 1))
+    if jo is None:
+        raise DartApiError("DART 서버 응답이 없거나 늦어지고 있습니다. 잠시 후 다시 시도해주세요.") from last_error
+
+    status = str(jo.get("status", ""))
+    if "list" in jo:
+        df = slim(pd.DataFrame(jo["list"]))
+    elif status == "013":  # 조회된 데이터 없음 (아직 공시 전이거나 해당 보고서 없음)
+        df = None
+    elif status == "020":
+        raise DartApiError("DART API 하루 호출 한도를 초과했습니다. 잠시 후 또는 내일 다시 시도해주세요.")
+    else:
+        raise DartApiError(f"DART 응답 오류 [{status}] {jo.get('message', '')}".strip())
+
+    if len(store) > 2000:  # 메모리 보호
+        store.clear()
+    store[key] = (time.time(), df)
+    return df
+
+
+def fetch_many(corp_code, tasks, tick):
+    """(연도, 보고서코드) 목록을 동시에 조회해 {(연도, 보고서코드): 데이터}로 돌려준다."""
+    session, store = get_session(), get_cache_store()  # 화면 스레드에서 미리 준비
+    results = {}
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        futures = {pool.submit(fetch, session, store, corp_code, y, c): (y, c) for (y, c) in tasks}
+        try:
+            for future in as_completed(futures):
+                results[futures[future]] = future.result()
+                tick()
+        except Exception:
+            for f in futures:  # 아직 시작 안 한 요청은 취소
+                f.cancel()
+            raise
+    return results
 
 
 def to_int(x):
@@ -173,13 +260,15 @@ def make_record(label, sort_key, cur, yoy=None, qoq=None):
 # ------------------------------------------------------------
 # 연도별 / 분기별 수집
 # ------------------------------------------------------------
-def collect_yearly(corp, start, end, tick):
+def collect_yearly(corp_code, start, end, tick):
     """증감률 계산을 위해 시작연도 전년도까지 함께 조회한다."""
+    years = range(start - 1, end + 1)
+    reports = fetch_many(corp_code, [(y, ANNUAL) for y in years], tick)
+
     data = {}
-    for y in range(start - 1, end + 1):
-        df = fetch(corp, y, ANNUAL)
+    for y in years:
+        df = reports[(y, ANNUAL)]
         data[y] = {"rev": pick(df, REVENUE_NAMES), "op": pick(df, OPERATING_NAMES), "link": link_of(df)}
-        tick()
 
     records = []
     for y in range(start, end + 1):
@@ -204,13 +293,14 @@ def quarter_values(r1, r2, r3, r4, names):
     return [q1, q2, q3, q4]
 
 
-def collect_quarterly(corp, start, end, tick):
+def collect_quarterly(corp_code, start, end, tick):
+    years = range(start - 1, end + 1)
+    codes = (Q1, H1, Q3, ANNUAL)
+    fetched = fetch_many(corp_code, [(y, c) for y in years for c in codes], tick)
+
     data = {}
-    for y in range(start - 1, end + 1):
-        reports = []
-        for code in (Q1, H1, Q3, ANNUAL):
-            reports.append(fetch(corp, y, code))
-            tick()
+    for y in years:
+        reports = [fetched[(y, c)] for c in codes]
         revs = quarter_values(*reports, REVENUE_NAMES)
         ops = quarter_values(*reports, OPERATING_NAMES)
         for i in range(4):  # 1~3분기는 각 분기 보고서, 4분기는 사업보고서로 연결
@@ -322,19 +412,34 @@ if submitted:
     else:
         start, end = int(start), int(end)
         quarterly = period == "분기별"
-        total = (end - start + 2) * (4 if quarterly else 1)  # 증감률 계산용 전년도 포함
-        done = [0]
-        progress = st.progress(0.0, text="조회 중입니다...")
+        st.session_state.pop("result", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
 
-        def tick():
-            done[0] += 1
-            progress.progress(min(done[0] / total, 1.0), text=f"조회 중입니다... ({done[0]}/{total})")
+        with st.spinner("기업 정보를 확인하는 중입니다... (서버를 처음 켠 뒤 첫 조회는 몇 초 더 걸릴 수 있어요)"):
+            corp_code = get_dart().find_corp_code(corp)
 
-        collect = collect_quarterly if quarterly else collect_yearly
-        records = collect(corp, start, end, tick)
-        progress.empty()
+        if not corp_code:
+            st.error(
+                f'"{corp}" 기업을 찾을 수 없습니다. '
+                "기업명은 공시된 이름과 정확히 같아야 합니다(예: 삼성전자). 종목코드 6자리로도 조회할 수 있어요."
+            )
+        else:
+            total = (end - start + 2) * (4 if quarterly else 1)  # 증감률 계산용 전년도 포함
+            done = [0]
+            progress = st.progress(0.0, text="조회 중입니다...")
 
-        st.session_state["result"] = {"corp": corp, "records": records, "period": period}
+            def tick():
+                done[0] += 1
+                progress.progress(min(done[0] / total, 1.0), text=f"조회 중입니다... ({done[0]}/{total})")
+
+            collect = collect_quarterly if quarterly else collect_yearly
+            try:
+                records = collect(corp_code, start, end, tick)
+            except DartApiError as e:
+                progress.empty()
+                st.error(str(e))
+            else:
+                progress.empty()
+                st.session_state["result"] = {"corp": corp, "records": records, "period": period}
 
 result = st.session_state.get("result")
 
