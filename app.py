@@ -77,6 +77,14 @@ NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7, "한 달": 30}
 # 뉴스에 보여줄 언론사. 기사 주소(도메인) -> (언론사 이름, 구분). 여기 없는 매체의 기사는 보이지 않는다.
 NEWS_CATEGORIES = ["종합일간지", "경제지", "통신사"]
 NEWS_KEYWORD = "단독"  # 뉴스 탭은 항상 이 표기가 제목에 있는 기사만 보여준다 (화면에는 드러내지 않고 내부에서 적용)
+# 이 기업명을 입력하면 아래 별칭도 함께 검색한다 (제목에 줄임말로 쓰이는 경우를 잡기 위함). 자유롭게 추가·수정하세요.
+# 별칭 없이 기업명만 입력하면 그 이름만 검색합니다. 예: '삼성'을 입력하면 '삼성'만, '삼성전자'를 입력하면 삼성전자·삼성·삼전.
+NEWS_ALIASES = {
+    "삼성전자": ["삼성", "삼전"],
+    "현대자동차": ["현대차", "현차"],
+    "현대차": ["현차"],
+    "SK하이닉스": ["하닉"],
+}
 NEWS_VIEWS = ["전체"] + NEWS_CATEGORIES  # 결과 화면에서 고를 수 있는 보기
 PUBLISHERS = {
     # 종합일간지
@@ -649,6 +657,15 @@ def fetch_news(query, days, today_str):
     return items, (got_full_page and not reached_cutoff)
 
 
+def news_names(corp):
+    """입력한 기업명 + 등록된 별칭. 예: 삼성전자 -> [삼성전자, 삼성, 삼전]"""
+    key = name_key(corp)
+    for name, aliases in NEWS_ALIASES.items():
+        if name_key(name) == key:  # 대소문자·띄어쓰기는 무시
+            return [corp] + [a for a in aliases if name_key(a) != key]
+    return [corp]
+
+
 def is_exclusive(title):
     """제목에 [단독] 같은 단독 표기가 있는지. '단독주택', '단독 출시'처럼 다른 뜻의 단어는 제외."""
     return bool(re.search(r"[\[\(<【〈]\s*단독\s*[\]\)>】〉]|^\s*단독\s*[:,\-…]|^\s*단독\s", title))
@@ -1038,27 +1055,37 @@ def render_news():
                 hit = idx[idx["stock_code"] == corp]
                 if not hit.empty:
                     corp = hit.iloc[0]["corp_name"]
-            query = " ".join(x for x in [corp, NEWS_KEYWORD, extra.strip()] if x)
+            names = news_names(corp)  # 입력한 이름 + 별칭 (이름마다 따로 검색해서 합친다)
             with st.spinner("뉴스를 불러오는 중입니다..."):
                 try:
-                    items, capped = fetch_news(query, NEWS_PERIODS[period], TODAY.isoformat())
+                    items, seen, capped, since = [], set(), False, None
+                    for name in names:
+                        query = " ".join(x for x in [name, NEWS_KEYWORD, extra.strip()] if x)
+                        got, cap = fetch_news(query, NEWS_PERIODS[period], TODAY.isoformat())
+                        if cap and got:  # 한도에 걸렸다면, 그 검색은 가장 오래된 기사 시각 이후만 빠짐없이 본 것
+                            oldest = min(i["dt"] for i in got)
+                            since = oldest if since is None else max(since, oldest)
+                        capped = capped or cap
+                        for it in got:
+                            if it["url"] not in seen:  # 같은 기사가 여러 검색에 걸리면 한 번만
+                                seen.add(it["url"])
+                                items.append(it)
                 except NewsApiError as e:
                     st.error(str(e))
                 else:
                     total = len(items)
-                    oldest = min((i["dt"] for i in items), default=None)  # 실제로 확인한 가장 오래된 기사 시각
                     items = [i for i in items if i["category"]]  # 목록에 있는 언론사만
                     if in_title:
-                        want = name_key(corp)
-                        items = [i for i in items if want in name_key(i["title"])]
+                        wants = [name_key(n) for n in names]
+                        items = [i for i in items if any(w in name_key(i["title"]) for w in wants)]
                     # 검색은 제목·요약 어디든 '단독'이 있으면 잡으므로, 제목에 단독 표기가 있는 것만 남긴다
                     items = [i for i in items if is_exclusive(i["title"])]
                     views = {"전체": cluster_news(items)}  # 전체는 한 줄로 쭉, 구분은 눌렀을 때 그것만
                     for cat in NEWS_CATEGORIES:
                         views[cat] = cluster_news([i for i in items if i["category"] == cat])
                     st.session_state["news"] = {
-                        "corp": corp, "period": period, "total": total, "kept": len(items),
-                        "views": views, "capped": capped, "oldest": oldest,
+                        "corp": corp, "names": names, "period": period, "total": total, "kept": len(items),
+                        "views": views, "capped": capped, "oldest": since,
                     }
 
     res = st.session_state.get("news")
@@ -1074,7 +1101,10 @@ def render_news():
         )
         return
 
-    st.caption(f"{res['corp']} · 최근 {res['period']} · 기사 {res['kept']:,}건 → 묶음 {len(views['전체']):,}건")
+    notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(views['전체']):,}건"]
+    if len(res["names"]) > 1:
+        notes.append(f"함께 검색: {', '.join(res['names'][1:])}")
+    st.caption(" · ".join(notes))
     if res["capped"]:
         since = f"{res['oldest']:%m.%d %H:%M}" if res.get("oldest") else "?"
         st.warning(
