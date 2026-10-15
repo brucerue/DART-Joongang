@@ -3,7 +3,7 @@ DART 매출액 / 영업이익 조회 (Streamlit)
 
 기능: 연도별·분기별 조회, 전년(동기)·전분기 대비 증감률,
       흑자전환/적자전환/적자지속 표시, 금액은 억원 단위,
-      CSV·엑셀 다운로드, 공시 원문 링크, 공시 목록(유형 필터·보고서명 검색), 뉴스(중복 묶기·언론사 구분별 보기)
+      CSV·엑셀 다운로드, 공시 원문 링크, 공시 목록(유형 필터·보고서명 검색), 뉴스(중복 묶기·언론사 구분 선택)
 
 [설치]   pip install -r requirements.txt
 [실행]   streamlit run app.py
@@ -78,6 +78,7 @@ NEWS_ISSUES = {"전체": "", "실적": "실적", "투자": "투자", "노조": "
 
 # 뉴스에 보여줄 언론사. 기사 주소(도메인) -> (언론사 이름, 구분). 여기 없는 매체의 기사는 보이지 않는다.
 NEWS_CATEGORIES = ["종합일간지", "경제지", "통신사"]
+NEWS_VIEWS = ["전체"] + NEWS_CATEGORIES  # 결과 화면에서 고를 수 있는 보기
 PUBLISHERS = {
     # 종합일간지
     "joongang.co.kr": ("중앙일보", "종합일간지"), "chosun.com": ("조선일보", "종합일간지"),
@@ -1021,7 +1022,6 @@ def render_news():
         period = c1.radio("기간", list(NEWS_PERIODS), index=1, horizontal=True, key="news_period")
         issue = c2.radio("이슈", list(NEWS_ISSUES), horizontal=True, key="news_issue")
         extra = st.text_input("추가 검색어 (선택)", placeholder="예: 파업, 반도체", key="news_extra")
-        cats = st.multiselect("언론사 구분", NEWS_CATEGORIES, default=NEWS_CATEGORIES, key="news_cats")
         in_title = st.checkbox("제목에 기업명이 들어간 기사만", value=True, key="news_title")
         submitted = st.form_submit_button("뉴스 조회")
 
@@ -1029,8 +1029,6 @@ def render_news():
         corp = corp_text.strip()
         if not corp:
             st.error("기업명을 입력해주세요.")
-        elif not cats:
-            st.error("언론사 구분을 하나 이상 선택해주세요.")
         else:
             st.session_state.pop("news", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
             if corp.isdigit() and len(corp) == 6:  # 종목코드를 넣었다면 기업명으로 바꿔서 검색
@@ -1046,45 +1044,46 @@ def render_news():
                     st.error(str(e))
                 else:
                     total = len(items)
-                    items = [i for i in items if i["category"] in cats]  # 목록에 있는 언론사만
+                    items = [i for i in items if i["category"]]  # 목록에 있는 언론사만
                     if in_title:
                         want = name_key(corp)
                         items = [i for i in items if want in name_key(i["title"])]
-                    sections = [
-                        (cat, cluster_news([i for i in items if i["category"] == cat]))
-                        for cat in NEWS_CATEGORIES
-                        if cat in cats
-                    ]
+                    views = {"전체": cluster_news(items)}  # 전체는 한 줄로 쭉, 구분은 눌렀을 때 그것만
+                    for cat in NEWS_CATEGORIES:
+                        views[cat] = cluster_news([i for i in items if i["category"] == cat])
                     st.session_state["news"] = {
                         "corp": corp, "period": period, "total": total, "kept": len(items),
-                        "sections": sections, "capped": capped, "cats": cats,
+                        "views": views, "capped": capped,
                     }
 
     res = st.session_state.get("news")
     if not res:
         return
 
-    shown = sum(len(clusters) for _, clusters in res["sections"])
-    if not shown:
+    views = res["views"]
+    if not views["전체"]:
         st.warning(
-            "조건에 맞는 기사가 없습니다. 언론사 구분을 늘리거나 '제목에 기업명' 조건을 끄거나 기간을 늘려보세요."
+            "조건에 맞는 기사가 없습니다. '제목에 기업명' 조건을 끄거나 기간을 늘려보세요."
             if res["total"]
             else "조회된 기사가 없습니다. 기업명을 확인하거나 기간을 늘려보세요."
         )
         return
 
-    notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {shown:,}건"]
-    if len(res["cats"]) < len(NEWS_CATEGORIES):
-        notes.append(", ".join(res["cats"]))
-    st.caption(" · ".join(notes))
+    st.caption(f"{res['corp']} · 최근 {res['period']} · 기사 {res['kept']:,}건 → 묶음 {len(views['전체']):,}건")
     if res["capped"]:
         st.warning(f"기사가 매우 많아 최신 {MAX_NEWS_PAGES * NEWS_PAGE_SIZE}건까지만 확인했어요. 기간을 줄이거나 이슈를 골라보세요.")
-    for cat, clusters in res["sections"]:  # 구분별로 따로 보여준다
-        st.markdown(f"#### {cat} ({len(clusters)})")
-        if clusters:
-            st.markdown(news_html(clusters), unsafe_allow_html=True)
-        else:
-            st.caption("해당 기사가 없습니다.")
+    # 결과를 다시 불러오지 않고, 누르는 즉시 그 구분만 보여준다
+    view = st.radio(
+        "언론사 구분",
+        NEWS_VIEWS,
+        horizontal=True,
+        key="news_view",
+        format_func=lambda v: f"{v} ({len(views[v])})",
+    )
+    if views[view]:
+        st.markdown(news_html(views[view]), unsafe_allow_html=True)
+    else:
+        st.caption("해당 구분의 기사가 없습니다.")
 
 
 STYLE = """
