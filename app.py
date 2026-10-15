@@ -578,14 +578,6 @@ def render_financials():
         st.warning("조회된 데이터가 없습니다. 기업명(종목코드)과 연도를 확인해주세요.")
         return
 
-    is_q = result["period"] == "분기별"
-
-    notes = [result["corp"], f"단위: {UNIT}", "연결재무제표 기준", "증감률은 각 기간 보고서 수치로 계산한 값"]
-    if is_q:
-        notes.append("4분기 = 연간 − 3분기 누적(계산값)")
-    st.caption(" · ".join(notes))
-    st.caption("영업이익이 적자였던 구간은 증감률 대신 흑자전환 · 적자전환 · 적자지속으로 표시합니다. 원문 링크는 해당 기간 보고서(4분기는 사업보고서)로 연결됩니다.")
-
     table = build_table(result["records"], result["period"])
     styled = table.style.set_properties(
         subset=["매출액"], **{"font-weight": "bold", "color": REVENUE_COLOR}
@@ -697,7 +689,7 @@ def render_disclosures():
 
 st.set_page_config(page_title="DART 재무·공시 조회", layout="wide")
 st.title("DART 재무 · 공시 조회")
-st.caption("제작: 중앙일보 산업부 나상현  \n데이터 출처: 금융감독원 전자공시시스템(DART)")  # 두 줄(줄바꿈 = 공백 2칸 + \n)
+st.caption("제작: 중앙일보 산업부 나상현  \n출처: 금융감독원 전자공시시스템(DART)")  # 두 줄(줄바꿈 = 공백 2칸 + \n)
 
 if not API_KEY:
     st.error(
