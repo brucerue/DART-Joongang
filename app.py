@@ -726,8 +726,8 @@ def fetch_news(session, query, days, today_str):
     return items, (got_full_page and not reached_cutoff)
 
 
-def search_news(terms, extra, days):
-    """검색어마다 '검색어 단독 [추가검색어]'로 동시에 검색해 합친다.
+def search_news(terms, days):
+    """검색어마다 '검색어 단독'으로 동시에 검색해 합친다.
 
     -> (기사 목록, 한도에 걸렸는지, 한도에 걸린 검색에서 빠짐없이 본 가장 이른 시각)
     같은 기사가 여러 검색에 걸려도 한 번만 담는다. 같은 검색은 5분 동안 저장해 둔 결과를 쓴다.
@@ -735,7 +735,7 @@ def search_news(terms, extra, days):
     session, store, today = get_session(), get_cache_store(), TODAY.isoformat()  # 화면 스레드에서 미리 준비
 
     def one(term):
-        query = " ".join(x for x in [term, NEWS_KEYWORD, extra] if x)
+        query = f"{term} {NEWS_KEYWORD}"
         key = ("news", query, days, today)
         hit = cache_lookup(store, key, NEWS_TTL)
         if hit is not _MISSING:
@@ -1147,7 +1147,6 @@ def render_news():
         else:
             sector = st.radio("섹터", list(NEWS_SECTORS), horizontal=True, key="news_sector")
         period = st.radio("기간", list(NEWS_PERIODS), index=1, horizontal=True, key="news_period")
-        extra = st.text_input("추가 검색어 (선택)", placeholder="예: 파업, 반도체", key="news_extra")
         in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key="news_title")
         submitted = st.form_submit_button("뉴스 조회")
 
@@ -1168,7 +1167,7 @@ def render_news():
                 terms = NEWS_SECTORS[sector]["기업"] + NEWS_SECTORS[sector]["키워드"]
             with st.spinner("뉴스를 불러오는 중입니다..."):
                 try:
-                    items, capped, since = search_news(terms, extra.strip(), NEWS_PERIODS[period])
+                    items, capped, since = search_news(terms, NEWS_PERIODS[period])
                 except NewsApiError as e:
                     st.error(str(e))
                 else:
@@ -1216,7 +1215,7 @@ def render_news():
         st.warning(
             f"기사가 매우 많아 최신 {MAX_NEWS_PAGES * NEWS_PAGE_SIZE:,}건까지만 확인했어요. "
             f"{since} 이후 기사만 보이고 그 이전은 빠져 있습니다. "
-            "더 긴 기간을 보려면 '추가 검색어'를 넣어 범위를 좁혀보세요."
+            "기간을 줄이면 그 기간은 빠짐없이 볼 수 있어요."
         )
     # 결과를 다시 불러오지 않고, 누르는 즉시 그 구분만 보여준다
     view = st.radio(
