@@ -3,7 +3,7 @@ DART 매출액 / 영업이익 조회 (Streamlit)
 
 기능: 연도별·분기별 조회, 전년(동기)·전분기 대비 증감률,
       흑자전환/적자전환/적자지속 표시, 금액은 억원 단위,
-      CSV·엑셀 다운로드, 공시 원문 링크, 공시 목록(유형 필터·보고서명 검색), 뉴스(중복 묶기·주요 언론사 필터)
+      CSV·엑셀 다운로드, 공시 원문 링크, 공시 목록(유형 필터·보고서명 검색), 뉴스(중복 묶기·언론사 구분별 보기)
 
 [설치]   pip install -r requirements.txt
 [실행]   streamlit run app.py
@@ -76,21 +76,23 @@ NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7, "한 달": 30}
 # 이슈 버튼 -> 검색어에 덧붙일 말 (자유롭게 추가·수정 가능)
 NEWS_ISSUES = {"전체": "", "실적": "실적", "투자": "투자", "노조": "노조", "리콜": "리콜", "소송": "소송", "인수": "인수", "출시": "출시"}
 
-# 기사 주소 -> (언론사 이름, 주요 언론사 여부). 목록에 없는 매체는 주소(도메인) 그대로 보여주고 '주요'로 치지 않는다.
+# 뉴스에 보여줄 언론사. 기사 주소(도메인) -> (언론사 이름, 구분). 여기 없는 매체의 기사는 보이지 않는다.
+NEWS_CATEGORIES = ["종합일간지", "경제지", "통신사"]
 PUBLISHERS = {
-    "joongang.co.kr": ("중앙일보", True), "chosun.com": ("조선일보", True), "biz.chosun.com": ("조선비즈", True),
-    "donga.com": ("동아일보", True), "hani.co.kr": ("한겨레", True), "khan.co.kr": ("경향신문", True),
-    "hankookilbo.com": ("한국일보", True), "munhwa.com": ("문화일보", True), "segye.com": ("세계일보", True),
-    "kmib.co.kr": ("국민일보", True), "seoul.co.kr": ("서울신문", True),
-    "hankyung.com": ("한국경제", True), "mk.co.kr": ("매일경제", True), "sedaily.com": ("서울경제", True),
-    "edaily.co.kr": ("이데일리", True), "mt.co.kr": ("머니투데이", True), "fnnews.com": ("파이낸셜뉴스", True),
-    "heraldcorp.com": ("헤럴드경제", True), "asiae.co.kr": ("아시아경제", True), "etnews.com": ("전자신문", True),
-    "yna.co.kr": ("연합뉴스", True), "yonhapnewstv.co.kr": ("연합뉴스TV", True), "newsis.com": ("뉴시스", True),
-    "news1.kr": ("뉴스1", True), "kbs.co.kr": ("KBS", True), "imbc.com": ("MBC", True), "sbs.co.kr": ("SBS", True),
-    "jtbc.co.kr": ("JTBC", True), "ytn.co.kr": ("YTN", True), "mbn.co.kr": ("MBN", True),
-    "ajunews.com": ("아주경제", False), "newspim.com": ("뉴스핌", False), "inews24.com": ("아이뉴스24", False),
-    "etoday.co.kr": ("이투데이", False), "zdnet.co.kr": ("지디넷코리아", False), "thebell.co.kr": ("더벨", False),
-    "bloter.net": ("블로터", False), "dailian.co.kr": ("데일리안", False), "newdaily.co.kr": ("뉴데일리", False),
+    # 종합일간지
+    "joongang.co.kr": ("중앙일보", "종합일간지"), "chosun.com": ("조선일보", "종합일간지"),
+    "donga.com": ("동아일보", "종합일간지"), "hani.co.kr": ("한겨레", "종합일간지"),
+    "khan.co.kr": ("경향신문", "종합일간지"), "hankookilbo.com": ("한국일보", "종합일간지"),
+    "munhwa.com": ("문화일보", "종합일간지"), "segye.com": ("세계일보", "종합일간지"),
+    "kmib.co.kr": ("국민일보", "종합일간지"), "seoul.co.kr": ("서울신문", "종합일간지"),
+    # 경제지
+    "hankyung.com": ("한국경제", "경제지"), "mk.co.kr": ("매일경제", "경제지"),
+    "sedaily.com": ("서울경제", "경제지"), "edaily.co.kr": ("이데일리", "경제지"),
+    "mt.co.kr": ("머니투데이", "경제지"), "fnnews.com": ("파이낸셜뉴스", "경제지"),
+    "heraldcorp.com": ("헤럴드경제", "경제지"), "asiae.co.kr": ("아시아경제", "경제지"),
+    "etnews.com": ("전자신문", "경제지"), "biz.chosun.com": ("조선비즈", "경제지"),  # biz.chosun.com이 chosun.com보다 우선
+    # 통신사
+    "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
@@ -599,17 +601,17 @@ def clean_title(raw):
 
 
 def publisher_of(url):
-    """기사 주소 -> (언론사 이름, 주요 언론사 여부)."""
+    """기사 주소 -> (언론사 이름, 구분). 목록에 없는 매체는 (도메인, None)."""
     host = (urlparse(url or "").hostname or "").lower()
     if host.startswith("www."):
         host = host[4:]
     best = None
-    for domain, (name, major) in PUBLISHERS.items():
+    for domain, (name, category) in PUBLISHERS.items():
         if (host == domain or host.endswith("." + domain)) and (best is None or len(domain) > len(best[0])):
-            best = (domain, name, major)
+            best = (domain, name, category)
     if best:
         return best[1], best[2]
-    return host or "알 수 없음", False
+    return host or "알 수 없음", None
 
 
 @st.cache_data(ttl=NEWS_TTL, show_spinner=False)
@@ -637,8 +639,10 @@ def fetch_news(query, days, today_str):
                 reached_cutoff = True
                 continue
             url = it.get("originallink") or it.get("link") or ""
-            name, major = publisher_of(url)
-            items.append({"title": clean_title(it.get("title")), "url": url, "publisher": name, "major": major, "dt": when})
+            name, category = publisher_of(url)
+            items.append(
+                {"title": clean_title(it.get("title")), "url": url, "publisher": name, "category": category, "dt": when}
+            )
         got_full_page = len(raw) >= NEWS_PAGE_SIZE
         if reached_cutoff or not got_full_page:
             break
@@ -653,7 +657,7 @@ def title_key(title):
 def cluster_news(items):
     """제목이 비슷한 기사를 한 묶음으로. -> [{"rep": 대표 기사, "others": 나머지 기사들}, ...] (최신순)
 
-    대표 기사는 묶음 안에서 가장 최근의 주요 언론사 기사(없으면 가장 최근 기사).
+    대표 기사는 묶음 안에서 가장 최근 기사.
     """
     clusters = []
     for item in sorted(items, key=lambda x: x["dt"], reverse=True):
@@ -670,8 +674,7 @@ def cluster_news(items):
             clusters.append({"matcher": matcher, "items": [item]})
     out = []
     for c in clusters:
-        rep = next((i for i in c["items"] if i["major"]), c["items"][0])
-        out.append({"rep": rep, "others": [i for i in c["items"] if i is not rep]})
+        out.append({"rep": c["items"][0], "others": c["items"][1:]})
     return out
 
 
@@ -1018,15 +1021,16 @@ def render_news():
         period = c1.radio("기간", list(NEWS_PERIODS), index=1, horizontal=True, key="news_period")
         issue = c2.radio("이슈", list(NEWS_ISSUES), horizontal=True, key="news_issue")
         extra = st.text_input("추가 검색어 (선택)", placeholder="예: 파업, 반도체", key="news_extra")
-        o1, o2 = st.columns(2)
-        major_only = o1.checkbox("주요 언론사만", value=True, key="news_major")
-        in_title = o2.checkbox("제목에 기업명이 들어간 기사만", value=True, key="news_title")
+        cats = st.multiselect("언론사 구분", NEWS_CATEGORIES, default=NEWS_CATEGORIES, key="news_cats")
+        in_title = st.checkbox("제목에 기업명이 들어간 기사만", value=True, key="news_title")
         submitted = st.form_submit_button("뉴스 조회")
 
     if submitted:
         corp = corp_text.strip()
         if not corp:
             st.error("기업명을 입력해주세요.")
+        elif not cats:
+            st.error("언론사 구분을 하나 이상 선택해주세요.")
         else:
             st.session_state.pop("news", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
             if corp.isdigit() and len(corp) == 6:  # 종목코드를 넣었다면 기업명으로 바꿔서 검색
@@ -1042,37 +1046,45 @@ def render_news():
                     st.error(str(e))
                 else:
                     total = len(items)
-                    if major_only:
-                        items = [i for i in items if i["major"]]
+                    items = [i for i in items if i["category"] in cats]  # 목록에 있는 언론사만
                     if in_title:
                         want = name_key(corp)
                         items = [i for i in items if want in name_key(i["title"])]
-                    clusters = cluster_news(items)
+                    sections = [
+                        (cat, cluster_news([i for i in items if i["category"] == cat]))
+                        for cat in NEWS_CATEGORIES
+                        if cat in cats
+                    ]
                     st.session_state["news"] = {
-                        "corp": corp, "period": period, "query": query, "total": total,
-                        "kept": len(items), "clusters": clusters, "capped": capped,
-                        "major_only": major_only,
+                        "corp": corp, "period": period, "total": total, "kept": len(items),
+                        "sections": sections, "capped": capped, "cats": cats,
                     }
 
     res = st.session_state.get("news")
     if not res:
         return
 
-    if not res["clusters"]:
+    shown = sum(len(clusters) for _, clusters in res["sections"])
+    if not shown:
         st.warning(
-            "조건에 맞는 기사가 없습니다. '주요 언론사만'이나 '제목에 기업명' 조건을 끄거나 기간을 늘려보세요."
+            "조건에 맞는 기사가 없습니다. 언론사 구분을 늘리거나 '제목에 기업명' 조건을 끄거나 기간을 늘려보세요."
             if res["total"]
             else "조회된 기사가 없습니다. 기업명을 확인하거나 기간을 늘려보세요."
         )
         return
 
-    notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(res['clusters']):,}건"]
-    if res["major_only"]:
-        notes.append("주요 언론사만")
+    notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {shown:,}건"]
+    if len(res["cats"]) < len(NEWS_CATEGORIES):
+        notes.append(", ".join(res["cats"]))
     st.caption(" · ".join(notes))
     if res["capped"]:
         st.warning(f"기사가 매우 많아 최신 {MAX_NEWS_PAGES * NEWS_PAGE_SIZE}건까지만 확인했어요. 기간을 줄이거나 이슈를 골라보세요.")
-    st.markdown(news_html(res["clusters"]), unsafe_allow_html=True)
+    for cat, clusters in res["sections"]:  # 구분별로 따로 보여준다
+        st.markdown(f"#### {cat} ({len(clusters)})")
+        if clusters:
+            st.markdown(news_html(clusters), unsafe_allow_html=True)
+        else:
+            st.caption("해당 기사가 없습니다.")
 
 
 STYLE = """
