@@ -2,8 +2,8 @@
 DART 매출액 / 영업이익 조회 (Streamlit)
 
 기능: 연도별·분기별 조회, 전년(동기)·전분기 대비 증감률,
-      흑자전환/적자전환/적자지속 표시, 억원/조원 단위,
-      CSV·엑셀 다운로드, 공시 원문 링크
+      흑자전환/적자전환/적자지속 표시, 금액은 억원 단위,
+      CSV·엑셀 다운로드, 공시 원문 링크, 공시 목록(유형 필터·보고서명 검색)
 
 [설치]   pip install -r requirements.txt
 [실행]   streamlit run app.py
@@ -33,6 +33,7 @@ except ImportError:
 # 설정
 # ------------------------------------------------------------
 FS_DIV = "CFS"  # CFS = 연결재무제표, OFS = 별도(개별)재무제표
+UNIT = "억원"  # 금액 단위는 억원으로 고정
 MAX_YEAR_SPAN = 10  # 한 번에 조회 가능한 최대 연도 수 (API 사용량 보호)
 DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
 DART_API_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"  # 재무제표
@@ -424,10 +425,11 @@ def collect_quarterly(corp_code, start, end, tick):
 # ------------------------------------------------------------
 # 표 만들기 (화면용 / 다운로드용)
 # ------------------------------------------------------------
-def fmt_amount(v, unit):
+def fmt_amount(v):
+    """원 -> 억원 (천 단위 쉼표). 값이 없으면 '-'."""
     if v is None:
         return "-"
-    return f"{v / 1e12:,.2f}" if unit == "조원" else f"{v / 1e8:,.0f}"
+    return f"{v / 1e8:,.0f}"
 
 
 def fmt_change(c):
@@ -438,10 +440,11 @@ def fmt_change(c):
     return f"{c:+,.1f}%"
 
 
-def num_amount(v, unit):
+def num_amount(v):
+    """다운로드 파일용: 원 -> 억원(숫자). 값이 없으면 None."""
     if v is None:
         return None
-    return round(v / 1e12, 2) if unit == "조원" else int(round(v / 1e8))
+    return int(round(v / 1e8))
 
 
 def sorted_records(records):
@@ -449,7 +452,7 @@ def sorted_records(records):
     return sorted(records, key=lambda r: r["sort"])
 
 
-def build_table(records, period, unit, for_export=False):
+def build_table(records, period, for_export=False):
     quarterly = period == "분기별"
     yoy = "전년동기比" if quarterly else "전년比"
     amt = num_amount if for_export else fmt_amount
@@ -458,11 +461,11 @@ def build_table(records, period, unit, for_export=False):
     for r in sorted_records(records):
         row = {}
         row["기간"] = r["label"]
-        row["매출액"] = amt(r["rev"], unit)
+        row["매출액"] = amt(r["rev"])
         row[f"매출 {yoy}"] = fmt_change(r["rev_yoy"])
         if quarterly:
             row["매출 전분기比"] = fmt_change(r["rev_qoq"])
-        row["영업이익"] = amt(r["op"], unit)
+        row["영업이익"] = amt(r["op"])
         row[f"영업이익 {yoy}"] = fmt_change(r["op_yoy"])
         if quarterly:
             row["영업이익 전분기比"] = fmt_change(r["op_qoq"])
@@ -472,7 +475,7 @@ def build_table(records, period, unit, for_export=False):
     df = pd.DataFrame(rows)
     if for_export:
         df = df.rename(
-            columns={"매출액": f"매출액({unit})", "영업이익": f"영업이익({unit})", "원문": "공시원문링크"}
+            columns={"매출액": f"매출액({UNIT})", "영업이익": f"영업이익({UNIT})", "원문": "공시원문링크"}
         )
     return df
 
@@ -575,22 +578,21 @@ def render_financials():
         st.warning("조회된 데이터가 없습니다. 기업명(종목코드)과 연도를 확인해주세요.")
         return
 
-    unit = st.radio("금액 단위", ["억원", "조원"], horizontal=True, key="unit")
     is_q = result["period"] == "분기별"
 
-    notes = [result["corp"], f"단위: {unit}", "연결재무제표 기준", "증감률은 각 기간 보고서 수치로 계산한 값"]
+    notes = [result["corp"], f"단위: {UNIT}", "연결재무제표 기준", "증감률은 각 기간 보고서 수치로 계산한 값"]
     if is_q:
         notes.append("4분기 = 연간 − 3분기 누적(계산값)")
     st.caption(" · ".join(notes))
     st.caption("영업이익이 적자였던 구간은 증감률 대신 흑자전환 · 적자전환 · 적자지속으로 표시합니다. 원문 링크는 해당 기간 보고서(4분기는 사업보고서)로 연결됩니다.")
 
-    table = build_table(result["records"], result["period"], unit)
+    table = build_table(result["records"], result["period"])
     styled = table.style.set_properties(
         subset=["매출액"], **{"font-weight": "bold", "color": REVENUE_COLOR}
     ).set_properties(subset=["영업이익"], **{"font-weight": "bold", "color": OPERATING_COLOR})
     st.dataframe(styled, hide_index=True, column_config={"원문": LINK_COLUMN})
 
-    export = build_table(result["records"], result["period"], unit, for_export=True)
+    export = build_table(result["records"], result["period"], for_export=True)
     base_name = f"DART_{safe_filename(result['corp'])}_{result['period']}_{TODAY:%Y%m%d}"
     d1, d2, _ = st.columns([1, 1, 4])
     d1.download_button(
@@ -695,7 +697,7 @@ def render_disclosures():
 
 st.set_page_config(page_title="DART 재무·공시 조회", layout="wide")
 st.title("DART 재무 · 공시 조회")
-st.caption("중앙일보 산업부 나상현 · 데이터 출처: 금융감독원 전자공시시스템(DART)")
+st.caption("제작: 중앙일보 산업부 나상현  \n데이터 출처: 금융감독원 전자공시시스템(DART)")  # 두 줄(줄바꿈 = 공백 2칸 + \n)
 
 if not API_KEY:
     st.error(
