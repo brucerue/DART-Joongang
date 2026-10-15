@@ -46,6 +46,21 @@ LIST_TTL = 10 * 60  # 공시 목록은 새 공시가 계속 올라오므로 짧�
 LIST_PAGE_SIZE = 100  # DART 공시 목록 API가 한 번에 주는 최대 건수
 MAX_LIST_PAGES = 10  # 공시 목록은 최대 1,000건까지만 표시
 
+# 공시 유형 (DART 공시 목록 API의 pblntf_ty 값). 빈 문자열은 '전체'
+DISCLOSURE_TYPES = {
+    "전체": "",
+    "정기공시": "A",
+    "주요사항보고": "B",
+    "발행공시": "C",
+    "지분공시": "D",
+    "기타공시": "E",
+    "외부감사관련": "F",
+    "펀드공시": "G",
+    "자산유동화": "H",
+    "거래소공시": "I",
+    "공정위공시": "J",
+}
+
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
 
@@ -185,9 +200,9 @@ def fetch(session, store, corp_code, year, reprt_code):
     return df
 
 
-def fetch_disclosure_page(session, store, corp_code, bgn, end, page):
-    """공시 목록 한 페이지(최대 100건). 없으면 None."""
-    key = ("list", corp_code, bgn, end, page)
+def fetch_disclosure_page(session, store, corp_code, bgn, end, page, kind=""):
+    """공시 목록 한 페이지(최대 100건). 없으면 None. kind는 공시 유형 코드(A~J), 빈 값이면 전체."""
+    key = ("list", corp_code, bgn, end, page, kind)
     cached = cache_lookup(store, key, LIST_TTL)
     if cached is not _MISSING:
         return cached
@@ -201,17 +216,19 @@ def fetch_disclosure_page(session, store, corp_code, bgn, end, page):
         "page_no": page,
         "page_count": LIST_PAGE_SIZE,
     }
+    if kind:
+        params["pblntf_ty"] = kind
     jo = call_dart(session, DART_LIST_URL, params)
     cache_save(store, key, jo)
     return jo
 
 
-def collect_disclosures(corp_code, start, end):
+def collect_disclosures(corp_code, start, end, kind=""):
     """기간 내 공시 목록(최신순). (행 목록, 전체 건수, 잘림 여부)를 돌려준다."""
     session, store = get_session(), get_cache_store()
     bgn, fin = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
 
-    first = fetch_disclosure_page(session, store, corp_code, bgn, fin, 1)
+    first = fetch_disclosure_page(session, store, corp_code, bgn, fin, 1, kind)
     if first is None:
         return [], 0, False
 
@@ -223,7 +240,7 @@ def collect_disclosures(corp_code, start, end):
     if last_page > 1:  # 나머지 페이지는 동시에 조회
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
             futures = {
-                pool.submit(fetch_disclosure_page, session, store, corp_code, bgn, fin, p): p
+                pool.submit(fetch_disclosure_page, session, store, corp_code, bgn, fin, p, kind): p
                 for p in range(2, last_page + 1)
             }
             try:
@@ -465,6 +482,14 @@ def safe_filename(text):
     return re.sub(r'[\\/:*?"<>|\s]+', "_", text).strip("_") or "기업"
 
 
+def filter_by_keyword(rows, keyword):
+    """보고서명에 검색어가 모두 들어 있는 공시만 남긴다. 공백으로 여러 단어를 넣으면 모두 포함된 것만(대소문자 무시)."""
+    terms = keyword.lower().split()
+    if not terms:
+        return rows
+    return [r for r in rows if all(t in str(r.get("report_nm", "")).lower() for t in terms)]
+
+
 def disclosure_table(rows):
     """공시 목록 API 응답(rows)을 화면용 표로 바꾼다."""
     df = pd.DataFrame(rows).reindex(columns=["rcept_dt", "report_nm", "flr_nm", "rcept_no"]).fillna("")
@@ -591,7 +616,8 @@ def render_disclosures():
 
     with st.form("list_search"):
         corp_text = st.text_input("기업명 또는 종목코드", value="삼성전자", key="list_corp")
-        c1, c2 = st.columns(2)
+        c0, c1, c2 = st.columns(3)
+        kind_label = c0.selectbox("공시 유형", list(DISCLOSURE_TYPES), key="list_kind")
         start = c1.date_input(
             "시작일", value=TODAY - timedelta(days=365), min_value=first_day, max_value=TODAY, key="list_start"
         )
@@ -610,12 +636,15 @@ def render_disclosures():
             if corp_code:
                 with st.spinner("공시 목록을 불러오는 중입니다..."):
                     try:
-                        rows, total, truncated = collect_disclosures(corp_code, start, end)
+                        rows, total, truncated = collect_disclosures(
+                            corp_code, start, end, DISCLOSURE_TYPES[kind_label]
+                        )
                     except DartApiError as e:
                         st.error(str(e))
                     else:
                         st.session_state["disclosures"] = {
                             "corp": corp,
+                            "kind": kind_label,
                             "rows": rows,
                             "total": total,
                             "truncated": truncated,
@@ -628,18 +657,37 @@ def render_disclosures():
         return
 
     if not res["rows"]:
-        st.warning("조회된 공시가 없습니다. 기업명(종목코드)과 기간을 확인해주세요.")
+        hint = " 공시 유형을 '전체'로 바꿔 보세요." if res["kind"] != "전체" else ""
+        st.warning(f"조회된 공시가 없습니다. 기업명(종목코드)과 기간을 확인해주세요.{hint}")
         return
 
     name = res["rows"][0].get("corp_name") or res["corp"]
-    st.caption(f"{name} · {res['start']} ~ {res['end']} · 총 {res['total']:,}건 · 최신순 · 정정 공시 포함")
+    notes = [name, f"{res['start']} ~ {res['end']}", f"총 {res['total']:,}건"]
+    if res["kind"] != "전체":
+        notes.append(f"유형: {res['kind']}")
+    notes += ["최신순", "정정 공시 포함"]
+    st.caption(" · ".join(notes))
     if res["truncated"]:
         st.warning(
-            f"공시가 {res['total']:,}건이라 최신 {len(res['rows']):,}건만 보여드려요. 기간을 줄여서 다시 조회해보세요."
+            f"공시가 {res['total']:,}건이라 최신 {len(res['rows']):,}건만 보여드려요. "
+            "기간을 줄이거나 공시 유형을 골라 다시 조회해보세요."
         )
 
+    # 검색은 이미 가져온 목록 안에서 걸러내는 것이라 DART를 다시 부르지 않는다
+    keyword = st.text_input(
+        "보고서명 검색",
+        key="list_keyword",
+        placeholder="예: 잠정실적, 유상증자, 사업보고서 (공백으로 여러 단어를 넣으면 모두 포함된 공시만)",
+    )
+    shown = filter_by_keyword(res["rows"], keyword)
+    if keyword.strip():
+        st.caption(f"검색 결과 {len(shown):,}건 (불러온 {len(res['rows']):,}건 중)")
+    if not shown:
+        st.info("검색어와 일치하는 공시가 없습니다.")
+        return
+
     st.dataframe(
-        disclosure_table(res["rows"]),
+        disclosure_table(shown),
         hide_index=True,
         column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
     )
@@ -647,6 +695,7 @@ def render_disclosures():
 
 st.set_page_config(page_title="DART 재무·공시 조회", layout="wide")
 st.title("DART 재무 · 공시 조회")
+st.caption("중앙일보 산업부 나상현 · 데이터 출처: 금융감독원 전자공시시스템(DART)")
 
 if not API_KEY:
     st.error(
