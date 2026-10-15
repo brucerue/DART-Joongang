@@ -1,7 +1,7 @@
 """
 DART 매출액 / 영업이익 조회 (Streamlit)
 
-기능: 연도별·분기별 조회, 전년(동기)·전분기 대비 증감률, 영업이익률,
+기능: 연도별·분기별 조회, 전년(동기)·전분기 대비 증감률,
       흑자전환/적자전환/적자지속 표시, 억원/조원 단위,
       CSV·엑셀 다운로드, 공시 원문 링크
 
@@ -32,6 +32,10 @@ except ImportError:
 FS_DIV = "CFS"  # CFS = 연결재무제표, OFS = 별도(개별)재무제표
 MAX_YEAR_SPAN = 10  # 한 번에 조회 가능한 최대 연도 수 (API 사용량 보호)
 DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
+
+# 표에서 눈에 띄게 보여줄 금액 열의 글자색 (밝은 테마·어두운 테마 모두에서 읽히는 중간 톤)
+REVENUE_COLOR = "#1c7ed6"  # 매출액: 파랑
+OPERATING_COLOR = "#e8590c"  # 영업이익: 주황
 
 
 def load_api_key():
@@ -127,7 +131,7 @@ def link_of(df):
 
 
 # ------------------------------------------------------------
-# 증감률 · 영업이익률 계산
+# 증감률 계산
 # ------------------------------------------------------------
 def pct_change(cur, prev):
     """증감률(%). 비교 값이 없거나 0이면 None."""
@@ -162,7 +166,6 @@ def make_record(label, sort_key, cur, yoy=None, qoq=None):
         "op_yoy": op_change(op, yoy["op"]) if yoy else None,
         "rev_qoq": pct_change(rev, qoq["rev"]) if qoq else None,
         "op_qoq": op_change(op, qoq["op"]) if qoq else None,
-        "margin": (op / rev * 100) if rev and op is not None else None,
         "link": cur["link"],
     }
 
@@ -241,10 +244,6 @@ def fmt_change(c):
     return f"{c:+,.1f}%"
 
 
-def fmt_margin(m):
-    return "-" if m is None else f"{m:.1f}%"
-
-
 def num_amount(v, unit):
     if v is None:
         return None
@@ -260,7 +259,6 @@ def build_table(records, period, unit, for_export=False):
     quarterly = period == "분기별"
     yoy = "전년동기比" if quarterly else "전년比"
     amt = num_amount if for_export else fmt_amount
-    margin = (lambda m: None if m is None else round(m, 1)) if for_export else fmt_margin
 
     rows = []
     for r in sorted_records(records):
@@ -274,14 +272,13 @@ def build_table(records, period, unit, for_export=False):
         row[f"영업이익 {yoy}"] = fmt_change(r["op_yoy"])
         if quarterly:
             row["영업이익 전분기比"] = fmt_change(r["op_qoq"])
-        row["영업이익률"] = margin(r["margin"])
         row["원문"] = r["link"]
         rows.append(row)
 
     df = pd.DataFrame(rows)
     if for_export:
         df = df.rename(
-            columns={"매출액": f"매출액({unit})", "영업이익": f"영업이익({unit})", "영업이익률": "영업이익률(%)", "원문": "공시원문링크"}
+            columns={"매출액": f"매출액({unit})", "영업이익": f"영업이익({unit})", "원문": "공시원문링크"}
         )
     return df
 
@@ -355,8 +352,11 @@ if result:
         st.caption("영업이익이 적자였던 구간은 증감률 대신 흑자전환 · 적자전환 · 적자지속으로 표시합니다. 원문 링크는 해당 기간 보고서(4분기는 사업보고서)로 연결됩니다.")
 
         table = build_table(result["records"], result["period"], unit)
+        styled = table.style.set_properties(
+            subset=["매출액"], **{"font-weight": "bold", "color": REVENUE_COLOR}
+        ).set_properties(subset=["영업이익"], **{"font-weight": "bold", "color": OPERATING_COLOR})
         st.dataframe(
-            table,
+            styled,
             hide_index=True,
             column_config={"원문": st.column_config.LinkColumn("원문", display_text="공시 보기")},
         )
