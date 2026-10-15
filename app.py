@@ -122,6 +122,39 @@ NEWS_ALIASES = {
     "기업은행": ["IBK기업은행", "IBK"],
     "IBK기업은행": ["기업은행", "IBK"],
 }
+# 섹터 모드: 섹터를 고르면 아래 검색어를 하나씩 '검색어 단독'으로 검색해 합친다.
+# '기업'은 대표 기업·줄임말, '키워드'는 기업명 없이 산업 이슈로 나오는 기사를 잡기 위한 단어.
+# 제목에 이 검색어 중 하나가 들어간 기사만 보여줍니다. 너무 넓은 단어는 잡음이 늘어나니 꼭 필요한 것만 넣으세요.
+NEWS_SECTORS = {
+    "반도체": {
+        "기업": ["삼성전자", "삼전", "SK하이닉스", "하닉", "한미반도체", "DB하이텍"],
+        "키워드": ["HBM", "파운드리", "반도체"],
+    },
+    "자동차": {
+        "기업": ["현대차", "기아", "현대모비스", "한국GM", "KG모빌리티"],
+        "키워드": ["전기차", "완성차"],
+    },
+    "배터리": {
+        "기업": ["LG에너지솔루션", "LG엔솔", "엔솔", "삼성SDI", "SK온", "에코프로비엠", "포스코퓨처엠"],
+        "키워드": ["2차전지", "배터리"],
+    },
+    "철강": {
+        "기업": ["포스코", "현대제철", "동국제강", "세아제강"],
+        "키워드": ["철강", "후판", "열연"],
+    },
+    "방산·항공우주": {
+        "기업": ["한화에어로스페이스", "KAI", "LIG넥스원", "현대로템"],
+        "키워드": ["방산", "K방산", "수출 계약"],
+    },
+    "조선·해운": {
+        "기업": ["HD한국조선해양", "한화오션", "삼성중공업", "HMM"],
+        "키워드": ["조선", "LNG선", "수주"],
+    },
+    "석유화학·정유": {
+        "기업": ["롯데케미칼", "LG화학", "S-Oil", "GS칼텍스", "SK이노베이션"],
+        "키워드": ["석유화학", "나프타", "정유"],
+    },
+}
 NEWS_VIEWS = ["전체"] + NEWS_CATEGORIES  # 결과 화면에서 고를 수 있는 보기
 PUBLISHERS = {
     # 종합일간지
@@ -659,13 +692,12 @@ def publisher_of(url):
     return host or "알 수 없음", None
 
 
-@st.cache_data(ttl=NEWS_TTL, show_spinner=False)
-def fetch_news(query, days, today_str):
-    """검색어로 최신순 기사를 받아 기간 안의 것만 돌려준다. -> (기사 목록, 500건 한도에 걸렸는지)
+def fetch_news(session, query, days, today_str):
+    """검색어로 최신순 기사를 받아 기간 안의 것만 돌려준다. -> (기사 목록, 한도(1,000건)에 걸렸는지)
 
+    ※ 작업 스레드에서 실행되므로 st.* 함수를 쓰지 않고, 세션은 인자로 받는다.
     오류는 저장하지 않고 그대로 올려 보낸다(다음에 다시 시도할 수 있게).
     """
-    session = get_session()
     first_day = date.fromisoformat(today_str) - timedelta(days=days - 1)
     cutoff = datetime.combine(first_day, datetime.min.time(), KST)  # 기간 시작: 그날 0시(한국 시간)
     items, reached_cutoff, got_full_page = [], False, False
@@ -692,6 +724,39 @@ def fetch_news(query, days, today_str):
         if reached_cutoff or not got_full_page:
             break
     return items, (got_full_page and not reached_cutoff)
+
+
+def search_news(terms, extra, days):
+    """검색어마다 '검색어 단독 [추가검색어]'로 동시에 검색해 합친다.
+
+    -> (기사 목록, 한도에 걸렸는지, 한도에 걸린 검색에서 빠짐없이 본 가장 이른 시각)
+    같은 기사가 여러 검색에 걸려도 한 번만 담는다. 같은 검색은 5분 동안 저장해 둔 결과를 쓴다.
+    """
+    session, store, today = get_session(), get_cache_store(), TODAY.isoformat()  # 화면 스레드에서 미리 준비
+
+    def one(term):
+        query = " ".join(x for x in [term, NEWS_KEYWORD, extra] if x)
+        key = ("news", query, days, today)
+        hit = cache_lookup(store, key, NEWS_TTL)
+        if hit is not _MISSING:
+            return hit
+        value = fetch_news(session, query, days, today)
+        cache_save(store, key, value)
+        return value
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        results = list(pool.map(one, terms))  # 하나라도 실패하면 그 오류(NewsApiError)를 그대로 올림
+    items, seen, capped, since = [], set(), False, None
+    for got, cap in results:
+        if cap and got:  # 한도에 걸렸다면, 그 검색은 가장 오래된 기사 시각 이후만 빠짐없이 본 것
+            oldest = min(i["dt"] for i in got)
+            since = oldest if since is None else max(since, oldest)
+        capped = capped or cap
+        for it in got:
+            if it["url"] not in seen:
+                seen.add(it["url"])
+                items.append(it)
+    return items, capped, since
 
 
 def news_names(corp):
@@ -745,7 +810,8 @@ def news_html(clusters):
         return f'<a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(item["title"])}</a>'
 
     def meta(item):
-        return f'{html.escape(item["publisher"])} · {item["dt"]:%m.%d %H:%M}'
+        tags = f' · <span class="news-tags">{html.escape(", ".join(item["tags"]))}</span>' if item.get("tags") else ""
+        return f'{html.escape(item["publisher"])} · {item["dt"]:%m.%d %H:%M}{tags}'
 
     parts = []
     for c in clusters:
@@ -1074,55 +1140,56 @@ def render_news():
         )
         return
 
+    mode = st.radio("검색 방식", ["기업명", "섹터"], horizontal=True, key="news_mode")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     with st.form("news_search"):
-        corp_text = st.text_input("기업명", value="삼성전자", key="news_corp")
+        if mode == "기업명":
+            corp_text = st.text_input("기업명", value="삼성전자", key="news_corp")
+        else:
+            sector = st.radio("섹터", list(NEWS_SECTORS), horizontal=True, key="news_sector")
         period = st.radio("기간", list(NEWS_PERIODS), index=1, horizontal=True, key="news_period")
         extra = st.text_input("추가 검색어 (선택)", placeholder="예: 파업, 반도체", key="news_extra")
-        in_title = st.checkbox("제목에 기업명이 들어간 기사만", value=True, key="news_title")
+        in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key="news_title")
         submitted = st.form_submit_button("뉴스 조회")
 
     if submitted:
-        corp = corp_text.strip()
-        if not corp:
+        label = corp_text.strip() if mode == "기업명" else sector
+        if not label:
             st.error("기업명을 입력해주세요.")
         else:
             st.session_state.pop("news", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
-            if corp.isdigit() and len(corp) == 6:  # 종목코드를 넣었다면 기업명으로 바꿔서 검색
-                idx = get_name_index()
-                hit = idx[idx["stock_code"] == corp]
-                if not hit.empty:
-                    corp = hit.iloc[0]["corp_name"]
-            names = news_names(corp)  # 입력한 이름 + 별칭 (이름마다 따로 검색해서 합친다)
+            if mode == "기업명":
+                if label.isdigit() and len(label) == 6:  # 종목코드를 넣었다면 기업명으로 바꿔서 검색
+                    idx = get_name_index()
+                    hit = idx[idx["stock_code"] == label]
+                    if not hit.empty:
+                        label = hit.iloc[0]["corp_name"]
+                terms = news_names(label)  # 입력한 이름 + 별칭
+            else:
+                terms = NEWS_SECTORS[sector]["기업"] + NEWS_SECTORS[sector]["키워드"]
             with st.spinner("뉴스를 불러오는 중입니다..."):
                 try:
-                    items, seen, capped, since = [], set(), False, None
-                    for name in names:
-                        query = " ".join(x for x in [name, NEWS_KEYWORD, extra.strip()] if x)
-                        got, cap = fetch_news(query, NEWS_PERIODS[period], TODAY.isoformat())
-                        if cap and got:  # 한도에 걸렸다면, 그 검색은 가장 오래된 기사 시각 이후만 빠짐없이 본 것
-                            oldest = min(i["dt"] for i in got)
-                            since = oldest if since is None else max(since, oldest)
-                        capped = capped or cap
-                        for it in got:
-                            if it["url"] not in seen:  # 같은 기사가 여러 검색에 걸리면 한 번만
-                                seen.add(it["url"])
-                                items.append(it)
+                    items, capped, since = search_news(terms, extra.strip(), NEWS_PERIODS[period])
                 except NewsApiError as e:
                     st.error(str(e))
                 else:
                     total = len(items)
                     items = [i for i in items if i["category"]]  # 목록에 있는 언론사만
-                    if in_title:
-                        wants = [name_key(n) for n in names]
-                        items = [i for i in items if any(w in name_key(i["title"]) for w in wants)]
+                    keys = {t: name_key(t) for t in terms}
+                    tagged = []
+                    for i in items:
+                        tk = name_key(i["title"])
+                        hits = [t for t, k in keys.items() if k in tk]  # 제목에 들어 있는 검색어
+                        if in_title and not hits:
+                            continue
+                        tagged.append(dict(i, tags=hits if mode == "섹터" else []))  # 저장된 원본은 건드리지 않음
                     # 검색은 제목·요약 어디든 '단독'이 있으면 잡으므로, 제목에 단독 표기가 있는 것만 남긴다
-                    items = [i for i in items if is_exclusive(i["title"])]
+                    items = [i for i in tagged if is_exclusive(i["title"])]
                     views = {"전체": cluster_news(items)}  # 전체는 한 줄로 쭉, 구분은 눌렀을 때 그것만
                     for cat in NEWS_CATEGORIES:
                         views[cat] = cluster_news([i for i in items if i["category"] == cat])
                     st.session_state["news"] = {
-                        "corp": corp, "names": names, "period": period, "total": total, "kept": len(items),
-                        "views": views, "capped": capped, "oldest": since,
+                        "corp": label, "mode": mode, "names": terms, "period": period, "total": total,
+                        "kept": len(items), "views": views, "capped": capped, "oldest": since,
                     }
 
     res = st.session_state.get("news")
@@ -1132,14 +1199,16 @@ def render_news():
     views = res["views"]
     if not views["전체"]:
         st.warning(
-            "조건에 맞는 기사가 없습니다. '제목에 기업명' 조건을 끄거나 기간을 늘려보세요."
+            "조건에 맞는 기사가 없습니다. '제목에 검색어' 조건을 끄거나 기간을 늘려보세요."
             if res["total"]
             else "조회된 기사가 없습니다. 기업명을 확인하거나 기간을 늘려보세요."
         )
         return
 
     notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(views['전체']):,}건"]
-    if len(res["names"]) > 1:
+    if res.get("mode") == "섹터":
+        notes.append(f"검색어 {len(res['names'])}개: {', '.join(res['names'])}")
+    elif len(res["names"]) > 1:
         notes.append(f"함께 검색: {', '.join(res['names'][1:])}")
     st.caption(" · ".join(notes))
     if res["capped"]:
@@ -1233,6 +1302,7 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 .news-item li { margin-bottom: 0.25rem; }
 .news-item li a { color: #1f2937; text-decoration: none; }
 .news-item li a:hover { color: #1c7ed6; text-decoration: underline; }
+.news-tags { color: #4c6ef5; font-weight: 600; }
 .news-item li span { color: #7a8699; font-size: 0.8rem; margin-left: 0.3rem; }
 </style>
 """
