@@ -34,7 +34,8 @@ def load_api_key():
 API_KEY = load_api_key()
 
 REVENUE_NAMES = ["매출액", "수익(매출액)", "영업수익"]
-OPERATING_NAMES = ["영업이익", "영업이익(손실)"]
+OPERATING_NAMES = ["영업이익", "영업이익(손실)", "영업손익", "영업손실", "영업손실(이익)"]
+LOSS_ONLY_NAMES = ["영업손실"]  # 이 이름이면 값이 양수여도 손실로 처리
 
 # 보고서 코드: 1분기 / 반기 / 3분기 / 사업보고서(연간)
 Q1, H1, Q3, ANNUAL = "11013", "11012", "11014", "11011"
@@ -66,10 +67,22 @@ def fetch(corp, year, reprt_code):
 
 
 def to_int(x):
-    try:
-        return int(str(x).replace(",", "").strip())
-    except (ValueError, TypeError):
+    """문자열 금액을 정수로 변환. 음수 표기(괄호, -, △, ▲)를 모두 마이너스로 처리."""
+    s = str(x).replace(",", "").replace(" ", "").strip()
+    if s in ("", "-", "nan", "None"):
         return None
+    negative = False
+    if s.startswith("(") and s.endswith(")"):  # (1234) 형태
+        negative = True
+        s = s[1:-1]
+    if s and s[0] in ("△", "▲", "-", "−"):  # △1234, ▲1234, -1234
+        negative = True
+        s = s[1:]
+    try:
+        value = int(s)
+    except ValueError:
+        return None
+    return -value if negative else value
 
 
 def pick(df, names, column="thstrm_amount"):
@@ -83,7 +96,12 @@ def pick(df, names, column="thstrm_amount"):
             rows = is_rows
     if rows.empty:
         return None
-    return to_int(rows.iloc[0][column])
+    row = rows.iloc[0]
+    value = to_int(row[column])
+    # 계정명이 '영업손실'인데 양수로 적혀 있으면 손실(마이너스)로 본다
+    if value is not None and value > 0 and str(row["account_nm"]).strip() in LOSS_ONLY_NAMES:
+        value = -value
+    return value
 
 
 def fmt(v):
