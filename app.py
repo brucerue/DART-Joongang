@@ -35,7 +35,7 @@ DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
 
 # 표에서 눈에 띄게 보여줄 금액 열의 글자색 (밝은 테마·어두운 테마 모두에서 읽히는 중간 톤)
 REVENUE_COLOR = "#1c7ed6"  # 매출액: 파랑
-OPERATING_COLOR = "#e8590c"  # 영업이익: 주황
+OPERATING_COLOR = "#1c7ed6"  # 영업이익: 주황
 
 
 def load_api_key():
