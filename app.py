@@ -155,7 +155,6 @@ NEWS_SECTORS = {
         "키워드": ["석유화학", "나프타", "정유"],
     },
 }
-NEWS_VIEWS = ["전체"] + NEWS_CATEGORIES  # 결과 화면에서 고를 수 있는 보기
 PUBLISHERS = {
     # 종합일간지
     "joongang.co.kr": ("중앙일보", "종합일간지"), "chosun.com": ("조선일보", "종합일간지"),
@@ -172,6 +171,8 @@ PUBLISHERS = {
     # 통신사
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
+
+LAST_UPDATED = "2026.10.16"  # 화면 아래 크레딧의 updated 날짜. 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -1183,20 +1184,18 @@ def render_news():
                         tagged.append(dict(i, tags=hits if mode == "섹터" else []))  # 저장된 원본은 건드리지 않음
                     # 검색은 제목·요약 어디든 '단독'이 있으면 잡으므로, 제목에 단독 표기가 있는 것만 남긴다
                     items = [i for i in tagged if is_exclusive(i["title"])]
-                    views = {"전체": cluster_news(items)}  # 전체는 한 줄로 쭉, 구분은 눌렀을 때 그것만
-                    for cat in NEWS_CATEGORIES:
-                        views[cat] = cluster_news([i for i in items if i["category"] == cat])
+                    clusters = cluster_news(items)  # 비슷한 기사끼리 묶어 최신순으로
                     st.session_state["news"] = {
                         "corp": label, "mode": mode, "names": terms, "period": period, "total": total,
-                        "kept": len(items), "views": views, "capped": capped, "oldest": since,
+                        "kept": len(items), "clusters": clusters, "capped": capped, "oldest": since,
                     }
 
     res = st.session_state.get("news")
     if not res:
         return
 
-    views = res["views"]
-    if not views["전체"]:
+    clusters = res["clusters"]
+    if not clusters:
         st.warning(
             "조건에 맞는 기사가 없습니다. '제목에 검색어' 조건을 끄거나 기간을 늘려보세요."
             if res["total"]
@@ -1204,7 +1203,7 @@ def render_news():
         )
         return
 
-    notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(views['전체']):,}건"]
+    notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(clusters):,}건"]
     if res.get("mode") == "섹터":
         notes.append(f"검색어 {len(res['names'])}개: {', '.join(res['names'])}")
     elif len(res["names"]) > 1:
@@ -1217,18 +1216,7 @@ def render_news():
             f"{since} 이후 기사만 보이고 그 이전은 빠져 있습니다. "
             "기간을 줄이면 그 기간은 빠짐없이 볼 수 있어요."
         )
-    # 결과를 다시 불러오지 않고, 누르는 즉시 그 구분만 보여준다
-    view = st.radio(
-        "언론사 구분",
-        NEWS_VIEWS,
-        horizontal=True,
-        key="news_view",
-        format_func=lambda v: f"{v} ({len(views[v])})",
-    )
-    if views[view]:
-        st.markdown(news_html(views[view]), unsafe_allow_html=True)
-    else:
-        st.caption("해당 구분의 기사가 없습니다.")
+    st.markdown(news_html(clusters), unsafe_allow_html=True)
 
 
 STYLE = """
@@ -1306,10 +1294,10 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 </style>
 """
 
-st.set_page_config(page_title="DART 재무·공시 조회", layout="wide")
+st.set_page_config(page_title="산업부 취재 도우미", layout="wide")
 st.markdown(STYLE, unsafe_allow_html=True)
-st.title("DART 재무 · 공시 조회")
-st.caption("제작: 중앙일보 산업부 나상현  \n출처: 금융감독원 전자공시시스템(DART)")  # 두 줄(줄바꿈 = 공백 2칸 + \n)
+st.title("산업부 취재 도우미")
+st.caption(f"credit/중앙일보 나상현  \nupdated/{LAST_UPDATED}")  # 크레딧 두 줄 (줄바꿈 = 공백 2칸 + \n). 수정할 때 빠뜨리지 말 것
 
 if not API_KEY:
     st.error(
