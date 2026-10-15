@@ -628,7 +628,7 @@ def render_disclosures():
         c0, c1, c2 = st.columns(3)
         kind_label = c0.selectbox("공시 유형", list(DISCLOSURE_TYPES), key="list_kind")
         start = c1.date_input(
-            "시작일", value=TODAY - timedelta(days=365), min_value=first_day, max_value=TODAY, key="list_start"
+            "시작일", value=TODAY - timedelta(days=183), min_value=first_day, max_value=TODAY, key="list_start"
         )
         end = c2.date_input("종료일", value=TODAY, min_value=first_day, max_value=TODAY, key="list_end")
         submitted = st.form_submit_button("공시 조회")
