@@ -3,7 +3,7 @@ DART 매출액 / 영업이익 조회 (Streamlit)
 
 기능: 연도별·분기별 조회, 전년(동기)·전분기 대비 증감률,
       흑자전환/적자전환/적자지속 표시, 금액은 억원 단위,
-      CSV·엑셀 다운로드, 공시 원문 링크, 공시 목록(유형 필터·보고서명 검색), 뉴스(중복 묶기·언론사 구분 선택)
+      CSV·엑셀 다운로드, 공시 원문 링크, 공시 목록(유형 필터·보고서명 검색), 단독 뉴스(중복 묶기·언론사 구분 선택)
 
 [설치]   pip install -r requirements.txt
 [실행]   streamlit run app.py
@@ -73,11 +73,10 @@ MAX_NEWS_PAGES = 10  # 최대 1,000건까지만 확인 (네이버가 한 검색�
 NEWS_TTL = 5 * 60  # 같은 검색은 5분 동안 저장해 둔 결과를 재사용
 SIMILAR_TITLE = 0.8  # 제목이 이 정도(0~1) 이상 비슷하면 같은 기사로 묶는다
 NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7, "한 달": 30}
-# 이슈 버튼 -> 검색어에 덧붙일 말 (자유롭게 추가·수정 가능)
-NEWS_ISSUES = {"전체": "", "단독": "단독", "실적": "실적", "투자": "투자", "노조": "노조", "리콜": "리콜", "소송": "소송", "인수": "인수", "출시": "출시"}
 
 # 뉴스에 보여줄 언론사. 기사 주소(도메인) -> (언론사 이름, 구분). 여기 없는 매체의 기사는 보이지 않는다.
 NEWS_CATEGORIES = ["종합일간지", "경제지", "통신사"]
+NEWS_KEYWORD = "단독"  # 뉴스 탭은 항상 이 표기가 제목에 있는 기사만 보여준다 (화면에는 드러내지 않고 내부에서 적용)
 NEWS_VIEWS = ["전체"] + NEWS_CATEGORIES  # 결과 화면에서 고를 수 있는 보기
 PUBLISHERS = {
     # 종합일간지
@@ -1013,7 +1012,7 @@ def render_disclosures():
 
 
 def render_news():
-    """탭 3: 기업 관련 뉴스 (비슷한 기사는 한 묶음으로)"""
+    """탭 3: 기업 관련 단독 뉴스 (비슷한 기사는 한 묶음으로)"""
     if not (NAVER_ID and NAVER_SECRET):
         st.info(
             "뉴스 기능을 쓰려면 네이버 검색 API 키를 등록해야 합니다. "
@@ -1023,9 +1022,7 @@ def render_news():
 
     with st.form("news_search"):
         corp_text = st.text_input("기업명", value="삼성전자", key="news_corp")
-        c1, c2 = st.columns([1, 2])
-        period = c1.radio("기간", list(NEWS_PERIODS), index=1, horizontal=True, key="news_period")
-        issue = c2.radio("이슈", list(NEWS_ISSUES), horizontal=True, key="news_issue")
+        period = st.radio("기간", list(NEWS_PERIODS), index=1, horizontal=True, key="news_period")
         extra = st.text_input("추가 검색어 (선택)", placeholder="예: 파업, 반도체", key="news_extra")
         in_title = st.checkbox("제목에 기업명이 들어간 기사만", value=True, key="news_title")
         submitted = st.form_submit_button("뉴스 조회")
@@ -1041,7 +1038,7 @@ def render_news():
                 hit = idx[idx["stock_code"] == corp]
                 if not hit.empty:
                     corp = hit.iloc[0]["corp_name"]
-            query = " ".join(x for x in [corp, NEWS_ISSUES[issue], extra.strip()] if x)
+            query = " ".join(x for x in [corp, NEWS_KEYWORD, extra.strip()] if x)
             with st.spinner("뉴스를 불러오는 중입니다..."):
                 try:
                     items, capped = fetch_news(query, NEWS_PERIODS[period], TODAY.isoformat())
@@ -1054,8 +1051,8 @@ def render_news():
                     if in_title:
                         want = name_key(corp)
                         items = [i for i in items if want in name_key(i["title"])]
-                    if issue == "단독":  # 검색은 제목·요약 어디든 '단독'이 있으면 잡으므로, 제목에 단독 표기가 있는 것만 남긴다
-                        items = [i for i in items if is_exclusive(i["title"])]
+                    # 검색은 제목·요약 어디든 '단독'이 있으면 잡으므로, 제목에 단독 표기가 있는 것만 남긴다
+                    items = [i for i in items if is_exclusive(i["title"])]
                     views = {"전체": cluster_news(items)}  # 전체는 한 줄로 쭉, 구분은 눌렀을 때 그것만
                     for cat in NEWS_CATEGORIES:
                         views[cat] = cluster_news([i for i in items if i["category"] == cat])
@@ -1083,7 +1080,7 @@ def render_news():
         st.warning(
             f"기사가 매우 많아 최신 {MAX_NEWS_PAGES * NEWS_PAGE_SIZE:,}건까지만 확인했어요. "
             f"{since} 이후 기사만 보이고 그 이전은 빠져 있습니다. "
-            "더 긴 기간을 보려면 '단독', '실적' 같은 이슈를 골라 검색해보세요."
+            "더 긴 기간을 보려면 '추가 검색어'를 넣어 범위를 좁혀보세요."
         )
     # 결과를 다시 불러오지 않고, 누르는 즉시 그 구분만 보여준다
     view = st.radio(
@@ -1185,7 +1182,7 @@ if not API_KEY:
     )
     st.stop()
 
-tab_fin, tab_list, tab_news = st.tabs(["재무 조회", "공시 목록", "뉴스"])
+tab_fin, tab_list, tab_news = st.tabs(["재무 조회", "공시 목록", "단독 뉴스"])
 with tab_fin:
     render_financials()
 with tab_list:
