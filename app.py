@@ -66,8 +66,8 @@ KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날�
 TODAY = datetime.now(KST).date()
 
 # 표에서 눈에 띄게 보여줄 금액 열의 글자색 (밝은 테마·어두운 테마 모두에서 읽히는 중간 톤)
-REVENUE_COLOR = "#1c7ed6"  # 매출액: 파랑
-OPERATING_COLOR = "#e8590c"  # 영업이익: 주황
+POSITIVE_COLOR = "#1c7ed6"  # 매출액·영업이익: 파랑
+NEGATIVE_COLOR = "#e03131"  # 마이너스(적자 등): 빨강
 
 
 def load_api_key():
@@ -447,6 +447,17 @@ def num_amount(v):
     return int(round(v / 1e8))
 
 
+def amount_style(cell):
+    """금액 칸 스타일: 기본 파랑 + 굵게, 마이너스(앞에 '-')면 빨강 + 굵게."""
+    color = NEGATIVE_COLOR if str(cell).startswith("-") and str(cell) != "-" else POSITIVE_COLOR
+    return f"font-weight: bold; color: {color}"
+
+
+def style_table(table):
+    """매출액·영업이익 열에만 색과 굵기를 입힌다."""
+    return table.style.map(amount_style, subset=["매출액", "영업이익"])
+
+
 def sorted_records(records):
     # 오래된 기간이 위로 (2023 → 2024 → 2025). 최신이 위로 오게 하려면 reverse=True를 추가
     return sorted(records, key=lambda r: r["sort"])
@@ -579,10 +590,8 @@ def render_financials():
         return
 
     table = build_table(result["records"], result["period"])
-    styled = table.style.set_properties(
-        subset=["매출액"], **{"font-weight": "bold", "color": REVENUE_COLOR}
-    ).set_properties(subset=["영업이익"], **{"font-weight": "bold", "color": OPERATING_COLOR})
-    st.dataframe(styled, hide_index=True, column_config={"원문": LINK_COLUMN})
+    st.caption(f"{result['corp']} · 단위: {UNIT}")
+    st.dataframe(style_table(table), hide_index=True, column_config={"원문": LINK_COLUMN})
 
     export = build_table(result["records"], result["period"], for_export=True)
     base_name = f"DART_{safe_filename(result['corp'])}_{result['period']}_{TODAY:%Y%m%d}"
