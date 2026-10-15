@@ -543,7 +543,7 @@ def name_key(name):
 @st.cache_resource
 def get_name_index():
     """추천용 기업명 목록 (상장사 우선). 서버가 켜진 뒤 처음 한 번만 만든다."""
-    df = get_dart().corp_codes[["corp_name", "stock_code"]].copy()
+    df = get_dart().corp_codes[["corp_code", "corp_name", "stock_code"]].copy()
     df["corp_name"] = df["corp_name"].astype(str)
     df["stock_code"] = df["stock_code"].fillna("").astype(str).str.strip()
     df["listed"] = df["stock_code"] != ""
@@ -553,12 +553,17 @@ def get_name_index():
     return df.reset_index(drop=True)
 
 
-def suggest_corps(query, limit=SUGGEST_LIMIT):
-    """못 찾은 기업명과 비슷한 기업 추천. [(버튼에 보일 이름, 조회에 쓸 값), ...]"""
+def suggest_corps(query, limit=SUGGEST_LIMIT, listed_only=False, exclude=None):
+    """입력한 이름과 비슷한 기업 추천. [(버튼에 보일 이름, 조회에 쓸 값), ...]
+    listed_only: 상장사만 / exclude: 이 이름의 기업은 제외(이미 조회한 기업)"""
     q = name_key(query)
     if not q:
         return []
     idx = get_name_index()
+    if listed_only:
+        idx = idx[idx["listed"]]
+    if exclude:
+        idx = idx[idx["corp_name"] != exclude]
     keys = idx["key"]
     tier = pd.Series(3, index=idx.index)
     tier[keys.str.contains(q, regex=False)] = 2  # 이름 안에 포함 (SK -> SK하이닉스)
@@ -567,7 +572,7 @@ def suggest_corps(query, limit=SUGGEST_LIMIT):
     found = idx[tier < 3].assign(tier=tier[tier < 3], n=keys[tier < 3].str.len())
     found = found.sort_values(["tier", "listed", "n"], ascending=[True, False, True], kind="stable").head(limit)
 
-    if found.empty:  # 오타 등: 상장사 중에서 글자가 비슷한 이름
+    if found.empty and not exclude:  # 오타 등: 상장사 중에서 글자가 비슷한 이름
         listed = idx[idx["listed"]]
         close = difflib.get_close_matches(q, list(listed["key"]), n=limit, cutoff=0.6)
         found = listed[listed["key"].isin(close)].assign(r=lambda d: d["key"].map(close.index))
@@ -580,6 +585,24 @@ def suggest_corps(query, limit=SUGGEST_LIMIT):
     return out
 
 
+def resolve_corp_code(corp):
+    """기업명/종목코드 -> 고유번호. 같은 이름이 여럿이면 상장사를 우선한다."""
+    if not str(corp).isdigit():
+        idx = get_name_index()
+        hit = idx[idx["corp_name"] == str(corp)]  # 상장사가 먼저 오도록 정렬된 목록
+        if not hit.empty:
+            return hit.iloc[0]["corp_code"]
+    return get_dart().find_corp_code(corp)
+
+
+def suggestion_buttons(suggestions, prefix, tag):
+    """추천 기업을 4개씩 한 줄로 버튼으로 보여준다."""
+    for row in range(0, len(suggestions), 4):
+        cols = st.columns(4)
+        for col, (i, (label, value)) in zip(cols, list(enumerate(suggestions))[row : row + 4]):
+            col.button(label, key=f"{prefix}_{tag}_{i}", on_click=pick_suggestion, args=(prefix, value))
+
+
 def pick_suggestion(prefix, value):
     """추천 기업 버튼 클릭 -> 입력칸을 그 기업으로 바꾸고 바로 조회."""
     st.session_state[f"{prefix}_corp"] = value
@@ -589,20 +612,24 @@ def pick_suggestion(prefix, value):
 def lookup_corp_code(corp, prefix):
     """기업명(또는 종목코드) -> DART 고유번호. 못 찾으면 비슷한 기업을 추천하고 None."""
     with st.spinner("기업 정보를 확인하는 중입니다... (서버를 처음 켠 뒤 첫 조회는 몇 초 더 걸릴 수 있어요)"):
-        corp_code = get_dart().find_corp_code(corp)
-        suggestions = [] if corp_code else suggest_corps(corp)
-    if not corp_code:
-        if suggestions:
-            st.warning(f'"{corp}"와 정확히 일치하는 기업이 없습니다. 혹시 이 기업인가요? 누르면 바로 조회합니다.')
-            for row in range(0, len(suggestions), 4):
-                cols = st.columns(4)
-                for col, (i, (label, value)) in zip(cols, list(enumerate(suggestions))[row : row + 4]):
-                    col.button(label, key=f"{prefix}_sugg_{i}", on_click=pick_suggestion, args=(prefix, value))
+        corp_code = resolve_corp_code(corp)
+        if corp_code:  # 찾았어도, 이름이 들어간 다른 상장사가 있으면 함께 안내 (SK -> SK하이닉스 ...)
+            related = [] if str(corp).isdigit() else suggest_corps(corp, listed_only=True, exclude=corp)
+            suggestions = []
         else:
-            st.error(
-                f'"{corp}" 기업을 찾을 수 없습니다. '
-                "기업명은 공시된 이름과 비슷하게 입력해 주세요(예: 삼성전자). 종목코드 6자리로도 조회할 수 있어요."
-            )
+            related, suggestions = [], suggest_corps(corp)
+    if corp_code:
+        if related:
+            st.caption(f'"{corp}"이(가) 들어간 다른 상장사 — 누르면 바로 조회합니다.')
+            suggestion_buttons(related, prefix, "rel")
+    elif suggestions:
+        st.warning(f'"{corp}"와 정확히 일치하는 기업이 없습니다. 혹시 이 기업인가요? 누르면 바로 조회합니다.')
+        suggestion_buttons(suggestions, prefix, "sugg")
+    else:
+        st.error(
+            f'"{corp}" 기업을 찾을 수 없습니다. '
+            "기업명은 공시된 이름과 비슷하게 입력해 주세요(예: 삼성전자). 종목코드 6자리로도 조회할 수 있어요."
+        )
     return corp_code
 
 
