@@ -3,19 +3,22 @@ DART 매출액 / 영업이익 조회 (Streamlit)
 
 기능: 연도별·분기별 조회, 전년(동기)·전분기 대비 증감률,
       흑자전환/적자전환/적자지속 표시, 금액은 억원 단위,
-      CSV·엑셀 다운로드, 공시 원문 링크, 공시 목록(유형 필터·보고서명 검색)
+      CSV·엑셀 다운로드, 공시 원문 링크, 공시 목록(유형 필터·보고서명 검색), 뉴스(중복 묶기·주요 언론사 필터)
 
 [설치]   pip install -r requirements.txt
 [실행]   streamlit run app.py
 """
 
+import difflib
+import html
 import io
 import os
-import difflib
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
+from urllib.parse import urlparse
 
 import pandas as pd
 import requests
@@ -63,6 +66,33 @@ DISCLOSURE_TYPES = {
     "공정위공시": "J",
 }
 
+# 뉴스 (네이버 뉴스 검색 API)
+NAVER_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
+NEWS_PAGE_SIZE = 100  # 한 번에 받는 최대 기사 수
+MAX_NEWS_PAGES = 5  # 최대 500건까지만 확인
+NEWS_TTL = 5 * 60  # 같은 검색은 5분 동안 저장해 둔 결과를 재사용
+SIMILAR_TITLE = 0.8  # 제목이 이 정도(0~1) 이상 비슷하면 같은 기사로 묶는다
+NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7, "한 달": 30}
+# 이슈 버튼 -> 검색어에 덧붙일 말 (자유롭게 추가·수정 가능)
+NEWS_ISSUES = {"전체": "", "실적": "실적", "투자": "투자", "노조": "노조", "리콜": "리콜", "소송": "소송", "인수": "인수", "출시": "출시"}
+
+# 기사 주소 -> (언론사 이름, 주요 언론사 여부). 목록에 없는 매체는 주소(도메인) 그대로 보여주고 '주요'로 치지 않는다.
+PUBLISHERS = {
+    "joongang.co.kr": ("중앙일보", True), "chosun.com": ("조선일보", True), "biz.chosun.com": ("조선비즈", True),
+    "donga.com": ("동아일보", True), "hani.co.kr": ("한겨레", True), "khan.co.kr": ("경향신문", True),
+    "hankookilbo.com": ("한국일보", True), "munhwa.com": ("문화일보", True), "segye.com": ("세계일보", True),
+    "kmib.co.kr": ("국민일보", True), "seoul.co.kr": ("서울신문", True),
+    "hankyung.com": ("한국경제", True), "mk.co.kr": ("매일경제", True), "sedaily.com": ("서울경제", True),
+    "edaily.co.kr": ("이데일리", True), "mt.co.kr": ("머니투데이", True), "fnnews.com": ("파이낸셜뉴스", True),
+    "heraldcorp.com": ("헤럴드경제", True), "asiae.co.kr": ("아시아경제", True), "etnews.com": ("전자신문", True),
+    "yna.co.kr": ("연합뉴스", True), "yonhapnewstv.co.kr": ("연합뉴스TV", True), "newsis.com": ("뉴시스", True),
+    "news1.kr": ("뉴스1", True), "kbs.co.kr": ("KBS", True), "imbc.com": ("MBC", True), "sbs.co.kr": ("SBS", True),
+    "jtbc.co.kr": ("JTBC", True), "ytn.co.kr": ("YTN", True), "mbn.co.kr": ("MBN", True),
+    "ajunews.com": ("아주경제", False), "newspim.com": ("뉴스핌", False), "inews24.com": ("아이뉴스24", False),
+    "etoday.co.kr": ("이투데이", False), "zdnet.co.kr": ("지디넷코리아", False), "thebell.co.kr": ("더벨", False),
+    "bloter.net": ("블로터", False), "dailian.co.kr": ("데일리안", False), "newdaily.co.kr": ("뉴데일리", False),
+}
+
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
 
@@ -83,6 +113,21 @@ def load_api_key():
 
 
 API_KEY = load_api_key()
+
+
+def load_secret(name):
+    """선택 사항인 키(네이버 API 등). 없으면 None."""
+    try:
+        value = st.secrets[name]
+        if value:
+            return value
+    except Exception:
+        pass
+    return os.environ.get(name)
+
+
+NAVER_ID = load_secret("NAVER_CLIENT_ID")
+NAVER_SECRET = load_secret("NAVER_CLIENT_SECRET")
 
 REVENUE_NAMES = ["매출액", "수익(매출액)", "영업수익"]
 OPERATING_NAMES = ["영업이익", "영업이익(손실)", "영업손익", "영업손실", "영업손실(이익)"]
@@ -520,6 +565,139 @@ def disclosure_table(rows):
 
 
 # ------------------------------------------------------------
+# 뉴스 조회 (네이버 뉴스 검색 API)
+# ------------------------------------------------------------
+class NewsApiError(Exception):
+    """네이버 API 오류·호출 한도 초과 등 사용자에게 알려야 하는 뉴스 조회 실패."""
+
+
+def call_naver(session, params):
+    """네이버 뉴스 검색 API 호출 공통 처리. 정상이면 응답(dict), 문제가 있으면 NewsApiError."""
+    headers = {"X-Naver-Client-Id": NAVER_ID, "X-Naver-Client-Secret": NAVER_SECRET}
+    res, last_error = None, None
+    for attempt in range(3):  # 일시적인 네트워크 오류는 두 번까지 다시 시도
+        try:
+            res = session.get(NAVER_NEWS_URL, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+            break
+        except Exception as e:
+            last_error = e
+            time.sleep(0.5 * (attempt + 1))
+    if res is None:
+        raise NewsApiError("네이버 뉴스 서버 응답이 없거나 늦어지고 있습니다. 잠시 후 다시 시도해주세요.") from last_error
+    if res.status_code == 200:
+        return res.json()
+    if res.status_code in (401, 403):
+        raise NewsApiError("네이버 API 키가 올바르지 않거나 '검색' API 권한이 없습니다. Secrets의 키를 확인해주세요.")
+    if res.status_code == 429:
+        raise NewsApiError("네이버 API 호출 한도를 초과했습니다. 잠시 후 다시 시도해주세요.")
+    raise NewsApiError(f"네이버 응답 오류 [{res.status_code}]")
+
+
+def clean_title(raw):
+    """제목의 <b> 태그와 &quot; 같은 HTML 기호를 정리한다."""
+    return html.unescape(re.sub(r"<[^>]+>", "", raw or "")).strip()
+
+
+def publisher_of(url):
+    """기사 주소 -> (언론사 이름, 주요 언론사 여부)."""
+    host = (urlparse(url or "").hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    best = None
+    for domain, (name, major) in PUBLISHERS.items():
+        if (host == domain or host.endswith("." + domain)) and (best is None or len(domain) > len(best[0])):
+            best = (domain, name, major)
+    if best:
+        return best[1], best[2]
+    return host or "알 수 없음", False
+
+
+@st.cache_data(ttl=NEWS_TTL, show_spinner=False)
+def fetch_news(query, days, today_str):
+    """검색어로 최신순 기사를 받아 기간 안의 것만 돌려준다. -> (기사 목록, 500건 한도에 걸렸는지)
+
+    오류는 저장하지 않고 그대로 올려 보낸다(다음에 다시 시도할 수 있게).
+    """
+    session = get_session()
+    first_day = date.fromisoformat(today_str) - timedelta(days=days - 1)
+    cutoff = datetime.combine(first_day, datetime.min.time(), KST)  # 기간 시작: 그날 0시(한국 시간)
+    items, reached_cutoff, got_full_page = [], False, False
+    for page in range(MAX_NEWS_PAGES):
+        data = call_naver(
+            session,
+            {"query": query, "display": NEWS_PAGE_SIZE, "start": 1 + page * NEWS_PAGE_SIZE, "sort": "date"},
+        )
+        raw = data.get("items") or []
+        for it in raw:
+            try:
+                when = parsedate_to_datetime(it["pubDate"]).astimezone(KST)
+            except Exception:
+                continue
+            if when < cutoff:
+                reached_cutoff = True
+                continue
+            url = it.get("originallink") or it.get("link") or ""
+            name, major = publisher_of(url)
+            items.append({"title": clean_title(it.get("title")), "url": url, "publisher": name, "major": major, "dt": when})
+        got_full_page = len(raw) >= NEWS_PAGE_SIZE
+        if reached_cutoff or not got_full_page:
+            break
+    return items, (got_full_page and not reached_cutoff)
+
+
+def title_key(title):
+    """제목 비교용: 기호·공백을 지우고 소문자로."""
+    return re.sub(r"[^0-9a-z가-힣]", "", title.lower())
+
+
+def cluster_news(items):
+    """제목이 비슷한 기사를 한 묶음으로. -> [{"rep": 대표 기사, "others": 나머지 기사들}, ...] (최신순)
+
+    대표 기사는 묶음 안에서 가장 최근의 주요 언론사 기사(없으면 가장 최근 기사).
+    """
+    clusters = []
+    for item in sorted(items, key=lambda x: x["dt"], reverse=True):
+        key = title_key(item["title"])
+        for c in clusters:
+            m = c["matcher"]
+            m.set_seq1(key)
+            if m.real_quick_ratio() >= SIMILAR_TITLE and m.quick_ratio() >= SIMILAR_TITLE and m.ratio() >= SIMILAR_TITLE:
+                c["items"].append(item)
+                break
+        else:
+            matcher = difflib.SequenceMatcher(None, autojunk=False)
+            matcher.set_seq2(key)  # 묶음의 첫 제목을 기준으로 삼는다 (한 번만 분석해 두면 빠르다)
+            clusters.append({"matcher": matcher, "items": [item]})
+    out = []
+    for c in clusters:
+        rep = next((i for i in c["items"] if i["major"]), c["items"][0])
+        out.append({"rep": rep, "others": [i for i in c["items"] if i is not rep]})
+    return out
+
+
+def news_html(clusters):
+    """묶음 목록 -> 화면에 보여줄 HTML. 제목·주소는 반드시 escape해서 넣는다."""
+
+    def link(item):
+        url = item["url"] if item["url"].startswith(("http://", "https://")) else "#"
+        return f'<a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(item["title"])}</a>'
+
+    def meta(item):
+        return f'{html.escape(item["publisher"])} · {item["dt"]:%m.%d %H:%M}'
+
+    parts = []
+    for c in clusters:
+        rep, others = c["rep"], c["others"]
+        extra = f" · 외 {len(others)}건" if others else ""
+        block = f'<div class="news-item">{link(rep)}<div class="news-meta">{meta(rep)}{extra}</div>'
+        if others:
+            rows = "".join(f"<li>{link(o)} <span>{meta(o)}</span></li>" for o in others)
+            block += f"<details><summary>관련 기사 {len(others)}건 보기</summary><ul>{rows}</ul></details>"
+        parts.append(block + "</div>")
+    return "\n".join(parts)
+
+
+# ------------------------------------------------------------
 # 화면
 # ------------------------------------------------------------
 LINK_COLUMN = st.column_config.LinkColumn("원문", display_text="공시 보기")
@@ -825,6 +1003,78 @@ def render_disclosures():
     )
 
 
+def render_news():
+    """탭 3: 기업 관련 뉴스 (비슷한 기사는 한 묶음으로)"""
+    if not (NAVER_ID and NAVER_SECRET):
+        st.info(
+            "뉴스 기능을 쓰려면 네이버 검색 API 키를 등록해야 합니다. "
+            "Streamlit Secrets에 NAVER_CLIENT_ID, NAVER_CLIENT_SECRET 두 줄을 추가해주세요."
+        )
+        return
+
+    with st.form("news_search"):
+        corp_text = st.text_input("기업명", value="삼성전자", key="news_corp")
+        c1, c2 = st.columns([1, 2])
+        period = c1.radio("기간", list(NEWS_PERIODS), index=1, horizontal=True, key="news_period")
+        issue = c2.radio("이슈", list(NEWS_ISSUES), horizontal=True, key="news_issue")
+        extra = st.text_input("추가 검색어 (선택)", placeholder="예: 파업, 반도체", key="news_extra")
+        o1, o2 = st.columns(2)
+        major_only = o1.checkbox("주요 언론사만", value=True, key="news_major")
+        in_title = o2.checkbox("제목에 기업명이 들어간 기사만", value=True, key="news_title")
+        submitted = st.form_submit_button("뉴스 조회")
+
+    if submitted:
+        corp = corp_text.strip()
+        if not corp:
+            st.error("기업명을 입력해주세요.")
+        else:
+            st.session_state.pop("news", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+            if corp.isdigit() and len(corp) == 6:  # 종목코드를 넣었다면 기업명으로 바꿔서 검색
+                idx = get_name_index()
+                hit = idx[idx["stock_code"] == corp]
+                if not hit.empty:
+                    corp = hit.iloc[0]["corp_name"]
+            query = " ".join(x for x in [corp, NEWS_ISSUES[issue], extra.strip()] if x)
+            with st.spinner("뉴스를 불러오는 중입니다..."):
+                try:
+                    items, capped = fetch_news(query, NEWS_PERIODS[period], TODAY.isoformat())
+                except NewsApiError as e:
+                    st.error(str(e))
+                else:
+                    total = len(items)
+                    if major_only:
+                        items = [i for i in items if i["major"]]
+                    if in_title:
+                        want = name_key(corp)
+                        items = [i for i in items if want in name_key(i["title"])]
+                    clusters = cluster_news(items)
+                    st.session_state["news"] = {
+                        "corp": corp, "period": period, "query": query, "total": total,
+                        "kept": len(items), "clusters": clusters, "capped": capped,
+                        "major_only": major_only,
+                    }
+
+    res = st.session_state.get("news")
+    if not res:
+        return
+
+    if not res["clusters"]:
+        st.warning(
+            "조건에 맞는 기사가 없습니다. '주요 언론사만'이나 '제목에 기업명' 조건을 끄거나 기간을 늘려보세요."
+            if res["total"]
+            else "조회된 기사가 없습니다. 기업명을 확인하거나 기간을 늘려보세요."
+        )
+        return
+
+    notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(res['clusters']):,}건"]
+    if res["major_only"]:
+        notes.append("주요 언론사만")
+    st.caption(" · ".join(notes))
+    if res["capped"]:
+        st.warning(f"기사가 매우 많아 최신 {MAX_NEWS_PAGES * NEWS_PAGE_SIZE}건까지만 확인했어요. 기간을 줄이거나 이슈를 골라보세요.")
+    st.markdown(news_html(res["clusters"]), unsafe_allow_html=True)
+
+
 STYLE = """
 <style>
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
@@ -883,6 +1133,19 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
     overflow: hidden;
     background: #ffffff;
 }
+
+/* 뉴스 목록 */
+.news-item { background: #ffffff; border: 1px solid #e3e8ef; border-radius: 12px; padding: 0.8rem 1rem; margin-bottom: 0.55rem; }
+.news-item > a { font-weight: 600; color: #0b2545; text-decoration: none; line-height: 1.5; }
+.news-item > a:hover { color: #1c7ed6; text-decoration: underline; }
+.news-meta { color: #7a8699; font-size: 0.85rem; margin-top: 0.2rem; }
+.news-item details { margin-top: 0.45rem; font-size: 0.9rem; }
+.news-item summary { color: #1c7ed6; cursor: pointer; }
+.news-item ul { margin: 0.4rem 0 0 0; padding-left: 1.1rem; }
+.news-item li { margin-bottom: 0.25rem; }
+.news-item li a { color: #1f2937; text-decoration: none; }
+.news-item li a:hover { color: #1c7ed6; text-decoration: underline; }
+.news-item li span { color: #7a8699; font-size: 0.8rem; margin-left: 0.3rem; }
 </style>
 """
 
@@ -898,8 +1161,10 @@ if not API_KEY:
     )
     st.stop()
 
-tab_fin, tab_list = st.tabs(["재무 조회", "공시 목록"])
+tab_fin, tab_list, tab_news = st.tabs(["재무 조회", "공시 목록", "뉴스"])
 with tab_fin:
     render_financials()
 with tab_list:
     render_disclosures()
+with tab_news:
+    render_news()
