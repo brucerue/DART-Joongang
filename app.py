@@ -591,7 +591,13 @@ def render_financials():
 
     table = build_table(result["records"], result["period"])
     st.caption(f"{result['corp']} · 단위: {UNIT}")
-    st.dataframe(style_table(table), hide_index=True, column_config={"원문": LINK_COLUMN})
+    # 스크롤 없이 전체가 보이도록 높이를 행 수에 맞춘다 (머리글 1줄 + 데이터 행, 한 줄당 약 35px)
+    st.dataframe(
+        style_table(table),
+        hide_index=True,
+        column_config={"원문": LINK_COLUMN},
+        height=(len(table) + 1) * 35 + 3,
+    )
 
     export = build_table(result["records"], result["period"], for_export=True)
     base_name = f"DART_{safe_filename(result['corp'])}_{result['period']}_{TODAY:%Y%m%d}"
