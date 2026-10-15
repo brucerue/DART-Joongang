@@ -1,11 +1,17 @@
 """
-DART 매출액 / 영업이익 조회 (Streamlit, 단순 버전)
+DART 매출액 / 영업이익 조회 (Streamlit)
+
+기능: 연도별·분기별 조회, 전년(동기)·전분기 대비 증감률, 영업이익률,
+      흑자전환/적자전환/적자지속 표시, 억원/조원 단위,
+      CSV·엑셀 다운로드, 공시 원문 링크
 
 [설치]   pip install -r requirements.txt
 [실행]   streamlit run app.py
 """
 
+import io
 import os
+import re
 import time
 from datetime import date
 
@@ -13,11 +19,19 @@ import pandas as pd
 import streamlit as st
 import OpenDartReader
 
+try:
+    import openpyxl  # noqa: F401  (엑셀 다운로드에 필요)
+
+    HAS_XLSX = True
+except ImportError:
+    HAS_XLSX = False
+
 # ------------------------------------------------------------
 # 설정
 # ------------------------------------------------------------
 FS_DIV = "CFS"  # CFS = 연결재무제표, OFS = 별도(개별)재무제표
 MAX_YEAR_SPAN = 10  # 한 번에 조회 가능한 최대 연도 수 (API 사용량 보호)
+DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
 
 
 def load_api_key():
@@ -104,23 +118,73 @@ def pick(df, names, column="thstrm_amount"):
     return value
 
 
-def fmt(v):
-    """원 -> 억원 (천 단위 쉼표). 값이 없으면 '-'."""
-    return "-" if v is None else f"{v / 1e8:,.0f}"
+def link_of(df):
+    """해당 보고서의 DART 원문 링크. 접수번호가 없으면 None."""
+    if df is None or "rcept_no" not in df.columns or df.empty:
+        return None
+    rcept_no = str(df["rcept_no"].iloc[0]).strip()
+    return DART_VIEW_URL.format(rcept_no) if rcept_no else None
 
 
 # ------------------------------------------------------------
-# 연도별 / 분기별 계산
+# 증감률 · 영업이익률 계산
 # ------------------------------------------------------------
-def yearly_rows(corp, start, end):
-    rows = []
-    for year in range(start, end + 1):
-        df = fetch(corp, year, ANNUAL)
-        rev = pick(df, REVENUE_NAMES)
-        op = pick(df, OPERATING_NAMES)
-        if rev is not None or op is not None:
-            rows.append({"기간": f"{year}", "매출액": fmt(rev), "영업이익": fmt(op)})
-    return rows
+def pct_change(cur, prev):
+    """증감률(%). 비교 값이 없거나 0이면 None."""
+    if cur is None or prev is None or prev == 0:
+        return None
+    return (cur - prev) / abs(prev) * 100
+
+
+def op_change(cur, prev):
+    """영업이익 증감: 퍼센트(float) 또는 '흑자전환/적자전환/적자지속' 문구(str)."""
+    if cur is None or prev is None:
+        return None
+    if prev <= 0 and cur > 0:
+        return "흑자전환"
+    if prev >= 0 and cur < 0:
+        return "적자전환"
+    if prev < 0 and cur < 0:
+        return "적자지속"
+    if prev > 0:
+        return pct_change(cur, prev)
+    return None
+
+
+def make_record(label, sort_key, cur, yoy=None, qoq=None):
+    rev, op = cur["rev"], cur["op"]
+    return {
+        "label": label,
+        "sort": sort_key,
+        "rev": rev,
+        "op": op,
+        "rev_yoy": pct_change(rev, yoy["rev"]) if yoy else None,
+        "op_yoy": op_change(op, yoy["op"]) if yoy else None,
+        "rev_qoq": pct_change(rev, qoq["rev"]) if qoq else None,
+        "op_qoq": op_change(op, qoq["op"]) if qoq else None,
+        "margin": (op / rev * 100) if rev and op is not None else None,
+        "link": cur["link"],
+    }
+
+
+# ------------------------------------------------------------
+# 연도별 / 분기별 수집
+# ------------------------------------------------------------
+def collect_yearly(corp, start, end, tick):
+    """증감률 계산을 위해 시작연도 전년도까지 함께 조회한다."""
+    data = {}
+    for y in range(start - 1, end + 1):
+        df = fetch(corp, y, ANNUAL)
+        data[y] = {"rev": pick(df, REVENUE_NAMES), "op": pick(df, OPERATING_NAMES), "link": link_of(df)}
+        tick()
+
+    records = []
+    for y in range(start, end + 1):
+        cur = data[y]
+        if cur["rev"] is None and cur["op"] is None:
+            continue
+        records.append(make_record(str(y), (y, 0), cur, yoy=data[y - 1]))
+    return records
 
 
 def quarter_values(r1, r2, r3, r4, names):
@@ -137,22 +201,100 @@ def quarter_values(r1, r2, r3, r4, names):
     return [q1, q2, q3, q4]
 
 
-def quarterly_rows(corp, start, end):
+def collect_quarterly(corp, start, end, tick):
+    data = {}
+    for y in range(start - 1, end + 1):
+        reports = []
+        for code in (Q1, H1, Q3, ANNUAL):
+            reports.append(fetch(corp, y, code))
+            tick()
+        revs = quarter_values(*reports, REVENUE_NAMES)
+        ops = quarter_values(*reports, OPERATING_NAMES)
+        for i in range(4):  # 1~3분기는 각 분기 보고서, 4분기는 사업보고서로 연결
+            data[(y, i + 1)] = {"rev": revs[i], "op": ops[i], "link": link_of(reports[i])}
+
+    records = []
+    for y in range(start, end + 1):
+        for q in range(1, 5):
+            cur = data[(y, q)]
+            if cur["rev"] is None and cur["op"] is None:
+                continue
+            qoq = data[(y, q - 1)] if q > 1 else data[(y - 1, 4)]
+            records.append(make_record(f"{y} {q}Q", (y, q), cur, yoy=data[(y - 1, q)], qoq=qoq))
+    return records
+
+
+# ------------------------------------------------------------
+# 표 만들기 (화면용 / 다운로드용)
+# ------------------------------------------------------------
+def fmt_amount(v, unit):
+    if v is None:
+        return "-"
+    return f"{v / 1e12:,.2f}" if unit == "조원" else f"{v / 1e8:,.0f}"
+
+
+def fmt_change(c):
+    if c is None:
+        return "-"
+    if isinstance(c, str):
+        return c
+    return f"{c:+,.1f}%"
+
+
+def fmt_margin(m):
+    return "-" if m is None else f"{m:.1f}%"
+
+
+def num_amount(v, unit):
+    if v is None:
+        return None
+    return round(v / 1e12, 2) if unit == "조원" else int(round(v / 1e8))
+
+
+def sorted_records(records):
+    # 최신 기간이 위로
+    return sorted(records, key=lambda r: r["sort"], reverse=True)
+
+
+def build_table(records, period, unit, for_export=False):
+    quarterly = period == "분기별"
+    yoy = "전년동기比" if quarterly else "전년比"
+    amt = num_amount if for_export else fmt_amount
+    margin = (lambda m: None if m is None else round(m, 1)) if for_export else fmt_margin
+
     rows = []
-    for year in range(start, end + 1):
-        r1, r2, r3, r4 = (fetch(corp, year, c) for c in (Q1, H1, Q3, ANNUAL))
-        revs = quarter_values(r1, r2, r3, r4, REVENUE_NAMES)
-        ops = quarter_values(r1, r2, r3, r4, OPERATING_NAMES)
-        for i in range(4):
-            if revs[i] is not None or ops[i] is not None:
-                rows.append({"기간": f"{year} {i + 1}Q", "매출액": fmt(revs[i]), "영업이익": fmt(ops[i])})
-    return rows
+    for r in sorted_records(records):
+        row = {}
+        row["기간"] = r["label"]
+        row["매출액"] = amt(r["rev"], unit)
+        row[f"매출 {yoy}"] = fmt_change(r["rev_yoy"])
+        if quarterly:
+            row["매출 전분기比"] = fmt_change(r["rev_qoq"])
+        row["영업이익"] = amt(r["op"], unit)
+        row[f"영업이익 {yoy}"] = fmt_change(r["op_yoy"])
+        if quarterly:
+            row["영업이익 전분기比"] = fmt_change(r["op_qoq"])
+        row["영업이익률"] = margin(r["margin"])
+        row["원문"] = r["link"]
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    if for_export:
+        df = df.rename(
+            columns={"매출액": f"매출액({unit})", "영업이익": f"영업이익({unit})", "영업이익률": "영업이익률(%)", "원문": "공시원문링크"}
+        )
+    return df
+
+
+def safe_filename(text):
+    """파일 이름에 쓸 수 없는 문자(공백, 슬래시 등)를 밑줄로 바꾼다."""
+    return re.sub(r'[\\/:*?"<>|\s]+', "_", text).strip("_") or "기업"
 
 
 # ------------------------------------------------------------
 # 화면
 # ------------------------------------------------------------
-st.set_page_config(page_title="DART 매출·영업이익 조회")
+st.set_page_config(page_title="DART 매출·영업이익 조회", layout="wide")
 st.title("매출액 · 영업이익 조회")
 
 if not API_KEY:
@@ -165,7 +307,7 @@ if not API_KEY:
 this_year = date.today().year
 
 with st.form("search"):
-    corp = st.text_input("기업명 또는 종목코드", value="삼성전자")
+    corp_text = st.text_input("기업명 또는 종목코드", value="삼성전자")
     period = st.radio("조회 단위", ["연도별", "분기별"], horizontal=True)
     c1, c2 = st.columns(2)
     start = c1.number_input("시작연도", min_value=2015, max_value=this_year, value=2021, step=1)
@@ -173,19 +315,67 @@ with st.form("search"):
     submitted = st.form_submit_button("조회")
 
 if submitted:
-    if start > end:
+    corp = corp_text.strip()
+    if not corp:
+        st.error("기업명을 입력해주세요.")
+    elif start > end:
         st.error("시작연도가 종료연도보다 늦을 수 없습니다.")
     elif end - start + 1 > MAX_YEAR_SPAN:
         st.error(f"한 번에 최대 {MAX_YEAR_SPAN}년까지만 조회할 수 있습니다.")
     else:
-        with st.spinner("조회 중입니다..."):
-            if period == "연도별":
-                rows = yearly_rows(corp.strip(), int(start), int(end))
-            else:
-                rows = quarterly_rows(corp.strip(), int(start), int(end))
+        start, end = int(start), int(end)
+        quarterly = period == "분기별"
+        total = (end - start + 2) * (4 if quarterly else 1)  # 증감률 계산용 전년도 포함
+        done = [0]
+        progress = st.progress(0.0, text="조회 중입니다...")
 
-        if not rows:
-            st.warning("조회된 데이터가 없습니다. 기업명(종목코드)과 연도를 확인해주세요.")
-        else:
-            st.caption("단위: 억원 · 연결재무제표 기준" + (" · 4분기 = 연간 − 3분기 누적(계산값)" if period == "분기별" else ""))
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        def tick():
+            done[0] += 1
+            progress.progress(min(done[0] / total, 1.0), text=f"조회 중입니다... ({done[0]}/{total})")
+
+        collect = collect_quarterly if quarterly else collect_yearly
+        records = collect(corp, start, end, tick)
+        progress.empty()
+
+        st.session_state["result"] = {"corp": corp, "records": records, "period": period}
+
+result = st.session_state.get("result")
+
+if result:
+    if not result["records"]:
+        st.warning("조회된 데이터가 없습니다. 기업명(종목코드)과 연도를 확인해주세요.")
+    else:
+        unit = st.radio("금액 단위", ["억원", "조원"], horizontal=True, key="unit")
+        is_q = result["period"] == "분기별"
+
+        notes = [result["corp"], f"단위: {unit}", "연결재무제표 기준", "증감률은 각 기간 보고서 수치로 계산한 값"]
+        if is_q:
+            notes.append("4분기 = 연간 − 3분기 누적(계산값)")
+        st.caption(" · ".join(notes))
+        st.caption("영업이익이 적자였던 구간은 증감률 대신 흑자전환 · 적자전환 · 적자지속으로 표시합니다. 원문 링크는 해당 기간 보고서(4분기는 사업보고서)로 연결됩니다.")
+
+        table = build_table(result["records"], result["period"], unit)
+        st.dataframe(
+            table,
+            hide_index=True,
+            column_config={"원문": st.column_config.LinkColumn("원문", display_text="공시 보기")},
+        )
+
+        export = build_table(result["records"], result["period"], unit, for_export=True)
+        base_name = f"DART_{safe_filename(result['corp'])}_{result['period']}_{date.today():%Y%m%d}"
+        d1, d2, _ = st.columns([1, 1, 4])
+        d1.download_button(
+            "CSV 다운로드",
+            export.to_csv(index=False).encode("utf-8-sig"),  # 엑셀에서 한글이 깨지지 않도록 utf-8-sig
+            file_name=f"{base_name}.csv",
+            mime="text/csv",
+        )
+        if HAS_XLSX:
+            buffer = io.BytesIO()
+            export.to_excel(buffer, index=False, engine="openpyxl")
+            d2.download_button(
+                "엑셀 다운로드",
+                buffer.getvalue(),
+                file_name=f"{base_name}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
