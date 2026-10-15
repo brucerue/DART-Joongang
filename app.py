@@ -849,7 +849,7 @@ tab_fin, tab_list = st.tabs(["재무 조회", "공시 목록"])
 with tab_fin:
     render_financials()
 with tab_list:
-    render_disclosures()"""
+    render_disclosures()
 DART 매출액 / 영업이익 조회 (Streamlit)
 
 기능: 연도별·분기별 조회, 전년(동기)·전분기 대비 증감률,
