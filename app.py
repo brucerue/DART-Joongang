@@ -702,7 +702,69 @@ def render_disclosures():
     )
 
 
+STYLE = """
+<style>
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
+
+html, body, [class*="st-"], button, input, textarea {
+    font-family: "Pretendard", -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+}
+[data-testid="stAppViewContainer"] { background: #f6f8fb; }
+[data-testid="stHeader"] { background: transparent; }
+footer { visibility: hidden; }
+
+.block-container { max-width: 1080px; padding-top: 2.5rem; padding-bottom: 4rem; }
+
+h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !important; padding-bottom: 0.2rem; }
+[data-testid="stCaptionContainer"] { color: #7a8699; }
+
+/* 탭 */
+[data-baseweb="tab-list"] { gap: 0.4rem; border-bottom: 1px solid #dde3ec; }
+[data-baseweb="tab"] { font-weight: 600; padding: 0.6rem 1.1rem; }
+[data-baseweb="tab-highlight"] { background-color: #1c7ed6 !important; height: 3px; }
+[data-baseweb="tab"][aria-selected="true"] { color: #1c7ed6 !important; }
+
+/* 입력 카드 */
+[data-testid="stForm"] {
+    background: #ffffff;
+    border: 1px solid #e3e8ef;
+    border-radius: 14px;
+    padding: 1.4rem 1.6rem;
+    box-shadow: 0 2px 10px rgba(16, 42, 84, 0.05);
+}
+
+/* 조회 버튼 */
+[data-testid="stFormSubmitButton"] button {
+    background: #1c7ed6;
+    color: #ffffff;
+    border: 0;
+    border-radius: 10px;
+    padding: 0.5rem 1.8rem;
+    font-weight: 700;
+}
+[data-testid="stFormSubmitButton"] button:hover { background: #1864ab; color: #ffffff; }
+
+/* 다운로드 버튼 */
+[data-testid="stDownloadButton"] button {
+    border-radius: 10px;
+    border: 1px solid #ced7e3;
+    background: #ffffff;
+    font-weight: 600;
+}
+[data-testid="stDownloadButton"] button:hover { border-color: #1c7ed6; color: #1c7ed6; }
+
+/* 표 */
+[data-testid="stDataFrame"] {
+    border: 1px solid #e3e8ef;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #ffffff;
+}
+</style>
+"""
+
 st.set_page_config(page_title="DART 재무·공시 조회", layout="wide")
+st.markdown(STYLE, unsafe_allow_html=True)
 st.title("DART 재무 · 공시 조회")
 st.caption("제작: 중앙일보 산업부 나상현  \n출처: 금융감독원 전자공시시스템(DART)")  # 두 줄(줄바꿈 = 공백 2칸 + \n)
 
