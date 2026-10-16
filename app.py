@@ -46,6 +46,15 @@ MAX_YEAR_SPAN = 10  # 한 번에 조회 가능한 최대 연도 수 (API 사용�
 DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
 DART_API_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"  # 재무제표
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"  # 공시 목록
+# 임원 보수 (사업·반기보고서). 2026년 5월 이후 제출된 보고서는 V2 주소로만 나와서, 옛 주소에 없으면 V2로 다시 찾는다.
+PAY_APIS = {
+    "indiv": ["hmvAuditIndvdlBySttus", "hmvAuditIndvdlBySttusV2"],  # 이사·감사 개인별 보수 (5억원 이상)
+    "top5": ["indvdlByPay", "indvdlByPayV2"],  # 개인별 보수 상위 5인 (5억원 이상, 미등기 포함)
+    "board": ["hmvAuditAllSttus"],  # 이사·감사 전체 보수 (인원·총액·1인 평균)
+    "emp": ["empSttus"],  # 직원 현황 (직원 수·급여 총액)
+}
+PAY_REPORTS = {"사업보고서 (연간)": "11011", "반기보고서 (상반기)": "11012"}
+MAX_PAY_CORPS = 5
 
 MAX_WORKERS = 6  # 동시에 보낼 DART 요청 수 (한 번 조회에 최대 44번이라 분당 한도에는 여유)
 REQUEST_TIMEOUT = 20  # DART 응답을 기다리는 최대 시간(초)
@@ -341,7 +350,7 @@ def call_dart(session, url, params):
         raise DartApiError("DART 서버 응답이 없거나 늦어지고 있습니다. 잠시 후 다시 시도해주세요.") from last_error
 
     status = str(jo.get("status", ""))
-    if "list" in jo:
+    if "list" in jo or status == "000":
         return jo
     if status == "013":  # 조회된 데이터 없음 (아직 공시 전이거나 해당 보고서 없음)
         return None
@@ -797,6 +806,165 @@ def feed_table(rows):
             "원문": df["rcept_no"].astype(str).map(lambda n: DART_VIEW_URL.format(n) if n else None),
         }
     )
+
+
+# ------------------------------------------------------------
+# 임원 보수 (사업보고서·반기보고서)
+# ------------------------------------------------------------
+def fetch_pay(session, store, kind, corp_code, year, reprt_code):
+    """보수 관련 API 한 종류 조회 -> DART 응답(dict) 또는 None(데이터 없음).
+    옛 주소에서 데이터가 없으면 V2 주소로 다시 찾는다. ※ 작업 스레드에서 실행 (st.* 사용 금지)"""
+    key = ("pay", kind, corp_code, year, reprt_code)
+    cached = cache_lookup(store, key, CACHE_TTL)
+    if cached is not _MISSING:
+        return cached
+    jo = None
+    for api in PAY_APIS[kind]:
+        params = {"crtfc_key": API_KEY, "corp_code": corp_code, "bsns_year": str(year), "reprt_code": reprt_code}
+        jo = call_dart(session, f"https://opendart.fss.or.kr/api/{api}.json", params)
+        if jo is not None:
+            break
+    cache_save(store, key, jo)
+    return jo
+
+
+def dart_rows(jo, need):
+    """응답 안에서 need 항목들을 가진 행을 모두 찾는다 (옛 'list' 모양·V2 'group' 모양 모두).
+    상위 항목의 접수번호·회사명은 아래 행에 물려준다."""
+    out = []
+
+    def walk(node, inherited):
+        if isinstance(node, dict):
+            here = dict(inherited)
+            for k in ("rcept_no", "corp_name"):
+                if isinstance(node.get(k), str) and node.get(k):
+                    here[k] = node[k]
+            if all(k in node for k in need):
+                out.append({**here, **{k: v for k, v in node.items() if not isinstance(v, (list, dict))}})
+            for v in node.values():
+                if isinstance(v, (list, dict)):
+                    walk(v, here)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, inherited)
+
+    walk(jo or {}, {})
+    # 전기·전전기 금액이 함께 오는 경우(V2)에는 당기만
+    return [r for r in out if str(r.get("fscl_year", "") or "").strip() in ("", "당기", "-")]
+
+
+def person_key(name):
+    return re.sub(r"\s+", "", str(name))
+
+
+def pay_people(indiv, top5):
+    """개인별 보수(5억 이상) 두 목록을 합쳐 사람별 한 줄로. -> {이름키: {nm, ofcps, amt, rcept_no}}"""
+    people = {}
+    for jo in (indiv, top5):
+        for r in dart_rows(jo, ["nm", "mendng_totamt"]):
+            amt = to_int(r.get("mendng_totamt"))
+            k = person_key(r.get("nm", ""))
+            if not k or amt is None:
+                continue
+            if k not in people or amt > people[k]["amt"]:  # 두 목록에 다 있으면 큰 금액(같은 금액이 보통)
+                people[k] = {"nm": str(r["nm"]).strip(), "ofcps": str(r.get("ofcps", "") or "").strip(),
+                             "amt": amt, "rcept_no": r.get("rcept_no", "")}
+    return people
+
+
+def board_summary(jo):
+    """이사·감사 전체: (인원, 1인 평균 보수[원]). 없으면 (None, None)."""
+    rows = dart_rows(jo, ["nmpr", "mendng_totamt"])
+    total = sum(to_int(r.get("mendng_totamt")) or 0 for r in rows)
+    count = sum(to_int(r.get("nmpr")) or 0 for r in rows)
+    if not count:
+        return None, None
+    return count, total / count
+
+
+def is_total(text):
+    return str(text or "").replace(" ", "") in ("합계", "총계", "계", "전체", "소계", "합 계")
+
+
+def employee_summary(jo):
+    """직원 현황: (직원 수, 1인 평균 급여[원]). 사업부문·성별로 나뉜 표에서 합계 줄은 빼고 더한다."""
+    rows = dart_rows(jo, ["sm", "fyer_salary_totamt"])
+    detail = [r for r in rows if not is_total(r.get("fo_bbm")) and not is_total(r.get("sexdstn"))]
+    if not detail:  # 성별 합계만 있는 경우 -> 부문별 합계 줄을 더함
+        detail = [r for r in rows if not is_total(r.get("fo_bbm"))]
+    if not detail:  # 전체 합계 한 줄만 있는 경우
+        detail = rows
+    count = sum(to_int(r.get("sm")) or 0 for r in detail)
+    total = sum(to_int(r.get("fyer_salary_totamt")) or 0 for r in detail)
+    if not count or not total:
+        return (count or None), None
+    return count, total / count
+
+
+def collect_pay(corps, year, reprt_code):
+    """여러 회사의 올해·전년 보수 자료를 동시에 조회. corps: [(회사명, 고유번호)]
+    -> {회사명: {"now": {...}, "prev": {...}}}  (조회 실패는 DartApiError)"""
+    session, store = get_session(), get_cache_store()
+    jobs = [(name, code, y, kind) for name, code in corps for y in (year, year - 1) for kind in PAY_APIS
+            if not (y == year - 1 and kind == "emp")]  # 직원 현황은 올해만
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        results = list(pool.map(lambda j: fetch_pay(session, store, j[3], j[1], j[2], reprt_code), jobs))
+    got = {(j[0], j[2], j[3]): r for j, r in zip(jobs, results)}
+    out = {}
+    for name, _ in corps:
+        def part(y):
+            return {
+                "people": pay_people(got.get((name, y, "indiv")), got.get((name, y, "top5"))),
+                "board": board_summary(got.get((name, y, "board"))),
+            }
+        now, prev = part(year), part(year - 1)
+        now["emp"] = employee_summary(got.get((name, year, "emp")))
+        out[name] = {"now": now, "prev": prev}
+    return out
+
+
+def eok(v, digits=1):
+    """원 -> 억원 글자. 없으면 '-'."""
+    return "-" if v is None else f"{v / 1e8:,.{digits}f}"
+
+
+def pay_tables(data):
+    """조회 결과 -> (개인별 표, 회사별 요약 표)"""
+    people_rows, summary_rows = [], []
+    for corp, d in data.items():
+        prev_people = d["prev"]["people"]
+        for k, p in d["now"]["people"].items():
+            before = prev_people.get(k, {}).get("amt")
+            people_rows.append({
+                "회사": corp, "이름": p["nm"], "직위": p["ofcps"] or "-",
+                "보수": eok(p["amt"]), "전년": eok(before), "증감률": fmt_change(pct_change(p["amt"], before)),
+                "원문": DART_VIEW_URL.format(p["rcept_no"]) if p["rcept_no"] else None, "_amt": p["amt"],
+            })
+        (n_now, avg_now), (_, avg_prev) = d["now"]["board"], d["prev"]["board"]
+        emp_n, emp_avg = d["now"]["emp"]
+        summary_rows.append({
+            "회사": corp,
+            "이사·감사 인원": f"{n_now:,}" if n_now else "-",
+            "임원 1인 평균": eok(avg_now, 2),
+            "전년比": fmt_change(pct_change(avg_now, avg_prev)),
+            "직원 수": f"{emp_n:,}" if emp_n else "-",
+            "직원 1인 평균": eok(emp_avg, 2),
+            "임원/직원": f"{avg_now / emp_avg:,.1f}배" if avg_now and emp_avg else "-",
+        })
+    people = pd.DataFrame(people_rows, columns=["회사", "이름", "직위", "보수", "전년", "증감률", "원문", "_amt"])
+    people = people.sort_values("_amt", ascending=False, kind="stable").drop(columns="_amt").reset_index(drop=True)
+    return people, pd.DataFrame(summary_rows)
+
+
+def change_style(cell):
+    """증감 칸: 늘면 파랑, 줄면 빨강 (둘 다 굵게)."""
+    t = str(cell)
+    if t.startswith("+"):
+        return f"font-weight: bold; color: {POSITIVE_COLOR}"
+    if t.startswith("-") and t != "-":
+        return f"font-weight: bold; color: {NEGATIVE_COLOR}"
+    return ""
+
 
 
 # ------------------------------------------------------------
@@ -1439,6 +1607,100 @@ def last_weekday(day):
     return day
 
 
+def default_pay_year():
+    """사업보고서는 3월 말에 나오므로 4월부터 작년, 그 전엔 재작년을 기본으로."""
+    return TODAY.year - 1 if TODAY.month >= 4 else TODAY.year - 2
+
+
+def render_pay():
+    """탭: 임원 보수 (5억원 이상 개인별 보수 + 회사별 평균, 여러 회사 비교)"""
+    years = list(range(TODAY.year, 2014, -1))
+    with st.form("pay_search"):
+        corp_text = st.text_input(
+            "기업명 (여러 곳은 쉼표로)", key="pay_corp", placeholder="예: 삼성전자, SK하이닉스, LG전자",
+            help=f"쉼표(,)나 슬래시(/)로 나눠 최대 {MAX_PAY_CORPS}곳까지 한 번에 비교해요.",
+        )
+        c1, c2 = st.columns(2)
+        year = c1.selectbox("사업연도", years, index=years.index(default_pay_year()), key="pay_year")
+        report = c2.radio("보고서", list(PAY_REPORTS), horizontal=True, key="pay_report")
+        submitted = st.form_submit_button("보수 조회") or st.session_state.pop("pay_run", False)
+
+    if submitted:
+        names = []
+        for part in re.split(NEWS_SPLIT, corp_text):
+            part = canonical_corp(part)
+            if part and name_key(part) not in {name_key(n) for n in names}:
+                names.append(part)
+        if not names:
+            st.error("기업명을 입력해주세요.")
+        elif len(names) > MAX_PAY_CORPS:
+            st.error(f"기업은 한 번에 {MAX_PAY_CORPS}곳까지 넣을 수 있어요. (지금 {len(names)}곳)")
+        else:
+            st.session_state.pop("pay", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+            corps, missing = [], []
+            if len(names) == 1:  # 한 곳이면 다른 탭처럼 비슷한 기업 추천 버튼
+                code = lookup_corp_code(names[0], "pay")
+                if code:
+                    corps.append((names[0], code))
+            else:
+                with st.spinner("기업 정보를 확인하는 중입니다..."):
+                    for n in names:
+                        code = resolve_corp_code(n)
+                        if code:
+                            corps.append((n, code))
+                        else:
+                            missing.append(n)
+                for n in missing:
+                    hint = [label for label, _ in suggest_corps(n, limit=3)]
+                    st.warning(f'"{n}" 기업을 찾지 못해 빼고 조회했어요.' + (f" 혹시: {', '.join(hint)}" if hint else ""))
+            if corps:
+                with st.spinner("보수 공시를 불러오는 중입니다..."):
+                    try:
+                        data = collect_pay(corps, int(year), PAY_REPORTS[report])
+                    except DartApiError as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state["pay"] = {"data": data, "year": int(year), "report": report}
+
+    res = st.session_state.get("pay")
+    if not res:
+        return
+    people, summary = pay_tables(res["data"])
+    label = f"{res['year']}년 {res['report'].split(' ')[0]}"
+    corps_txt = ", ".join(res["data"])
+
+    st.markdown("##### 회사별 요약")
+    st.caption(f"{corps_txt} · {label} · 단위: 억원 · 임원 = 이사·감사 전체(사외이사 포함)")
+    st.dataframe(
+        summary.style.map(change_style, subset=["전년比"]), hide_index=True,
+        height=(len(summary) + 1) * 35 + 3,
+    )
+
+    st.markdown("##### 개인별 보수 (5억원 이상)")
+    if people.empty:
+        st.info(f"{label}에 공시된 5억원 이상 개인별 보수가 없어요. 연도나 보고서를 바꿔보세요.")
+        return
+    who = st.text_input("이름으로 거르기", key="pay_who", placeholder="예: 이재용 (일부만 써도 돼요)")
+    shown = people
+    if who.strip():
+        shown = people[people["이름"].map(person_key).str.contains(person_key(who), regex=False)]
+    st.caption(f"{len(shown):,}명 · 보수 많은 순 · 단위: 억원 · 전년은 같은 이름 기준")
+    if shown.empty:
+        st.info("이름이 일치하는 사람이 없어요.")
+        return
+    st.dataframe(
+        shown.style.map(change_style, subset=["증감률"]), hide_index=True,
+        column_config={"원문": LINK_COLUMN},
+        height=min(len(shown) + 1, 16) * 35 + 3,
+    )
+    st.download_button(
+        "CSV 다운로드",
+        shown.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"임원보수_{safe_filename(corps_txt)}_{res['year']}.csv",
+        mime="text/csv",
+    )
+
+
 def render_feed():
     """탭 3: 오늘의 공시 - 하루 동안 전 상장사가 낸 공시 중 취재거리가 될 만한 것만 모아 보기"""
     with st.form("feed_search"):
@@ -1727,18 +1989,20 @@ if not API_KEY:
     )
     st.stop()
 
-TAB_NAMES = ["재무 조회", "공시 목록", "오늘의 공시", "단독 뉴스"]
+TAB_NAMES = ["재무 조회", "공시 목록", "임원 보수", "오늘의 공시", "단독 뉴스"]
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_fin, tab_list, tab_feed, tab_news = tabs
+tab_fin, tab_list, tab_pay, tab_feed, tab_news = tabs
 with tab_fin:
     render_financials()
 with tab_list:
     render_disclosures()
+with tab_pay:
+    render_pay()
 with tab_feed:
     render_feed()
 with tab_news:
