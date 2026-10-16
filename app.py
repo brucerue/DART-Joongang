@@ -1092,6 +1092,15 @@ LETTER_NAMES = {
     "j": "제이", "k": "케이", "l": "엘", "m": "엠", "n": "엔", "o": "오", "p": "피", "q": "큐", "r": "알",
     "s": "에스", "t": "티", "u": "유", "v": "브이", "w": "더블유", "x": "엑스", "y": "와이", "z": "지",
 }
+# 글자 하나씩이 아니라 단어로 읽는 영문 (NAVER는 '엔에이브이이알'이 아니라 '네이버')
+# 추천에서 '네이버' -> NAVER, '포스코' -> POSCO홀딩스처럼 찾게 해준다. 필요하면 여기에 추가.
+WORD_READINGS = {
+    "naver": "네이버", "posco": "포스코", "soop": "숲", "oil": "오일", "nice": "나이스", "kisco": "키스코",
+    "simpac": "심팩", "plus": "플러스", "ent": "엔터", "new": "뉴", "holdings": "홀딩스", "bio": "바이오",
+    "tech": "테크", "korea": "코리아", "global": "글로벌", "energy": "에너지", "coway": "코웨이",
+    "hanwha": "한화", "lotte": "롯데", "samsung": "삼성", "hyundai": "현대", "kakao": "카카오",
+    "doosan": "두산", "kolon": "코오롱", "krafton": "크래프톤", "hybe": "하이브", "ecopro": "에코프로",
+}
 SUGGEST_LIMIT = 12
 
 # 추천 순서에서 먼저 보여줄 이름난 기업 (대략 유명한 순서). 목록에 없는 이름은 뒤로 밀릴 뿐 추천에서 빠지지는 않는다.
@@ -1115,11 +1124,20 @@ FAMOUS = [
 ]
 
 
-def name_key(name):
-    """기업명을 비교용으로 정리: 소문자, (주)·공백·기호 제거, 영문은 한글 발음으로."""
+def name_key(name, words=False):
+    """기업명을 비교용으로 정리: 소문자, (주)·공백·기호 제거, 영문은 한글 발음으로.
+    기본은 한 글자씩(SK -> 에스케이). words=True면 단어로 읽는 영문은 단어 발음으로(NAVER -> 네이버)."""
     text = unicodedata.normalize("NFKC", str(name)).lower()  # 전각 영문(ＳＫ)도 일반 영문으로
-    text = re.sub(r"\(주\)|㈜|주식회사|\(유\)|유한회사|[\s\-.,&·()/]", "", text)
-    return "".join(LETTER_NAMES.get(ch, ch) for ch in text)
+    text = re.sub(r"\(주\)|㈜|주식회사|\(유\)|유한회사", "", text)
+
+    def latin(m):
+        w = m.group()
+        if words and w in WORD_READINGS:
+            return WORD_READINGS[w]
+        return "".join(LETTER_NAMES.get(ch, ch) for ch in w)
+
+    text = re.sub(r"[a-z]+", latin, text)  # 띄어쓰기·기호를 지우기 전에 영문 단어 단위로 바꾼다
+    return re.sub(r"[\s\-.,&·()/]", "", text)
 
 
 @st.cache_resource
@@ -1132,6 +1150,7 @@ def get_name_index():
     df["dup"] = df["corp_name"].duplicated(keep=False)  # 같은 이름이 여럿이면 종목코드로 구분
     df = df.sort_values("listed", ascending=False, kind="stable").drop_duplicates("corp_name")
     df["key"] = [name_key(n) for n in df["corp_name"]]
+    df["key2"] = [name_key(n, words=True) for n in df["corp_name"]]  # 단어 발음 (NAVER -> 네이버)
     rank = {}
     for i, n in enumerate(FAMOUS):
         rank.setdefault(name_key(n), i)
@@ -1150,11 +1169,16 @@ def suggest_corps(query, limit=SUGGEST_LIMIT, listed_only=False, exclude=None):
         idx = idx[idx["listed"]]
     if exclude:
         idx = idx[idx["corp_name"] != exclude]
+    def tiers(keys):
+        t = pd.Series(3, index=idx.index)
+        t[keys.str.contains(q, regex=False)] = 2  # 이름 안에 포함 (SK -> SK하이닉스)
+        t[keys.str.startswith(q)] = 1
+        t[keys == q] = 0  # 영문/한글 표기만 다른 경우 (에스케이하이닉스 -> SK하이닉스)
+        return t
+
+    # 글자 읽기(에스케이)와 단어 읽기(네이버) 중 더 잘 맞는 쪽으로
+    tier = pd.concat([tiers(idx["key"]), tiers(idx["key2"])], axis=1).min(axis=1)
     keys = idx["key"]
-    tier = pd.Series(3, index=idx.index)
-    tier[keys.str.contains(q, regex=False)] = 2  # 이름 안에 포함 (SK -> SK하이닉스)
-    tier[keys.str.startswith(q)] = 1
-    tier[keys == q] = 0  # 영문/한글 표기만 다른 경우 (에스케이하이닉스 -> SK하이닉스)
     found = idx[tier < 3].assign(tier=tier[tier < 3], n=keys[tier < 3].str.len())
     found = found.sort_values(
         ["tier", "fame", "listed", "n"], ascending=[True, True, False, True], kind="stable"
@@ -1162,9 +1186,11 @@ def suggest_corps(query, limit=SUGGEST_LIMIT, listed_only=False, exclude=None):
 
     if found.empty and not exclude:  # 오타 등: 상장사 중에서 글자가 비슷한 이름
         listed = idx[idx["listed"]]
-        close = difflib.get_close_matches(q, list(listed["key"]), n=limit, cutoff=0.6)
-        found = listed[listed["key"].isin(close)].assign(r=lambda d: d["key"].map(close.index))
-        found = found.sort_values("r")
+        pool = list(dict.fromkeys(list(listed["key"]) + list(listed["key2"])))
+        close = difflib.get_close_matches(q, pool, n=limit, cutoff=0.6)
+        rank = {k: i for i, k in enumerate(close)}
+        r = pd.concat([listed["key"].map(rank), listed["key2"].map(rank)], axis=1).min(axis=1)
+        found = listed[r.notna()].assign(r=r[r.notna()]).sort_values("r").head(limit)
 
     out = []
     for _, r in found.iterrows():
