@@ -195,10 +195,11 @@ DISCLOSURE_TYPES = {
 # 뉴스 (네이버 뉴스 검색 API)
 NAVER_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
 NEWS_PAGE_SIZE = 100  # 한 번에 받는 최대 기사 수
-MAX_NEWS_PAGES = 10  # 최대 1,000건까지만 확인 (네이버가 한 검색에서 주는 최대치)
-NEWS_TTL = 5 * 60  # 같은 검색은 5분 동안 저장해 둔 결과를 재사용
+MAX_NEWS_PAGES = 3  # 검색어 하나당 최신 300건까지만 확인 (네이버 하루 호출 한도 25,000회를 아끼기 위해. 제목에 [단독]이 붙은 기사는 대부분 앞쪽에 있음)
+NEWS_TTL = 30 * 60  # 같은 검색은 30분 동안 저장해 둔 결과를 재사용 (호출 절약)
+NEWS_TTL_TODAY = 10 * 60  # 기간이 '오늘'인 검색은 새 기사가 계속 올라오므로 더 짧게
 SIMILAR_TITLE = 0.8  # 제목이 이 정도(0~1) 이상 비슷하면 같은 기사로 묶는다
-NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7, "한 달": 30}
+NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7}
 
 # 뉴스에 보여줄 언론사. 기사 주소(도메인) -> (언론사 이름, 구분). 여기 없는 매체의 기사는 보이지 않는다.
 NEWS_CATEGORIES = ["종합일간지", "경제지", "통신사"]
@@ -2045,14 +2046,14 @@ def search_news(terms, days):
     """검색어마다 '검색어 단독'으로 동시에 검색해 합친다.
 
     -> (기사 목록, 한도에 걸렸는지, 한도에 걸린 검색에서 빠짐없이 본 가장 이른 시각)
-    같은 기사가 여러 검색에 걸려도 한 번만 담는다. 같은 검색은 5분 동안 저장해 둔 결과를 쓴다.
+    같은 기사가 여러 검색에 걸려도 한 번만 담는다. 같은 검색은 30분('오늘'은 10분) 동안 저장해 둔 결과를 쓴다.
     """
     session, store, today = get_session(), get_cache_store(), TODAY.isoformat()  # 화면 스레드에서 미리 준비
 
     def one(term):
         query = f"{term} {NEWS_KEYWORD}"
         key = ("news", query, days, today)
-        hit = cache_lookup(store, key, NEWS_TTL)
+        hit = cache_lookup(store, key, NEWS_TTL_TODAY if days <= 1 else NEWS_TTL)
         if hit is not _MISSING:
             return hit
         value = fetch_news(session, query, days, today)
@@ -3260,6 +3261,7 @@ def render_news():
             st.error(f"기업은 한 번에 {MAX_NEWS_CORPS}곳까지 넣을 수 있어요. (지금 {len(corps)}곳)")
         else:
             st.session_state.pop("news", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+            match_extra = []  # 섹터 모드에서 검색하지 않는 줄임말 (제목 확인용)
             owner = {}  # 검색어 -> 어느 기업 것인지 (여러 기업 검색 때 기사에 기업명 꼬리표를 달기 위해)
             if mode == "기업명":
                 terms = []
@@ -3269,7 +3271,16 @@ def render_news():
                             owner[t] = c
                             terms.append(t)
             else:
-                terms = NEWS_SECTORS[sector]["기업"] + NEWS_SECTORS[sector]["키워드"]
+                # 섹터: 줄임말(별칭)은 따로 검색하지 않는다 (호출 수 절약). 예: 삼성전자·삼전 -> 삼성전자만 검색
+                kept, skip = [], set()
+                for f in NEWS_SECTORS[sector]["기업"]:
+                    if name_key(f) in skip:  # 앞에서 검색하는 기업의 줄임말이면 건너뜀
+                        continue
+                    kept.append(f)
+                    skip.update(name_key(a) for a in NEWS_ALIASES.get(f, []))
+                terms = kept + NEWS_SECTORS[sector]["키워드"]
+                for t in NEWS_SECTORS[sector]["기업"] + NEWS_SECTORS[sector]["키워드"]:
+                    match_extra.append(t)  # 검색은 안 해도, 제목에 줄임말이 있으면 걸러내지 않고 꼬리표도 단다
             multi = len(corps) > 1
             with st.spinner("뉴스를 불러오는 중입니다..."):
                 try:
@@ -3279,7 +3290,7 @@ def render_news():
                 else:
                     total = len(items)
                     items = [i for i in items if i["category"]]  # 목록에 있는 언론사만
-                    keys = {t: name_key(t) for t in terms}
+                    keys = {t: name_key(t) for t in list(terms) + match_extra}
                     tagged = []
                     for i in items:
                         tk = name_key(i["title"])
