@@ -264,10 +264,11 @@ NAVER_SECRET = load_secret("NAVER_CLIENT_SECRET")
 # 모델 이름은 자주 바뀌므로 Secrets의 GEMINI_MODEL / ANTHROPIC_MODEL로 바꿀 수 있다.
 GEMINI_KEY = load_secret("GEMINI_API_KEY")
 GEMINI_MODEL = load_secret("GEMINI_MODEL") or "gemini-3.6-flash"
+# 기본 모델이 붐벼서(503) 실패하면 자동으로 바꿔 쓰는 가벼운 모델
+GEMINI_FALLBACK = load_secret("GEMINI_FALLBACK_MODEL") or "gemini-3.5-flash-lite"
 ANTHROPIC_KEY = load_secret("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = load_secret("ANTHROPIC_MODEL") or "claude-haiku-5-5"
 AI_PROVIDER = "gemini" if GEMINI_KEY else ("claude" if ANTHROPIC_KEY else None)
-AI_PASSWORD = load_secret("AI_PASSWORD")  # 있으면 AI 요약 버튼을 쓰기 전에 한 번 물어본다 (다른 사람이 내 키를 쓰지 않게)
 
 # 계정명은 회사·연도마다 바뀔 수 있다 (예: LG에너지솔루션 2026년부터 '매출액 및 기타수익').
 # 그래서 표준 계정 코드(_IDS)로 먼저 찾고, 없으면 이름으로 찾는다. 이름은 띄어쓰기를 지우고 비교.
@@ -1347,20 +1348,36 @@ def ai_prompt(title, text):
 
 
 def call_gemini(session, prompt):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    """Gemini 호출. 서버가 붐비면(500·502·503·504) 잠깐 쉬었다 다시 시도하고, 그래도 안 되면 가벼운 모델로 바꿔 시도.
+    -> (요약 글, 실제로 쓴 모델)"""
     body = {
         "systemInstruction": {"parts": [{"text": AI_SYSTEM}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192},
     }
-    try:
-        res = session.post(url, json=body, headers={"x-goog-api-key": GEMINI_KEY}, timeout=AI_TIMEOUT)
-    except Exception as e:
-        raise AiError("Gemini 서버 응답이 없거나 늦어지고 있어요. 잠시 후 다시 시도해주세요.") from e
+    models = [GEMINI_MODEL] + ([GEMINI_FALLBACK] if GEMINI_FALLBACK and GEMINI_FALLBACK != GEMINI_MODEL else [])
+    res, model = None, GEMINI_MODEL
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        for attempt in range(3):  # 같은 모델로 최대 3번 (2초, 4초 쉬고)
+            try:
+                res = session.post(url, json=body, headers={"x-goog-api-key": GEMINI_KEY}, timeout=AI_TIMEOUT)
+            except Exception:
+                res = None
+            if res is not None and res.status_code not in (500, 502, 503, 504):
+                break
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+        if res is not None and res.status_code not in (500, 502, 503, 504):
+            break
+    if res is None:
+        raise AiError("Gemini 서버 응답이 없거나 늦어지고 있어요. 잠시 후 다시 시도해주세요.")
+    if res.status_code in (500, 502, 503, 504):
+        raise AiError("Gemini 서버가 지금 붐벼서 응답하지 못했어요 (API 키 문제는 아니에요). 1~2분 뒤 다시 눌러주세요.")
     if res.status_code == 429:
         raise AiError("Gemini 사용량 한도를 넘었어요 (무료 등급은 분·일 한도가 있어요). 잠시 후 다시 시도해주세요.")
     if res.status_code == 404:
-        raise AiError(f"Gemini 모델 '{GEMINI_MODEL}'을 찾지 못했어요. Secrets의 GEMINI_MODEL 이름을 확인해주세요.")
+        raise AiError(f"Gemini 모델 '{model}'을 찾지 못했어요. Secrets의 GEMINI_MODEL 이름을 확인해주세요.")
     if res.status_code in (400, 401, 403):
         try:
             msg = res.json().get("error", {}).get("message", "")
@@ -1377,7 +1394,7 @@ def call_gemini(session, prompt):
     if not text.strip():
         reason = (cands[0].get("finishReason") if cands else None) or (data.get("promptFeedback") or {}).get("blockReason")
         raise AiError(f"Gemini가 요약을 돌려주지 않았어요{f' ({reason})' if reason else ''}. 다시 시도하거나 원문 링크로 확인해주세요.")
-    return text.strip()
+    return text.strip(), model
 
 
 def call_claude(session, prompt):
@@ -1401,7 +1418,7 @@ def call_claude(session, prompt):
 
 
 def ai_summary(rcept_no, title):
-    """공시 하나 요약 (같은 공시는 일주일 저장). -> (요약 글, 원문이 잘렸는지)"""
+    """공시 하나 요약 (같은 공시는 일주일 저장). -> (요약 글, 원문이 잘렸는지, 쓴 모델)"""
     session, store = get_session(), get_cache_store()
     model = GEMINI_MODEL if AI_PROVIDER == "gemini" else ANTHROPIC_MODEL
     key = ("ai", AI_PROVIDER, model, rcept_no)
@@ -1410,8 +1427,11 @@ def ai_summary(rcept_no, title):
         return cached
     text = fetch_document_text(session, store, rcept_no)
     prompt = ai_prompt(title, text)
-    summary = call_gemini(session, prompt) if AI_PROVIDER == "gemini" else call_claude(session, prompt)
-    value = (summary, len(text) > MAX_DOC_CHARS)
+    if AI_PROVIDER == "gemini":
+        summary, used = call_gemini(session, prompt)
+    else:
+        summary, used = call_claude(session, prompt), ANTHROPIC_MODEL
+    value = (summary, len(text) > MAX_DOC_CHARS, used)
     cache_save(store, key, value)
     return value
 
@@ -2073,15 +2093,6 @@ def render_ai_summary(rows, prefix):
         if not AI_PROVIDER:
             st.caption("AI 요약을 쓰려면 Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
             return
-        if AI_PASSWORD and not st.session_state.get("ai_ok"):
-            pw = st.text_input("AI 요약 비밀번호", type="password", key=f"{prefix}_ai_pw")
-            if not pw:
-                st.caption("비밀번호를 넣으면 이 창을 닫기 전까지 계속 쓸 수 있어요.")
-                return
-            if pw != AI_PASSWORD:
-                st.error("비밀번호가 맞지 않아요.")
-                return
-            st.session_state["ai_ok"] = True
         items = [r for r in rows if str(r.get("rcept_no", "")).strip()][:500]
         if not items:
             st.caption("요약할 공시가 없어요.")
@@ -2106,15 +2117,15 @@ def render_ai_summary(rows, prefix):
         if st.button("AI 요약", key=f"{prefix}_ai_go", type="primary"):
             with st.spinner("원문을 읽고 요약하는 중입니다... (긴 공시는 10~30초 걸려요)"):
                 try:
-                    summary, truncated = ai_summary(rno, title)
+                    summary, truncated, used = ai_summary(rno, title)
                 except (AiError, DartApiError) as e:
                     st.error(str(e))
                     return
-            saved = {"rcept_no": rno, "summary": summary, "truncated": truncated}
+            saved = {"rcept_no": rno, "summary": summary, "truncated": truncated, "model": used}
             st.session_state[f"{prefix}_ai"] = saved
         if saved and saved["rcept_no"] == rno:
             st.markdown(saved["summary"])
-            notes = [f"AI 요약({'Gemini' if AI_PROVIDER == 'gemini' else 'Claude'}) · 숫자는 반드시 원문으로 확인하세요"]
+            notes = [f"AI 요약({saved.get('model') or AI_PROVIDER}) · 숫자는 반드시 원문으로 확인하세요"]
             if saved["truncated"]:
                 notes.append(f"원문이 길어 앞부분 {MAX_DOC_CHARS:,}자만 요약했어요")
             st.caption(" · ".join(notes))
