@@ -196,7 +196,6 @@ DISCLOSURE_TYPES = {
 NAVER_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
 NEWS_PAGE_SIZE = 100  # 한 번에 받는 최대 기사 수
 MAX_NEWS_PAGES = 10  # 최대 1,000건까지만 확인 (네이버가 한 검색에서 주는 최대치)
-NEW_HOURS = 3  # 올라온 지 이 시간 이내인 단독 기사에 NEW 표시
 NEWS_TTL = 5 * 60  # 같은 검색은 5분 동안 저장해 둔 결과를 재사용
 SIMILAR_TITLE = 0.8  # 제목이 이 정도(0~1) 이상 비슷하면 같은 기사로 묶는다
 NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7, "한 달": 30}
@@ -2092,8 +2091,8 @@ def cluster_news(items):
 
 
 def is_new(item, now):
-    """올라온 지 NEW_HOURS 시간 이내인 기사인지."""
-    return now - item["dt"] < timedelta(hours=NEW_HOURS)
+    """오늘(한국 시간) 올라온 기사인지."""
+    return item["dt"].astimezone(KST).date() == now.astimezone(KST).date()
 
 
 def news_html(clusters, now=None):
@@ -2624,7 +2623,8 @@ def render_ai_summary(rows, prefix, all_rows=None):
             d = f"{d[4:6]}.{d[6:8]}" if len(d) == 8 else d
             corp = f"{r.get('corp_name', '')} · " if r.get("corp_name") else ""
             mark = "[숫자표] " if major_report_spec(r.get("report_nm", "")) else ""
-            return f"{mark}{d} {corp}{str(r.get('report_nm', '')).strip()}"
+            new = "[NEW] " if str(r.get("rcept_dt", "")) == TODAY.strftime("%Y%m%d") else ""
+            return f"{new}{mark}{d} {corp}{str(r.get('report_nm', '')).strip()}"
 
         idx = st.selectbox(
             "볼 공시", range(len(items)), index=None, format_func=lambda i: label(items[i]),
@@ -2634,7 +2634,7 @@ def render_ai_summary(rows, prefix, all_rows=None):
             return
         r = items[idx]
         rno = str(r["rcept_no"]).strip()
-        title = label(r).replace("[숫자표] ", "")
+        title = label(r).replace("[NEW] ", "").replace("[숫자표] ", "")
         render_major_numbers(r)
         if not AI_PROVIDER:
             st.caption("AI 요약을 쓰려면 Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
@@ -2842,7 +2842,7 @@ def render_disclosures():
         c0, c1, c2 = st.columns(3)
         kind_label = c0.selectbox("공시 유형", list(DISCLOSURE_TYPES), key="list_kind")
         start = c1.date_input(
-            "시작일", value=TODAY - timedelta(days=183), min_value=first_day, max_value=TODAY, key="list_start"
+            "시작일", value=TODAY - timedelta(days=92), min_value=first_day, max_value=TODAY, key="list_start"
         )
         end = c2.date_input("종료일", value=TODAY, min_value=first_day, max_value=TODAY, key="list_end")
         submitted = st.form_submit_button("공시 조회") or st.session_state.pop("list_run", False)
@@ -2919,10 +2919,17 @@ def render_disclosures():
         st.info("검색어와 일치하는 공시가 없습니다.")
         return
 
+    today_str = TODAY.strftime("%Y%m%d")
+    table = disclosure_table(shown)
+    table.insert(0, "새", ["NEW" if str(r.get("rcept_dt", "")) == today_str else "" for r in shown])  # 오늘 올라온 공시
+    fresh = int((table["새"] == "NEW").sum())
+    if fresh:
+        st.caption(f"NEW = 오늘 올라온 공시 {fresh}건")
     st.dataframe(
-        disclosure_table(shown),
+        table.style.map(lambda v: f"color: {NEGATIVE_COLOR}; font-weight: 800" if v == "NEW" else "", subset=["새"]),
         hide_index=True,
-        column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
+        column_config={"새": st.column_config.TextColumn("새", width=55),
+                       "보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
     )
     render_ai_summary(shown, "list", all_rows=res["rows"])
 
@@ -3284,7 +3291,7 @@ def render_news():
     notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(clusters):,}건"]
     fresh = sum(is_new(c["rep"], now) for c in clusters)
     if fresh:
-        notes.append(f"NEW {fresh}건 (최근 {NEW_HOURS}시간)")
+        notes.append(f"NEW {fresh}건 (오늘)")
     if res.get("mode") == "섹터":
         notes.append(f"검색어 {len(res['names'])}개: {', '.join(res['names'])}")
     else:
