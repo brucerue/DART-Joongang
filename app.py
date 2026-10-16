@@ -45,6 +45,8 @@ MAX_YEAR_SPAN = 10  # 한 번에 조회 가능한 최대 연도 수 (API 사용�
 DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
 DART_API_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"  # 재무제표
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"  # 공시 목록
+DART_EXEC_URL = "https://opendart.fss.or.kr/api/elestock.json"  # 임원·주요주주 소유보고
+DART_MAJOR_URL = "https://opendart.fss.or.kr/api/majorstock.json"  # 대량보유(5%) 상황보고
 
 MAX_WORKERS = 6  # 동시에 보낼 DART 요청 수 (한 번 조회에 최대 44번이라 분당 한도에는 여유)
 REQUEST_TIMEOUT = 20  # DART 응답을 기다리는 최대 시간(초)
@@ -53,6 +55,9 @@ EMPTY_TTL = 30 * 60  # '아직 공시 없음' 결과는 더 짧게 저장 (곧 �
 LIST_TTL = 10 * 60  # 공시 목록은 새 공시가 계속 올라오므로 짧게 저장
 LIST_PAGE_SIZE = 100  # DART 공시 목록 API가 한 번에 주는 최대 건수
 MAX_LIST_PAGES = 10  # 공시 목록은 최대 1,000건까지만 표시
+OWN_TTL = 10 * 60  # 지분 공시도 새로 올라오므로 짧게 저장
+OWN_KINDS = {"임원·주요주주": DART_EXEC_URL, "5% 대량보유": DART_MAJOR_URL}
+OWN_PERIODS = {"1개월": 31, "3개월": 92, "6개월": 183, "1년": 366, "전체": None}
 MAX_FEED_PAGES = 30  # 오늘의 공시는 시장마다 최대 3,000건까지만 확인
 FEED_MARKETS = {"코스피+코스닥": ["Y", "K"], "코스피": ["Y"], "코스닥": ["K"]}  # DART 법인구분: Y 코스피, K 코스닥
 CLS_NAMES = {"Y": "코스피", "K": "코스닥", "N": "코넥스", "E": "기타"}
@@ -87,6 +92,7 @@ DISCLOSURE_TYPES = {
 NAVER_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
 NEWS_PAGE_SIZE = 100  # 한 번에 받는 최대 기사 수
 MAX_NEWS_PAGES = 10  # 최대 1,000건까지만 확인 (네이버가 한 검색에서 주는 최대치)
+NEW_HOURS = 3  # 올라온 지 이 시간 이내인 단독 기사에 NEW 표시
 NEWS_TTL = 5 * 60  # 같은 검색은 5분 동안 저장해 둔 결과를 재사용
 SIMILAR_TITLE = 0.8  # 제목이 이 정도(0~1) 이상 비슷하면 같은 기사로 묶는다
 NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7, "한 달": 30}
@@ -748,6 +754,99 @@ def feed_table(rows):
 
 
 # ------------------------------------------------------------
+# 지분 변동 (임원·주요주주 소유보고 / 5% 대량보유 상황보고)
+# ------------------------------------------------------------
+def fetch_ownership(session, store, corp_code, kind):
+    """지분 보고 전체 목록(DART가 기간 구분 없이 한 번에 준다). 없으면 []."""
+    key = ("own", corp_code, kind)
+    cached = cache_lookup(store, key, OWN_TTL)
+    if cached is not _MISSING:
+        return cached
+    jo = call_dart(session, OWN_KINDS[kind], {"crtfc_key": API_KEY, "corp_code": corp_code})
+    rows = jo["list"] if jo else []
+    cache_save(store, key, rows)
+    return rows
+
+
+def to_number(text):
+    """'1,234' / '-1,234' / '5.03' -> 숫자. 비었거나 '-'면 None."""
+    t = str(text or "").replace(",", "").replace("%", "").strip()
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def fmt_delta(text, digits=0):
+    """증감 표시: +1,234 / -1,234 / 0. 숫자가 아니면 '-'."""
+    v = to_number(text)
+    if v is None:
+        return "-"
+    body = f"{abs(v):,.{digits}f}"
+    return f"+{body}" if v > 0 else (f"-{body}" if v < 0 else body)
+
+
+def fmt_plain(text, digits=0, suffix=""):
+    v = to_number(text)
+    return "-" if v is None else f"{v:,.{digits}f}{suffix}"
+
+
+def rcept_date(row):
+    """접수일 'YYYYMMDD' 또는 'YYYY-MM-DD' -> date. 이상하면 None."""
+    d = re.sub(r"\D", "", str(row.get("rcept_dt", "")))
+    try:
+        return datetime.strptime(d[:8], "%Y%m%d").date()
+    except ValueError:
+        return None
+
+
+def blank(text):
+    t = str(text or "").strip()
+    return "" if t in ("", "-") else t
+
+
+def ownership_table(rows, kind):
+    """지분 보고 목록 -> 화면용 표 (최신순으로 들어온 rows 그대로)."""
+    out = []
+    for r in rows:
+        day = rcept_date(r)
+        base = {"접수일": f"{day:%Y.%m.%d}" if day else "-", "보고자": blank(r.get("repror")) or "-"}
+        if kind == "임원·주요주주":
+            role = blank(r.get("isu_exctv_ofcps")) or blank(r.get("isu_main_shrholdr")) or "-"
+            reg = blank(r.get("isu_exctv_rgist_at"))
+            base.update({
+                "직위": f"{role} ({reg})" if reg and role != "-" else role,
+                "증감 주식수": fmt_delta(r.get("sp_stock_lmp_irds_cnt")),
+                "보유 주식수": fmt_plain(r.get("sp_stock_lmp_cnt")),
+                "보유비율": fmt_plain(r.get("sp_stock_lmp_rate"), 2, "%"),
+                "비율 증감": fmt_delta(r.get("sp_stock_lmp_irds_rate"), 2),
+            })
+        else:
+            base.update({
+                "보유비율": fmt_plain(r.get("stkrt"), 2, "%"),
+                "비율 증감": fmt_delta(r.get("stkrt_irds"), 2),
+                "보유 주식수": fmt_plain(r.get("stkqy")),
+                "증감 주식수": fmt_delta(r.get("stkqy_irds")),
+                "보고 사유": blank(r.get("report_resn")) or blank(r.get("report_tp")) or "-",
+            })
+        no = str(r.get("rcept_no", "")).strip()
+        base["원문"] = DART_VIEW_URL.format(no) if no else None
+        out.append(base)
+    return pd.DataFrame(out)
+
+
+def change_style(cell):
+    """증감 칸: 늘면 파랑, 줄면 빨강 (둘 다 굵게)."""
+    t = str(cell)
+    if t.startswith("+"):
+        return f"font-weight: bold; color: {POSITIVE_COLOR}"
+    if t.startswith("-") and t != "-":
+        return f"font-weight: bold; color: {NEGATIVE_COLOR}"
+    return ""
+
+
+
+# ------------------------------------------------------------
 # 뉴스 조회 (네이버 뉴스 검색 API)
 # ------------------------------------------------------------
 class NewsApiError(Exception):
@@ -905,12 +1004,19 @@ def cluster_news(items):
     return out
 
 
-def news_html(clusters):
+def is_new(item, now):
+    """올라온 지 NEW_HOURS 시간 이내인 기사인지."""
+    return now - item["dt"] < timedelta(hours=NEW_HOURS)
+
+
+def news_html(clusters, now=None):
     """묶음 목록 -> 화면에 보여줄 HTML. 제목·주소는 반드시 escape해서 넣는다."""
+    now = now or datetime.now(KST)
 
     def link(item):
         url = item["url"] if item["url"].startswith(("http://", "https://")) else "#"
-        return f'<a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(item["title"])}</a>'
+        badge = '<span class="news-new">NEW</span>' if is_new(item, now) else ""
+        return badge + f'<a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(item["title"])}</a>'
 
     def meta(item):
         tags = f' · <span class="news-tags">{html.escape(", ".join(item["tags"]))}</span>' if item.get("tags") else ""
@@ -926,6 +1032,52 @@ def news_html(clusters):
             block += f"<details><summary>관련 기사 {len(others)}건 보기</summary><ul>{rows}</ul></details>"
         parts.append(block + "</div>")
     return "\n".join(parts)
+
+
+def news_copy_text(res, now=None):
+    """결과 목록을 메모·메신저에 붙여 넣기 좋은 글로. 묶음마다 대표 기사 한 건."""
+    now = now or datetime.now(KST)
+    lines = [f"[단독 뉴스] {res['corp']} · 최근 {res['period']} ({now:%m.%d %H:%M} 기준)", ""]
+    for c in res["clusters"]:
+        it = c["rep"]
+        tags = f" ({', '.join(it['tags'])})" if it.get("tags") else ""
+        lines.append(f"{it['title']} · {it['publisher']}{tags}")
+        lines.append(it["url"])
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def apply_watchlist():
+    """주소 뒤 관심 목록(?news=삼성전자,현대차 / ?sector=반도체)을 처음 한 번만 입력칸에 채우고 자동 조회.
+    단독 뉴스 탭을 먼저 열어야 하면 True."""
+    qp = st.query_params
+    corps, sector = qp.get("news", "").strip(), qp.get("sector", "").strip()
+    if st.session_state.get("watch_applied"):
+        return False
+    st.session_state["watch_applied"] = True
+    if corps:
+        st.session_state["news_mode"] = "기업명"
+        st.session_state["news_corp"] = corps
+    elif sector in NEWS_SECTORS:
+        st.session_state["news_mode"] = "섹터"
+        st.session_state["news_sector"] = sector
+    else:
+        return False
+    st.session_state["news_run"] = True
+    return True
+
+
+def save_watchlist(res):
+    """조회한 기업(섹터)을 주소 뒤에 붙여 둔다 -> 그 주소를 북마크하면 다음에 바로 조회."""
+    try:
+        if res["mode"] == "섹터":
+            st.query_params.pop("news", None)
+            st.query_params["sector"] = res["corp"]
+        else:
+            st.query_params.pop("sector", None)
+            st.query_params["news"] = res["corp"]
+    except Exception:  # 주소를 못 바꾸는 환경이어도 조회 결과는 그대로 보여준다
+        pass
 
 
 # ------------------------------------------------------------
@@ -1140,7 +1292,8 @@ def render_financials():
     st.dataframe(
         style_table(table),
         hide_index=True,
-        column_config={"원문": LINK_COLUMN},
+        # 기간 칸: "2025 4Q"가 모바일에서도 잘리지 않게 넓힌다
+        column_config={"기간": st.column_config.TextColumn("기간", width=95), "원문": LINK_COLUMN},
         height=(len(table) + 1) * 35 + 3,
     )
 
@@ -1264,6 +1417,64 @@ def last_weekday(day):
     return day
 
 
+def render_ownership():
+    """탭: 지분 변동 (임원·주요주주 주식 매매 / 5% 이상 대량보유 변동)"""
+    st.session_state.setdefault("own_corp", "삼성전자")
+    with st.form("own_search"):
+        corp_text = st.text_input("기업명 또는 종목코드", key="own_corp")
+        kind = st.radio("보고 종류", list(OWN_KINDS), horizontal=True, key="own_kind")
+        period = st.radio("기간", list(OWN_PERIODS), index=2, horizontal=True, key="own_period")
+        submitted = st.form_submit_button("지분 공시 조회") or st.session_state.pop("own_run", False)
+
+    if submitted:
+        corp = corp_text.strip()
+        if not corp:
+            st.error("기업명을 입력해주세요.")
+        else:
+            st.session_state.pop("ownership", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+            corp = canonical_corp(corp)  # 대소문자 무시
+            corp_code = lookup_corp_code(corp, "own")
+            if corp_code:
+                with st.spinner("지분 공시를 불러오는 중입니다..."):
+                    try:
+                        rows = fetch_ownership(get_session(), get_cache_store(), corp_code, kind)
+                    except DartApiError as e:
+                        st.error(str(e))
+                    else:
+                        days = OWN_PERIODS[period]
+                        if days:
+                            since = TODAY - timedelta(days=days)
+                            rows = [r for r in rows if (rcept_date(r) or date.min) >= since]
+                        rows = sorted(rows, key=lambda r: (str(rcept_date(r) or ""), str(r.get("rcept_no", ""))), reverse=True)
+                        st.session_state["ownership"] = {"corp": corp, "kind": kind, "period": period, "rows": rows}
+
+    res = st.session_state.get("ownership")
+    if not res:
+        return
+    if not res["rows"]:
+        st.warning(f"최근 {res['period']} 동안 '{res['kind']}' 보고가 없습니다. 기간을 늘리거나 보고 종류를 바꿔보세요.")
+        return
+
+    table = ownership_table(res["rows"], res["kind"])
+    who = st.text_input("보고자 이름으로 거르기", key="own_who", placeholder="예: 이재용, 국민연금 (일부만 써도 돼요)")
+    if who.strip():
+        table = table[table["보고자"].str.replace(" ", "").str.contains(who.replace(" ", ""), case=False, regex=False)]
+
+    up = int(table["증감 주식수"].str.startswith("+").sum())
+    down = int(table["증감 주식수"].str.match(r"^-\d").sum())
+    name = res["rows"][0].get("corp_name") or res["corp"]
+    period_note = "전체 기간" if res["period"] == "전체" else f"최근 {res['period']}"
+    st.caption(f"{name} · {res['kind']} · {period_note} · {len(table):,}건 (주식 증가 {up} · 감소 {down}) · 최신순")
+    if table.empty:
+        st.info("이름이 일치하는 보고자가 없어요.")
+        return
+    st.dataframe(
+        table.style.map(change_style, subset=["증감 주식수", "비율 증감"]),
+        hide_index=True,
+        column_config={"원문": LINK_COLUMN},
+    )
+
+
 def render_feed():
     """탭 3: 오늘의 공시 - 하루 동안 전 상장사가 낸 공시 중 취재거리가 될 만한 것만 모아 보기"""
     with st.form("feed_search"):
@@ -1338,11 +1549,12 @@ def render_news():
         )
         return
 
+    st.session_state.setdefault("news_corp", "삼성전자")  # 기본값 (관심 목록 주소로 들어오면 그 기업들)
     mode = st.radio("검색 방식", ["기업명", "섹터"], horizontal=True, key="news_mode")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     with st.form("news_search"):
         if mode == "기업명":
             corp_text = st.text_input(
-                "기업명 (여러 곳은 쉼표로)", value="삼성전자", key="news_corp",
+                "기업명 (여러 곳은 쉼표로)", key="news_corp",
                 placeholder="예: 삼성전자, SK하이닉스, 현대차",
                 help=f"쉼표(,)나 슬래시(/)로 나눠 최대 {MAX_NEWS_CORPS}곳까지 한 번에 검색해요.",
             )
@@ -1350,7 +1562,7 @@ def render_news():
             sector = st.radio("섹터", list(NEWS_SECTORS), horizontal=True, key="news_sector")
         period = st.radio("기간", list(NEWS_PERIODS), index=1, horizontal=True, key="news_period")
         in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key="news_title")
-        submitted = st.form_submit_button("뉴스 조회")
+        submitted = st.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False)
 
     if submitted:
         corps = []
@@ -1413,6 +1625,7 @@ def render_news():
                         "corp": label, "mode": mode, "names": terms, "corps": corps, "period": period, "total": total,
                         "kept": len(items), "clusters": clusters, "capped": capped, "oldest": since,
                     }
+                    save_watchlist(st.session_state["news"])
 
     res = st.session_state.get("news")
     if not res:
@@ -1427,7 +1640,11 @@ def render_news():
         )
         return
 
+    now = datetime.now(KST)
     notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(clusters):,}건"]
+    fresh = sum(is_new(c["rep"], now) for c in clusters)
+    if fresh:
+        notes.append(f"NEW {fresh}건 (최근 {NEW_HOURS}시간)")
     if res.get("mode") == "섹터":
         notes.append(f"검색어 {len(res['names'])}개: {', '.join(res['names'])}")
     else:
@@ -1442,7 +1659,11 @@ def render_news():
             f"{since} 이후 기사만 보이고 그 이전은 빠져 있습니다. "
             "기간을 줄이면 그 기간은 빠짐없이 볼 수 있어요."
         )
-    st.markdown(news_html(clusters), unsafe_allow_html=True)
+    with st.expander("목록 복사하기 (메모·메신저용)"):
+        st.caption("오른쪽 위 복사 아이콘을 누르면 전체가 복사돼요.")
+        st.code(news_copy_text(res, now), language=None, wrap_lines=True, height=320)  # 길면 상자 안에서 스크롤
+    st.markdown(news_html(clusters, now), unsafe_allow_html=True)
+    st.caption("지금 주소를 북마크(또는 홈 화면에 추가)하면 다음에 열 때 같은 기업으로 바로 조회돼요.")
 
 
 STYLE = """
@@ -1452,6 +1673,12 @@ STYLE = """
 html, body, [class*="st-"], button, input, textarea {
     font-family: "Pretendard", -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
 }
+/* 아이콘(화살표 등)은 아이콘 글꼴 그대로 둔다. 안 그러면 'arrow_right' 같은 글자가 보임 */
+[data-testid="stIconMaterial"], [data-testid="stExpanderIcon"], [data-testid="stExpanderIcon"] span {
+    font-family: "Material Symbols Rounded" !important;
+}
+/* 복사용 글상자: 고정폭 글꼴 대신 본문 글꼴로 읽기 쉽게 */
+[data-testid="stCode"] code { font-family: "Pretendard", -apple-system, sans-serif !important; font-size: 0.85rem; }
 [data-testid="stAppViewContainer"] { background: #f6f8fb; }
 [data-testid="stHeader"] { background: transparent; }
 footer { visibility: hidden; }
@@ -1509,6 +1736,10 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 .news-item > a { font-weight: 600; color: #0b2545; text-decoration: none; line-height: 1.5; }
 .news-item > a:hover { color: #1c7ed6; text-decoration: underline; }
 .news-meta { color: #7a8699; font-size: 0.85rem; margin-top: 0.2rem; }
+.news-new {
+    display: inline-block; background: #e03131; color: #fff; font-size: 0.66rem; font-weight: 700;
+    border-radius: 4px; padding: 0.05rem 0.35rem; margin-right: 0.35rem; vertical-align: 0.12em; letter-spacing: 0.03em;
+}
 .news-item details { margin-top: 0.45rem; font-size: 0.9rem; }
 .news-item summary { color: #1c7ed6; cursor: pointer; }
 .news-item ul { margin: 0.4rem 0 0 0; padding-left: 1.1rem; }
@@ -1532,11 +1763,20 @@ if not API_KEY:
     )
     st.stop()
 
-tab_fin, tab_list, tab_feed, tab_news = st.tabs(["재무 조회", "공시 목록", "오늘의 공시", "단독 뉴스"])
+TAB_NAMES = ["재무 조회", "공시 목록", "지분 변동", "오늘의 공시", "단독 뉴스"]
+# 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
+first_tab = "단독 뉴스" if apply_watchlist() else None
+try:
+    tabs = st.tabs(TAB_NAMES, default=first_tab)
+except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
+    tabs = st.tabs(TAB_NAMES)
+tab_fin, tab_list, tab_own, tab_feed, tab_news = tabs
 with tab_fin:
     render_financials()
 with tab_list:
     render_disclosures()
+with tab_own:
+    render_ownership()
 with tab_feed:
     render_feed()
 with tab_news:
