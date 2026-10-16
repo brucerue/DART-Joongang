@@ -92,6 +92,8 @@ NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7, "한 달": 30}
 
 # 뉴스에 보여줄 언론사. 기사 주소(도메인) -> (언론사 이름, 구분). 여기 없는 매체의 기사는 보이지 않는다.
 NEWS_CATEGORIES = ["종합일간지", "경제지", "통신사"]
+MAX_NEWS_CORPS = 5  # 기업명 칸에 한 번에 넣을 수 있는 기업 수 (많을수록 조회가 느려짐)
+NEWS_SPLIT = r"[,，、/;\n]+"  # 여러 기업을 나누는 기호: 쉼표, 슬래시 등 (띄어쓰기는 'LG 에너지솔루션'처럼 이름 안에 있을 수 있어 제외)
 NEWS_KEYWORD = "단독"  # 뉴스 탭은 항상 이 표기가 제목에 있는 기사만 보여준다 (화면에는 드러내지 않고 내부에서 적용)
 # 이 기업명을 입력하면 아래 별칭도 함께 검색한다 (제목에 줄임말로 쓰이는 경우를 잡기 위함). 자유롭게 추가·수정하세요.
 # 별칭 없이 기업명만 입력하면 그 이름만 검색합니다. 예: '삼성'을 입력하면 '삼성'만, '삼성전자'를 입력하면 삼성전자·삼성·삼전.
@@ -1188,6 +1190,7 @@ def render_disclosures():
                             "truncated": truncated,
                             "start": start,
                             "end": end,
+                            "id": time.time_ns(),  # 조회할 때마다 달라지는 번호 (아래 라디오 키에 사용)
                         }
 
     res = st.session_state.get("disclosures")
@@ -1216,7 +1219,7 @@ def render_disclosures():
         "주요 공시",
         ["전체"] + list(MAJOR_DISCLOSURES),
         horizontal=True,
-        key="list_preset",
+        key=f"list_preset_{res['id']}",  # 건수가 조회마다 바뀌므로 키도 새로 만든다 (feed_view와 같은 이유)
         format_func=lambda p: f"{p} ({len(match_preset(res['rows'], p)):,})",
     )
     base_rows = match_preset(res["rows"], preset)
@@ -1266,6 +1269,7 @@ def render_feed():
             else:
                 st.session_state["feed"] = {
                     "day": day, "market": market, "rows": rows, "total": total, "truncated": truncated,
+                    "id": time.time_ns(),  # 조회할 때마다 달라지는 번호 (아래 라디오 키에 사용)
                 }
 
     res = st.session_state.get("feed")
@@ -1285,7 +1289,8 @@ def render_feed():
         "보기",
         views,
         horizontal=True,
-        key="feed_view",
+        # 선택지 이름의 건수가 조회마다 바뀌므로, 조회마다 키를 새로 만들어 항상 첫 번째가 선택된 채로 시작하게 한다
+        key=f"feed_view_{res['id']}",
         format_func=lambda v: f"{v} ({len(match_preset(res['rows'], v)):,})",
     )
     keyword = st.text_input(
@@ -1321,7 +1326,11 @@ def render_news():
     mode = st.radio("검색 방식", ["기업명", "섹터"], horizontal=True, key="news_mode")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     with st.form("news_search"):
         if mode == "기업명":
-            corp_text = st.text_input("기업명", value="삼성전자", key="news_corp")
+            corp_text = st.text_input(
+                "기업명 (여러 곳은 쉼표로)", value="삼성전자", key="news_corp",
+                placeholder="예: 삼성전자, SK하이닉스, 현대차",
+                help=f"쉼표(,)나 슬래시(/)로 나눠 최대 {MAX_NEWS_CORPS}곳까지 한 번에 검색해요.",
+            )
         else:
             sector = st.radio("섹터", list(NEWS_SECTORS), horizontal=True, key="news_sector")
         period = st.radio("기간", list(NEWS_PERIODS), index=1, horizontal=True, key="news_period")
@@ -1329,20 +1338,37 @@ def render_news():
         submitted = st.form_submit_button("뉴스 조회")
 
     if submitted:
-        label = corp_text.strip() if mode == "기업명" else sector
+        corps = []
+        if mode == "기업명":
+            for part in re.split(NEWS_SPLIT, corp_text):
+                part = part.strip()
+                if part.isdigit() and len(part) == 6:  # 종목코드를 넣었다면 기업명으로 바꿔서 검색
+                    idx = get_name_index()
+                    hit = idx[idx["stock_code"] == part]
+                    if not hit.empty:
+                        part = hit.iloc[0]["corp_name"]
+                if part and name_key(part) not in {name_key(c) for c in corps}:  # 빈칸·중복 제외
+                    corps.append(part)
+            label = ", ".join(corps)
+        else:
+            label = sector
         if not label:
             st.error("기업명을 입력해주세요.")
+        elif len(corps) > MAX_NEWS_CORPS:
+            st.error(f"기업은 한 번에 {MAX_NEWS_CORPS}곳까지 넣을 수 있어요. (지금 {len(corps)}곳)")
         else:
             st.session_state.pop("news", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+            owner = {}  # 검색어 -> 어느 기업 것인지 (여러 기업 검색 때 기사에 기업명 꼬리표를 달기 위해)
             if mode == "기업명":
-                if label.isdigit() and len(label) == 6:  # 종목코드를 넣었다면 기업명으로 바꿔서 검색
-                    idx = get_name_index()
-                    hit = idx[idx["stock_code"] == label]
-                    if not hit.empty:
-                        label = hit.iloc[0]["corp_name"]
-                terms = news_names(label)  # 입력한 이름 + 별칭
+                terms = []
+                for c in corps:
+                    for t in news_names(c):  # 입력한 이름 + 별칭
+                        if t not in owner:
+                            owner[t] = c
+                            terms.append(t)
             else:
                 terms = NEWS_SECTORS[sector]["기업"] + NEWS_SECTORS[sector]["키워드"]
+            multi = len(corps) > 1
             with st.spinner("뉴스를 불러오는 중입니다..."):
                 try:
                     items, capped, since = search_news(terms, NEWS_PERIODS[period])
@@ -1358,12 +1384,18 @@ def render_news():
                         hits = [t for t, k in keys.items() if k in tk]  # 제목에 들어 있는 검색어
                         if in_title and not hits:
                             continue
-                        tagged.append(dict(i, tags=hits if mode == "섹터" else []))  # 저장된 원본은 건드리지 않음
+                        if mode == "섹터":
+                            tags = hits
+                        elif multi:  # 여러 기업 검색: 별칭 대신 기업명으로 꼬리표
+                            tags = list(dict.fromkeys(owner[t] for t in hits))
+                        else:
+                            tags = []
+                        tagged.append(dict(i, tags=tags))  # 저장된 원본은 건드리지 않음
                     # 검색은 제목·요약 어디든 '단독'이 있으면 잡으므로, 제목에 단독 표기가 있는 것만 남긴다
                     items = [i for i in tagged if is_exclusive(i["title"])]
                     clusters = cluster_news(items)  # 비슷한 기사끼리 묶어 최신순으로
                     st.session_state["news"] = {
-                        "corp": label, "mode": mode, "names": terms, "period": period, "total": total,
+                        "corp": label, "mode": mode, "names": terms, "corps": corps, "period": period, "total": total,
                         "kept": len(items), "clusters": clusters, "capped": capped, "oldest": since,
                     }
 
@@ -1383,8 +1415,10 @@ def render_news():
     notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(clusters):,}건"]
     if res.get("mode") == "섹터":
         notes.append(f"검색어 {len(res['names'])}개: {', '.join(res['names'])}")
-    elif len(res["names"]) > 1:
-        notes.append(f"함께 검색: {', '.join(res['names'][1:])}")
+    else:
+        extra = [n for n in res["names"] if n not in res.get("corps", [res["corp"]])]  # 별칭만
+        if extra:
+            notes.append(f"함께 검색: {', '.join(extra)}")
     st.caption(" · ".join(notes))
     if res["capped"]:
         since = f"{res['oldest']:%m.%d %H:%M}" if res.get("oldest") else "?"
