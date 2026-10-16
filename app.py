@@ -18,6 +18,7 @@ import os
 import re
 import time
 import unicodedata
+import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -46,6 +47,10 @@ MAX_YEAR_SPAN = 10  # 한 번에 조회 가능한 최대 연도 수 (API 사용�
 DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
 DART_API_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"  # 재무제표
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"  # 공시 목록
+DART_DOC_URL = "https://opendart.fss.or.kr/api/document.xml"  # 공시서류 원본파일 (zip)
+MAX_DOC_CHARS = 80_000  # AI에 보내는 원문 최대 글자 수 (사업보고서처럼 아주 긴 공시는 앞부분만)
+AI_TIMEOUT = 90  # AI 응답을 기다리는 최대 시간(초)
+AI_TTL = 7 * 24 * 3600  # 같은 공시의 요약은 일주일 동안 저장해 두고 다시 쓴다 (비용 절약)
 # 임원 보수 (사업·반기보고서). 2026년 5월 이후 제출된 보고서는 V2 주소로만 나와서, 옛 주소에 없으면 V2로 다시 찾는다.
 PAY_APIS = {
     "indiv": ["hmvAuditIndvdlBySttus", "hmvAuditIndvdlBySttusV2"],  # 이사·감사 개인별 보수 (5억원 이상)
@@ -254,6 +259,15 @@ def load_secret(name):
 
 NAVER_ID = load_secret("NAVER_CLIENT_ID")
 NAVER_SECRET = load_secret("NAVER_CLIENT_SECRET")
+
+# AI 공시 요약 (선택). GEMINI_API_KEY가 있으면 Gemini, 없고 ANTHROPIC_API_KEY가 있으면 Claude를 쓴다.
+# 모델 이름은 자주 바뀌므로 Secrets의 GEMINI_MODEL / ANTHROPIC_MODEL로 바꿀 수 있다.
+GEMINI_KEY = load_secret("GEMINI_API_KEY")
+GEMINI_MODEL = load_secret("GEMINI_MODEL") or "gemini-3.6-flash"
+ANTHROPIC_KEY = load_secret("ANTHROPIC_API_KEY")
+ANTHROPIC_MODEL = load_secret("ANTHROPIC_MODEL") or "claude-haiku-5-5"
+AI_PROVIDER = "gemini" if GEMINI_KEY else ("claude" if ANTHROPIC_KEY else None)
+AI_PASSWORD = load_secret("AI_PASSWORD")  # 있으면 AI 요약 버튼을 쓰기 전에 한 번 물어본다 (다른 사람이 내 키를 쓰지 않게)
 
 # 계정명은 회사·연도마다 바뀔 수 있다 (예: LG에너지솔루션 2026년부터 '매출액 및 기타수익').
 # 그래서 표준 계정 코드(_IDS)로 먼저 찾고, 없으면 이름으로 찾는다. 이름은 띄어쓰기를 지우고 비교.
@@ -1246,6 +1260,164 @@ def change_style(cell):
 
 
 # ------------------------------------------------------------
+# AI 공시 요약 (DART 원문 -> Gemini/Claude)
+# ------------------------------------------------------------
+class AiError(Exception):
+    """AI 요약 실패 (키 오류·사용량 초과·원문 없음 등). 화면에 그대로 보여준다."""
+
+
+def doc_text_from_zip(data):
+    """DART 원본파일 zip -> 읽을 수 있는 글자. 표는 칸을 ' | ', 줄을 줄바꿈으로 바꿔 구조를 살린다."""
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as e:
+        raise AiError("DART 원문 파일을 열 수 없어요. 잠시 후 다시 시도해주세요.") from e
+    names = sorted(zf.namelist(), key=lambda n: (not n.endswith(".xml"), len(n), n))  # 본문(접수번호.xml)이 보통 가장 짧은 이름
+    parts = []
+    for name in names:
+        raw = zf.read(name)
+        for enc in ("utf-8", "cp949"):
+            try:
+                text = raw.decode(enc)
+                break
+            except UnicodeDecodeError:
+                text = None
+        if text is None:
+            continue
+        text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", text)
+        text = re.sub(r"(?i)</(TD|TH|TE|TU)>", " | ", text)
+        text = re.sub(r"(?i)</(TR|P|TITLE|TABLE|LIBRARY|SECTION-\d+|BR)\s*>|<BR\s*/?>", "\n", text)
+        text = html.unescape(re.sub(r"<[^>]+>", " ", text))
+        text = re.sub(r"[ \t ]+", " ", text)
+        text = re.sub(r"\s*\n\s*", "\n", text).strip()
+        if text:
+            parts.append(text)
+    return "\n\n".join(parts)
+
+
+def fetch_document_text(session, store, rcept_no):
+    """접수번호 -> 공시 원문 글자 (하루 저장). 원문이 없거나 DART 오류면 AiError."""
+    key = ("doc", rcept_no)
+    cached = cache_lookup(store, key, 24 * 3600)
+    if cached is not _MISSING and cached:
+        return cached
+    try:
+        res = session.get(DART_DOC_URL, params={"crtfc_key": API_KEY, "rcept_no": rcept_no}, timeout=REQUEST_TIMEOUT)
+    except Exception as e:
+        raise AiError("DART 서버 응답이 없거나 늦어지고 있습니다. 잠시 후 다시 시도해주세요.") from e
+    data = res.content or b""
+    if not data.startswith(b"PK"):  # zip이 아니면 오류 메시지 (XML 또는 JSON)
+        msg = data.decode("utf-8", "ignore")
+        code = (re.search(r"<status>(\d+)</status>", msg) or re.search(r'"status"\s*:\s*"(\d+)"', msg))
+        code = code.group(1) if code else "?"
+        if code in ("013", "014"):
+            raise AiError("DART에 이 공시의 원문 파일이 아직 없어요. 잠시 후 다시 시도하거나 원문 링크로 확인해주세요.")
+        if code == "020":
+            raise AiError("DART API 하루 호출 한도를 초과했습니다. 잠시 후 또는 내일 다시 시도해주세요.")
+        raise AiError(f"DART 원문을 받지 못했어요. [{code}]")
+    text = doc_text_from_zip(data)
+    if not text:
+        raise AiError("원문에서 글자를 찾지 못했어요. 원문 링크로 확인해주세요.")
+    cache_save(store, key, text)
+    return text
+
+
+AI_SYSTEM = (
+    "너는 한국 경제신문 산업부 기자를 돕는 공시 분석 보조자다. "
+    "반드시 사용자가 준 DART 공시 원문에 적힌 내용만 근거로 쓴다. "
+    "원문에 없는 숫자·사실·전망·평가·시장 반응을 절대 만들지 않는다. "
+    "숫자는 원문 표기 그대로(단위 포함) 옮기고, 원문에서 확인되지 않는 항목은 '원문에 없음'이라고 쓴다. "
+    "한국어로, 짧고 명확한 기사체로 쓴다."
+)
+
+
+def ai_prompt(title, text):
+    truncated = len(text) > MAX_DOC_CHARS
+    body = text[:MAX_DOC_CHARS]
+    note = f"(원문이 길어 앞부분 {MAX_DOC_CHARS:,}자만 제공됨)\n" if truncated else ""
+    return (
+        f"공시 제목: {title}\n{note}\n"
+        "아래 원문을 읽고 다음 형식 그대로 요약해줘.\n\n"
+        "**핵심 요약**\n- (무슨 공시이고 무엇을 결정·보고했는지 3줄 이내)\n\n"
+        "**주요 숫자**\n- 항목: 값 (공시 종류에 맞는 핵심 항목만. 예: 계약금액, 최근 매출액 대비 비율, 계약기간, 계약상대방, "
+        "증자 규모·발행가·방식·자금 용도, 실적 증감, 취득·처분 금액과 목적 등. 최대 8개)\n\n"
+        "**눈여겨볼 점**\n- (원문에 적힌 조건·해지 사유·정정 내용·유의사항 등 최대 3개. 없으면 '특이사항 없음')\n\n"
+        f"[공시 원문]\n{body}"
+    )
+
+
+def call_gemini(session, prompt):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+    body = {
+        "systemInstruction": {"parts": [{"text": AI_SYSTEM}]},
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192},
+    }
+    try:
+        res = session.post(url, json=body, headers={"x-goog-api-key": GEMINI_KEY}, timeout=AI_TIMEOUT)
+    except Exception as e:
+        raise AiError("Gemini 서버 응답이 없거나 늦어지고 있어요. 잠시 후 다시 시도해주세요.") from e
+    if res.status_code == 429:
+        raise AiError("Gemini 사용량 한도를 넘었어요 (무료 등급은 분·일 한도가 있어요). 잠시 후 다시 시도해주세요.")
+    if res.status_code == 404:
+        raise AiError(f"Gemini 모델 '{GEMINI_MODEL}'을 찾지 못했어요. Secrets의 GEMINI_MODEL 이름을 확인해주세요.")
+    if res.status_code in (400, 401, 403):
+        try:
+            msg = res.json().get("error", {}).get("message", "")
+        except Exception:
+            msg = ""
+        if "key" in msg.lower() or res.status_code in (401, 403):
+            raise AiError("Gemini API 키가 올바르지 않아요. Secrets의 GEMINI_API_KEY를 확인해주세요.")
+        raise AiError(f"Gemini 요청 오류: {msg or res.status_code}")
+    if res.status_code != 200:
+        raise AiError(f"Gemini 응답 오류 [{res.status_code}]")
+    data = res.json()
+    cands = data.get("candidates") or []
+    text = "".join(p.get("text", "") for c in cands[:1] for p in (c.get("content") or {}).get("parts", []) if not p.get("thought"))
+    if not text.strip():
+        reason = (cands[0].get("finishReason") if cands else None) or (data.get("promptFeedback") or {}).get("blockReason")
+        raise AiError(f"Gemini가 요약을 돌려주지 않았어요{f' ({reason})' if reason else ''}. 다시 시도하거나 원문 링크로 확인해주세요.")
+    return text.strip()
+
+
+def call_claude(session, prompt):
+    body = {"model": ANTHROPIC_MODEL, "max_tokens": 2000, "temperature": 0.2, "system": AI_SYSTEM,
+            "messages": [{"role": "user", "content": prompt}]}
+    headers = {"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"}
+    try:
+        res = session.post("https://api.anthropic.com/v1/messages", json=body, headers=headers, timeout=AI_TIMEOUT)
+    except Exception as e:
+        raise AiError("Claude 서버 응답이 없거나 늦어지고 있어요. 잠시 후 다시 시도해주세요.") from e
+    if res.status_code in (401, 403):
+        raise AiError("Claude API 키가 올바르지 않아요. Secrets의 ANTHROPIC_API_KEY를 확인해주세요.")
+    if res.status_code == 429:
+        raise AiError("Claude 사용량 한도를 넘었어요. 잠시 후 다시 시도해주세요.")
+    if res.status_code != 200:
+        raise AiError(f"Claude 응답 오류 [{res.status_code}]")
+    text = "".join(b.get("text", "") for b in res.json().get("content", []) if b.get("type") == "text")
+    if not text.strip():
+        raise AiError("Claude가 요약을 돌려주지 않았어요. 다시 시도해주세요.")
+    return text.strip()
+
+
+def ai_summary(rcept_no, title):
+    """공시 하나 요약 (같은 공시는 일주일 저장). -> (요약 글, 원문이 잘렸는지)"""
+    session, store = get_session(), get_cache_store()
+    model = GEMINI_MODEL if AI_PROVIDER == "gemini" else ANTHROPIC_MODEL
+    key = ("ai", AI_PROVIDER, model, rcept_no)
+    cached = cache_lookup(store, key, AI_TTL)
+    if cached is not _MISSING and cached:
+        return cached
+    text = fetch_document_text(session, store, rcept_no)
+    prompt = ai_prompt(title, text)
+    summary = call_gemini(session, prompt) if AI_PROVIDER == "gemini" else call_claude(session, prompt)
+    value = (summary, len(text) > MAX_DOC_CHARS)
+    cache_save(store, key, value)
+    return value
+
+
+
+# ------------------------------------------------------------
 # 뉴스 조회 (네이버 뉴스 검색 API)
 # ------------------------------------------------------------
 class NewsApiError(Exception):
@@ -1895,6 +2067,60 @@ def render_industry():
     )
 
 
+def render_ai_summary(rows, prefix):
+    """표 아래 'AI 요약' 상자: 공시 하나를 골라 원문을 열지 않고 핵심만 본다."""
+    with st.expander("AI 요약 — 원문을 열지 않고 핵심만 보기"):
+        if not AI_PROVIDER:
+            st.caption("AI 요약을 쓰려면 Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
+            return
+        if AI_PASSWORD and not st.session_state.get("ai_ok"):
+            pw = st.text_input("AI 요약 비밀번호", type="password", key=f"{prefix}_ai_pw")
+            if not pw:
+                st.caption("비밀번호를 넣으면 이 창을 닫기 전까지 계속 쓸 수 있어요.")
+                return
+            if pw != AI_PASSWORD:
+                st.error("비밀번호가 맞지 않아요.")
+                return
+            st.session_state["ai_ok"] = True
+        items = [r for r in rows if str(r.get("rcept_no", "")).strip()][:500]
+        if not items:
+            st.caption("요약할 공시가 없어요.")
+            return
+
+        def label(r):
+            d = str(r.get("rcept_dt", ""))
+            d = f"{d[4:6]}.{d[6:8]}" if len(d) == 8 else d
+            corp = f"{r.get('corp_name', '')} · " if r.get("corp_name") else ""
+            return f"{d} {corp}{str(r.get('report_nm', '')).strip()}"
+
+        idx = st.selectbox(
+            "요약할 공시", range(len(items)), index=None, format_func=lambda i: label(items[i]),
+            placeholder="공시를 고르세요 (지금 표에 보이는 공시)", key=f"{prefix}_ai_pick",
+        )
+        if idx is None:
+            return
+        r = items[idx]
+        rno = str(r["rcept_no"]).strip()
+        title = label(r)
+        saved = st.session_state.get(f"{prefix}_ai")
+        if st.button("AI 요약", key=f"{prefix}_ai_go", type="primary"):
+            with st.spinner("원문을 읽고 요약하는 중입니다... (긴 공시는 10~30초 걸려요)"):
+                try:
+                    summary, truncated = ai_summary(rno, title)
+                except (AiError, DartApiError) as e:
+                    st.error(str(e))
+                    return
+            saved = {"rcept_no": rno, "summary": summary, "truncated": truncated}
+            st.session_state[f"{prefix}_ai"] = saved
+        if saved and saved["rcept_no"] == rno:
+            st.markdown(saved["summary"])
+            notes = [f"AI 요약({'Gemini' if AI_PROVIDER == 'gemini' else 'Claude'}) · 숫자는 반드시 원문으로 확인하세요"]
+            if saved["truncated"]:
+                notes.append(f"원문이 길어 앞부분 {MAX_DOC_CHARS:,}자만 요약했어요")
+            st.caption(" · ".join(notes))
+            st.markdown(f"[DART 원문 보기]({DART_VIEW_URL.format(rno)})")
+
+
 def render_disclosures():
     """탭 2: 공시 목록 (DART에서 기업명을 눌렀을 때 나오는 목록)"""
     first_day = date(1999, 1, 1)
@@ -1986,6 +2212,7 @@ def render_disclosures():
         hide_index=True,
         column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
     )
+    render_ai_summary(shown, "list")
 
 
 def last_weekday(day):
@@ -2164,6 +2391,7 @@ def render_feed():
         hide_index=True,
         column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
     )
+    render_ai_summary(shown, "feed")
 
 
 def render_news():
