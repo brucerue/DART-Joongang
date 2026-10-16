@@ -255,8 +255,14 @@ def load_secret(name):
 NAVER_ID = load_secret("NAVER_CLIENT_ID")
 NAVER_SECRET = load_secret("NAVER_CLIENT_SECRET")
 
-REVENUE_NAMES = ["매출액", "수익(매출액)", "영업수익"]
+# 계정명은 회사·연도마다 바뀔 수 있다 (예: LG에너지솔루션 2026년부터 '매출액 및 기타수익').
+# 그래서 표준 계정 코드(_IDS)로 먼저 찾고, 없으면 이름으로 찾는다. 이름은 띄어쓰기를 지우고 비교.
+REVENUE_NAMES = [
+    "매출액", "수익(매출액)", "영업수익", "매출", "수익", "매출액및기타수익", "매출및기타수익", "매출액(영업수익)",
+]
+REVENUE_IDS = ["ifrs-full_Revenue", "ifrs_Revenue"]
 OPERATING_NAMES = ["영업이익", "영업이익(손실)", "영업손익", "영업손실", "영업손실(이익)"]
+OPERATING_IDS = ["dart_OperatingIncomeLoss"]
 NET_NAMES = [
     "당기순이익", "당기순이익(손실)", "당기순손익", "당기순손실", "당기순손실(이익)", "연결당기순이익",
     "분기순이익", "분기순이익(손실)", "분기순손실", "반기순이익", "반기순이익(손실)", "반기순손실",
@@ -305,7 +311,7 @@ def get_session():
 
 # 저장해 두는 데이터의 모양이 바뀌면(예: 순이익 추가) 이 숫자를 올린다.
 # 그래야 앱을 고친 직후에도 예전 형식으로 저장된 결과(순이익 없음)를 다시 쓰지 않는다.
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 
 
 @st.cache_resource
@@ -332,7 +338,7 @@ def slim(df):
         return None
     keep = account_names(df).isin(REVENUE_NAMES + OPERATING_NAMES + NET_NAMES + BS_NAMES)
     if "account_id" in df.columns:
-        keep |= df["account_id"].astype(str).str.strip().isin(NET_IDS + BS_IDS)
+        keep |= df["account_id"].astype(str).str.strip().isin(REVENUE_IDS + OPERATING_IDS + NET_IDS + BS_IDS)
     rows = df[keep]
     if rows.empty:
         return None
@@ -656,7 +662,7 @@ def collect_yearly(corp_code, start, end, tick):
     for y in years:
         df = reports[(y, ANNUAL)]
         data[y] = {
-            "rev": pick(df, REVENUE_NAMES), "op": pick(df, OPERATING_NAMES),
+            "rev": pick(df, REVENUE_NAMES, ids=REVENUE_IDS), "op": pick(df, OPERATING_NAMES, ids=OPERATING_IDS),
             "net": pick(df, NET_NAMES, ids=NET_IDS), "link": link_of(df),
             "bs": bs_values(df, with_capex=True),
         }
@@ -692,8 +698,8 @@ def collect_quarterly(corp_code, start, end, tick):
     data = {}
     for y in years:
         reports = [fetched[(y, c)] for c in codes]
-        revs = quarter_values(*reports, REVENUE_NAMES)
-        ops = quarter_values(*reports, OPERATING_NAMES)
+        revs = quarter_values(*reports, REVENUE_NAMES, ids=REVENUE_IDS)
+        ops = quarter_values(*reports, OPERATING_NAMES, ids=OPERATING_IDS)
         nets = quarter_values(*reports, NET_NAMES, ids=NET_IDS)
         for i in range(4):  # 1~3분기는 각 분기 보고서, 4분기는 사업보고서로 연결
             data[(y, i + 1)] = {"rev": revs[i], "op": ops[i], "net": nets[i], "link": link_of(reports[i]),
@@ -910,11 +916,12 @@ def period_values(reports, period):
     """보고서들 {코드: 데이터} -> 그 기간의 {rev, op, net}"""
     if period == "연간" or period in ("1Q", "2Q", "3Q"):
         df = reports.get(period_codes(period)[0])
-        return {"rev": pick(df, REVENUE_NAMES), "op": pick(df, OPERATING_NAMES), "net": pick(df, NET_NAMES, ids=NET_IDS)}
+        return {"rev": pick(df, REVENUE_NAMES, ids=REVENUE_IDS), "op": pick(df, OPERATING_NAMES, ids=OPERATING_IDS),
+                "net": pick(df, NET_NAMES, ids=NET_IDS)}
     r = [reports.get(c) for c in (Q1, H1, Q3, ANNUAL)]
     return {
-        "rev": quarter_values(*r, REVENUE_NAMES)[3],
-        "op": quarter_values(*r, OPERATING_NAMES)[3],
+        "rev": quarter_values(*r, REVENUE_NAMES, ids=REVENUE_IDS)[3],
+        "op": quarter_values(*r, OPERATING_NAMES, ids=OPERATING_IDS)[3],
         "net": quarter_values(*r, NET_NAMES, ids=NET_IDS)[3],
     }
 
