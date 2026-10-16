@@ -3,7 +3,9 @@ DART 매출액 / 영업이익 조회 (Streamlit)
 
 기능: 연도별·분기별 조회, 전년(동기)·전분기 대비 증감률,
       흑자전환/적자전환/적자지속 표시, 금액은 억원 단위,
-      CSV·엑셀 다운로드, 공시 원문 링크, 공시 목록(유형 필터·보고서명 검색), 단독 뉴스(중복 묶기·언론사 구분 선택)
+      CSV·엑셀 다운로드, 공시 원문 링크,
+      공시 목록(유형 필터·주요 공시 버튼·보고서명 검색), 오늘의 공시(전 상장사 주요 공시 모아보기),
+      단독 뉴스(기업명·섹터 검색, 비슷한 기사 묶기)
 
 [설치]   pip install -r requirements.txt
 [실행]   streamlit run app.py
@@ -50,6 +52,20 @@ EMPTY_TTL = 30 * 60  # '아직 공시 없음' 결과는 더 짧게 저장 (곧 �
 LIST_TTL = 10 * 60  # 공시 목록은 새 공시가 계속 올라오므로 짧게 저장
 LIST_PAGE_SIZE = 100  # DART 공시 목록 API가 한 번에 주는 최대 건수
 MAX_LIST_PAGES = 10  # 공시 목록은 최대 1,000건까지만 표시
+MAX_FEED_PAGES = 30  # 오늘의 공시는 시장마다 최대 3,000건까지만 확인
+FEED_MARKETS = {"코스피+코스닥": ["Y", "K"], "코스피": ["Y"], "코스닥": ["K"]}  # DART 법인구분: Y 코스피, K 코스닥
+CLS_NAMES = {"Y": "코스피", "K": "코스닥", "N": "코넥스", "E": "기타"}
+
+# 주요 공시 묶음. 보고서명에 아래 단어 중 하나가 들어 있으면 그 묶음에 속한다 (공백·괄호·가운뎃점은 무시하고 비교).
+# '공시 목록' 탭의 주요 공시 버튼과 '오늘의 공시' 탭이 함께 쓴다. 자유롭게 추가·수정하세요.
+MAJOR_DISCLOSURES = {
+    "영업실적": ["영업(잠정)실적", "영업실적", "잠정실적", "손익구조"],
+    "공급계약": ["공급계약", "판매계약"],
+    "증자·감자": ["유상증자", "무상증자", "감자"],
+    "합병·분할": ["합병", "분할", "주식교환", "주식이전"],
+    "자기주식": ["자기주식"],
+    "지분 변동": ["대량보유", "소유상황", "최대주주", "소유주식변동"],
+}
 
 # 공시 유형 (DART 공시 목록 API의 pblntf_ty 값). 빈 문자열은 '전체'
 DISCLOSURE_TYPES = {
@@ -386,6 +402,57 @@ def collect_disclosures(corp_code, start, end, kind=""):
     return rows, total_count, total_page > MAX_LIST_PAGES
 
 
+def fetch_feed_page(session, store, ymd, cls, page):
+    """하루치 전체 공시 한 페이지(최대 100건). 기업을 지정하지 않고 시장(corp_cls)별로 조회한다."""
+    key = ("feed", ymd, cls, page)
+    cached = cache_lookup(store, key, LIST_TTL)
+    if cached is not _MISSING:
+        return cached
+    params = {
+        "crtfc_key": API_KEY,
+        "bgn_de": ymd,
+        "end_de": ymd,
+        "corp_cls": cls,
+        "last_reprt_at": "N",  # 정정 공시까지 모두
+        "page_no": page,
+        "page_count": LIST_PAGE_SIZE,
+    }
+    jo = call_dart(session, DART_LIST_URL, params)
+    cache_save(store, key, jo)
+    return jo
+
+
+def collect_feed(day, classes):
+    """하루치 전체 공시(최신순). (행 목록, 전체 건수, 잘림 여부)를 돌려준다."""
+    session, store = get_session(), get_cache_store()
+    ymd = day.strftime("%Y%m%d")
+    rows, total, truncated, pages = [], 0, False, {}
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        firsts = list(pool.map(lambda c: fetch_feed_page(session, store, ymd, c, 1), classes))
+        futures = {}
+        for cls, first in zip(classes, firsts):
+            if first is None:
+                continue
+            total += int(first.get("total_count", len(first["list"])))
+            total_page = int(first.get("total_page", 1))
+            truncated = truncated or total_page > MAX_FEED_PAGES
+            rows.extend(first["list"])
+            for page in range(2, min(total_page, MAX_FEED_PAGES) + 1):  # 나머지 페이지는 동시에 조회
+                futures[pool.submit(fetch_feed_page, session, store, ymd, cls, page)] = (cls, page)
+        try:
+            for future in as_completed(futures):
+                pages[futures[future]] = future.result()
+        except Exception:
+            for f in futures:
+                f.cancel()
+            raise
+    for key in sorted(pages):
+        if pages[key]:
+            rows.extend(pages[key]["list"])
+    rows.sort(key=lambda r: str(r.get("rcept_no", "")), reverse=True)  # 접수번호가 클수록 나중에 접수
+    return rows, total, truncated
+
+
 def fetch_many(corp_code, tasks, tick):
     """(연도, 보고서코드) 목록을 동시에 조회해 {(연도, 보고서코드): 데이터}로 돌려준다."""
     session, store = get_session(), get_cache_store()  # 화면 스레드에서 미리 준비
@@ -631,6 +698,23 @@ def filter_by_keyword(rows, keyword):
     return [r for r in rows if all(t in str(r.get("report_nm", "")).lower() for t in terms)]
 
 
+def disclosure_key(text):
+    """보고서명 비교용: 소문자로 바꾸고 공백·괄호·가운뎃점을 없앤다. 예: 영업(잠정)실적 -> 영업잠정실적"""
+    return re.sub(r"[\s·ㆍ()\[\]]", "", str(text).lower())
+
+
+def match_preset(rows, preset):
+    """묶음 이름으로 공시를 걸러낸다. '전체'·'모든 공시'는 그대로, '주요 전체'는 모든 묶음의 합."""
+    if preset in MAJOR_DISCLOSURES:
+        words = MAJOR_DISCLOSURES[preset]
+    elif preset == "주요 전체":
+        words = [w for ws in MAJOR_DISCLOSURES.values() for w in ws]
+    else:
+        return rows
+    keys = [disclosure_key(w) for w in words]
+    return [r for r in rows if any(k in disclosure_key(r.get("report_nm", "")) for k in keys)]
+
+
 def disclosure_table(rows):
     """공시 목록 API 응답(rows)을 화면용 표로 바꾼다."""
     df = pd.DataFrame(rows).reindex(columns=["rcept_dt", "report_nm", "flr_nm", "rcept_no"]).fillna("")
@@ -640,6 +724,21 @@ def disclosure_table(rows):
             "접수일": dates,
             "보고서명": df["report_nm"].astype(str).str.strip(),
             "제출인": df["flr_nm"],
+            "원문": df["rcept_no"].astype(str).map(lambda n: DART_VIEW_URL.format(n) if n else None),
+        }
+    )
+
+
+def feed_table(rows):
+    """오늘의 공시 목록 -> 화면용 표 (시장·회사 포함)."""
+    df = pd.DataFrame(rows).reindex(columns=["rcept_dt", "corp_cls", "corp_name", "report_nm", "rcept_no"]).fillna("")
+    dates = pd.to_datetime(df["rcept_dt"], format="%Y%m%d", errors="coerce").dt.strftime("%Y-%m-%d").fillna("")
+    return pd.DataFrame(
+        {
+            "접수일": dates,
+            "시장": df["corp_cls"].map(lambda c: CLS_NAMES.get(c, c)),
+            "회사": df["corp_name"],
+            "보고서명": df["report_nm"].astype(str).str.strip(),
             "원문": df["rcept_no"].astype(str).map(lambda n: DART_VIEW_URL.format(n) if n else None),
         }
     )
@@ -1112,14 +1211,22 @@ def render_disclosures():
             "기간을 줄이거나 공시 유형을 골라 다시 조회해보세요."
         )
 
-    # 검색은 이미 가져온 목록 안에서 걸러내는 것이라 DART를 다시 부르지 않는다
+    # 주요 공시 버튼과 검색은 이미 가져온 목록 안에서 걸러내는 것이라 DART를 다시 부르지 않는다
+    preset = st.radio(
+        "주요 공시",
+        ["전체"] + list(MAJOR_DISCLOSURES),
+        horizontal=True,
+        key="list_preset",
+        format_func=lambda p: f"{p} ({len(match_preset(res['rows'], p)):,})",
+    )
+    base_rows = match_preset(res["rows"], preset)
     keyword = st.text_input(
         "보고서명 검색",
         key="list_keyword",
         placeholder="예: 잠정실적, 유상증자, 사업보고서 (공백으로 여러 단어를 넣으면 모두 포함된 공시만)",
     )
-    shown = filter_by_keyword(res["rows"], keyword)
-    if keyword.strip():
+    shown = filter_by_keyword(base_rows, keyword)
+    if keyword.strip() or preset != "전체":
         st.caption(f"검색 결과 {len(shown):,}건 (불러온 {len(res['rows']):,}건 중)")
     if not shown:
         st.info("검색어와 일치하는 공시가 없습니다.")
@@ -1127,6 +1234,76 @@ def render_disclosures():
 
     st.dataframe(
         disclosure_table(shown),
+        hide_index=True,
+        column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
+    )
+
+
+def last_weekday(day):
+    """주말이면 직전 금요일로 (공시는 평일에만 나온다. 공휴일은 따로 계산하지 않는다)."""
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return day
+
+
+def render_feed():
+    """탭 3: 오늘의 공시 - 하루 동안 전 상장사가 낸 공시 중 취재거리가 될 만한 것만 모아 보기"""
+    with st.form("feed_search"):
+        c1, c2 = st.columns(2)
+        day = c1.date_input(
+            "날짜", value=last_weekday(TODAY), min_value=date(2015, 1, 1), max_value=TODAY, key="feed_date"
+        )
+        market = c2.radio("시장", list(FEED_MARKETS), horizontal=True, key="feed_market")
+        submitted = st.form_submit_button("공시 불러오기")
+
+    if submitted:
+        st.session_state.pop("feed", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+        with st.spinner("공시를 불러오는 중입니다... (공시가 많은 날은 몇 초 걸려요)"):
+            try:
+                rows, total, truncated = collect_feed(day, FEED_MARKETS[market])
+            except DartApiError as e:
+                st.error(str(e))
+            else:
+                st.session_state["feed"] = {
+                    "day": day, "market": market, "rows": rows, "total": total, "truncated": truncated,
+                }
+
+    res = st.session_state.get("feed")
+    if not res:
+        st.caption("날짜와 시장을 고르고 '공시 불러오기'를 누르세요. 영업실적·공급계약·증자·합병·자기주식·지분 변동 공시를 골라 보여줍니다.")
+        return
+    if not res["rows"]:
+        st.warning("이 날짜에 조회된 공시가 없습니다. 휴장일이거나 아직 공시가 올라오기 전일 수 있어요.")
+        return
+
+    views = ["주요 전체"] + list(MAJOR_DISCLOSURES) + ["모든 공시"]
+    notes = [f"{res['day']}", res["market"], f"전체 공시 {res['total']:,}건", "최신순", "정정 공시 포함"]
+    st.caption(" · ".join(notes))
+    if res["truncated"]:
+        st.warning(f"공시가 매우 많아 시장마다 최신 {MAX_FEED_PAGES * LIST_PAGE_SIZE:,}건까지만 확인했어요.")
+    view = st.radio(
+        "보기",
+        views,
+        horizontal=True,
+        key="feed_view",
+        format_func=lambda v: f"{v} ({len(match_preset(res['rows'], v)):,})",
+    )
+    keyword = st.text_input(
+        "회사·보고서명 검색", key="feed_keyword", placeholder="예: 삼성, 하이닉스, 유상증자 (공백으로 여러 단어를 넣으면 모두 포함된 공시만)"
+    )
+    shown = match_preset(res["rows"], view)
+    terms = keyword.lower().split()
+    if terms:
+        shown = [
+            r for r in shown
+            if all(t in f"{r.get('corp_name', '')} {r.get('report_nm', '')}".lower() for t in terms)
+        ]
+        st.caption(f"검색 결과 {len(shown):,}건")
+    if not shown:
+        st.info("조건에 맞는 공시가 없습니다.")
+        return
+    st.dataframe(
+        feed_table(shown),
         hide_index=True,
         column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
     )
@@ -1306,10 +1483,12 @@ if not API_KEY:
     )
     st.stop()
 
-tab_fin, tab_list, tab_news = st.tabs(["재무 조회", "공시 목록", "단독 뉴스"])
+tab_fin, tab_list, tab_feed, tab_news = st.tabs(["재무 조회", "공시 목록", "오늘의 공시", "단독 뉴스"])
 with tab_fin:
     render_financials()
 with tab_list:
     render_disclosures()
+with tab_feed:
+    render_feed()
 with tab_news:
     render_news()
