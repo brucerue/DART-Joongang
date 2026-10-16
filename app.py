@@ -236,6 +236,8 @@ OPERATING_NAMES = ["영업이익", "영업이익(손실)", "영업손익", "영�
 NET_NAMES = [
     "당기순이익", "당기순이익(손실)", "당기순손익", "당기순손실", "당기순손실(이익)", "연결당기순이익",
     "분기순이익", "분기순이익(손실)", "분기순손실", "반기순이익", "반기순이익(손실)", "반기순손실",
+    "당기순이익(순손실)", "분기순이익(순손실)", "반기순이익(순손실)", "분기순손익", "반기순손익",
+    "연결분기순이익", "연결반기순이익", "연결당기순이익(손실)",
 ]
 NET_IDS = ["ifrs-full_ProfitLoss", "ifrs_ProfitLoss"]  # 당기순이익의 표준 계정 코드 (이름이 회사마다 달라도 잡힘)
 LOSS_ONLY_NAMES = ["영업손실", "당기순손실", "분기순손실", "반기순손실"]  # 이 이름이면 값이 양수여도 손실로 처리
@@ -265,20 +267,34 @@ def get_session():
     return session
 
 
+# 저장해 두는 데이터의 모양이 바뀌면(예: 순이익 추가) 이 숫자를 올린다.
+# 그래야 앱을 고친 직후에도 예전 형식으로 저장된 결과(순이익 없음)를 다시 쓰지 않는다.
+CACHE_VERSION = 2
+
+
 @st.cache_resource
-def get_cache_store():
-    """{(고유번호, 연도, 보고서코드): (저장시각, 데이터)} - 서버가 켜져 있는 동안 유지."""
+def _cache_store_for(version):
     return {}
 
 
+def get_cache_store():
+    """{(고유번호, 연도, 보고서코드): (저장시각, 데이터)} - 서버가 켜져 있는 동안 유지."""
+    return _cache_store_for(CACHE_VERSION)
+
+
 KEEP_COLUMNS = ["rcept_no", "sj_div", "account_id", "account_nm", "thstrm_amount", "thstrm_add_amount"]
+
+
+def account_names(df):
+    """계정명 비교용: 띄어쓰기를 모두 지운다. ('당기순이익 (손실)' -> '당기순이익(손실)')"""
+    return df["account_nm"].astype(str).str.replace(r"\s+", "", regex=True)
 
 
 def slim(df):
     """필요한 계정(매출·영업이익·순이익)과 열만 남겨 저장 용량을 줄인다. 없으면 None."""
     if df is None or df.empty or "account_nm" not in df.columns:
         return None
-    keep = df["account_nm"].str.strip().isin(REVENUE_NAMES + OPERATING_NAMES + NET_NAMES)
+    keep = account_names(df).isin(REVENUE_NAMES + OPERATING_NAMES + NET_NAMES)
     if "account_id" in df.columns:
         keep |= df["account_id"].astype(str).str.strip().isin(NET_IDS)
     rows = df[keep]
@@ -512,7 +528,7 @@ def pick(df, names, column="thstrm_amount", ids=None):
         if "sj_div" in rows.columns:
             rows = rows[rows["sj_div"].isin(["IS", "CIS"])]  # 현금흐름표·자본변동표의 같은 코드는 제외
     if rows.empty:
-        rows = df[df["account_nm"].str.strip().isin(names)]
+        rows = df[account_names(df).isin(names)]
     if "sj_div" in rows.columns:
         is_rows = rows[rows["sj_div"].isin(["IS", "CIS"])]
         if not is_rows.empty:
@@ -522,7 +538,7 @@ def pick(df, names, column="thstrm_amount", ids=None):
     row = rows.iloc[0]
     value = to_int(row[column])
     # 계정명이 '영업손실'인데 양수로 적혀 있으면 손실(마이너스)로 본다
-    if value is not None and value > 0 and str(row["account_nm"]).strip() in LOSS_ONLY_NAMES:
+    if value is not None and value > 0 and re.sub(r"\s+", "", str(row["account_nm"])) in LOSS_ONLY_NAMES:
         value = -value
     return value
 
@@ -1246,7 +1262,8 @@ def render_financials():
 
     unit = st.radio("단위", list(UNITS), horizontal=True, key="fin_unit", label_visibility="collapsed")  # 기본 억원, 조원으로 바꿀 수 있음
     table = build_table(result["records"], result["period"], unit=unit)
-    st.caption(f"{result['corp']} · 단위: {unit}")
+    basis = "연결 기준" if FS_DIV == "CFS" else "별도 기준"  # 지금은 항상 연결재무제표(CFS)로 조회
+    st.caption(f"{result['corp']} · {basis} · 단위: {unit}")
     # 스크롤 없이 전체가 보이도록 높이를 행 수에 맞춘다 (머리글 1줄 + 데이터 행, 한 줄당 약 35px)
     st.dataframe(
         style_table(table),
