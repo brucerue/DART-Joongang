@@ -1054,6 +1054,17 @@ WORD_READINGS = {
     "hanwha": "한화", "lotte": "롯데", "samsung": "삼성", "hyundai": "현대", "kakao": "카카오",
     "doosan": "두산", "kolon": "코오롱", "krafton": "크래프톤", "hybe": "하이브", "ecopro": "에코프로",
 }
+# 회사 이름 전체를 부르는 한글 이름 (단어 읽기로도 안 맞는 경우). 이 이름을 치면 바로 그 회사로 조회한다.
+# 예: '에쓰오일'은 S-Oil의 글자 읽기(에스오아이엘)·단어 읽기(에스오일) 어느 쪽과도 다르다. 필요하면 여기에 추가.
+NAME_READINGS = {
+    "S-Oil": ["에쓰오일", "에스오일", "에쓰-오일"],
+    "NAVER": ["네이버"],
+    "POSCO홀딩스": ["포스코홀딩스", "포스코"],
+    "KT&G": ["케이티앤지", "KT앤G"],
+    "F&F": ["에프앤에프"],
+    "SOOP": ["숲", "아프리카TV"],
+    "JYP Ent.": ["JYP엔터", "제이와이피", "JYP엔터테인먼트"],
+}
 SUGGEST_LIMIT = 12
 
 # 추천 순서에서 먼저 보여줄 이름난 기업 (대략 유명한 순서). 목록에 없는 이름은 뒤로 밀릴 뿐 추천에서 빠지지는 않는다.
@@ -1131,6 +1142,9 @@ def suggest_corps(query, limit=SUGGEST_LIMIT, listed_only=False, exclude=None):
 
     # 글자 읽기(에스케이)와 단어 읽기(네이버) 중 더 잘 맞는 쪽으로
     tier = pd.concat([tiers(idx["key"]), tiers(idx["key2"])], axis=1).min(axis=1)
+    for name, t in reading_targets(query).items():  # 한글로 부르는 이름 (에쓰오일 -> S-Oil)
+        mask = idx["corp_name"].str.casefold() == name.casefold()
+        tier[mask] = tier[mask].clip(upper=t)
     keys = idx["key"]
     found = idx[tier < 3].assign(tier=tier[tier < 3], n=keys[tier < 3].str.len())
     found = found.sort_values(
@@ -1152,6 +1166,20 @@ def suggest_corps(query, limit=SUGGEST_LIMIT, listed_only=False, exclude=None):
     return out
 
 
+def reading_targets(query):
+    """NAME_READINGS로 부르는 회사들. -> {회사 이름: 0(정확히 일치) / 1(앞부분 일치)}"""
+    q = name_key(query)
+    out = {}
+    for name, readings in NAME_READINGS.items():
+        for r in readings:
+            k = name_key(r)
+            if q and k == q:
+                out[name] = 0
+            elif q and len(q) >= 2 and k.startswith(q):
+                out.setdefault(name, 1)
+    return out
+
+
 def canonical_corp(corp):
     """입력한 기업명을 DART에 등록된 정확한 표기로 바꾼다. 영문 대소문자는 구분하지 않는다.
     예: sk하이닉스 -> SK하이닉스, lg엔솔은 기업명이 아니므로 그대로. 같은 이름이 여럿이면 상장사 우선."""
@@ -1160,7 +1188,13 @@ def canonical_corp(corp):
         return text
     idx = get_name_index()  # 상장사가 먼저 오도록 정렬된 목록
     hit = idx[idx["corp_name"].str.casefold() == text.casefold()]
-    return hit.iloc[0]["corp_name"] if not hit.empty else text
+    if not hit.empty:
+        return hit.iloc[0]["corp_name"]
+    for name, tier in reading_targets(text).items():  # 에쓰오일 -> S-Oil, 네이버 -> NAVER
+        hit = idx[idx["corp_name"].str.casefold() == name.casefold()]
+        if tier == 0 and not hit.empty:
+            return hit.iloc[0]["corp_name"]
+    return text
 
 
 def resolve_corp_code(corp):
