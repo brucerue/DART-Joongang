@@ -56,6 +56,21 @@ PAY_APIS = {
 PAY_REPORTS = {"사업보고서 (연간)": "11011", "반기보고서 (상반기)": "11012"}
 MAX_PAY_CORPS = 5
 
+# 업종 합산: 업종을 고르면 아래 기업들이 입력칸에 채워진다 (DART에 등록된 이름 그대로). 자유롭게 추가·수정하세요.
+INDUSTRY_GROUPS = {
+    "반도체": ["삼성전자", "SK하이닉스", "한미반도체", "DB하이텍"],
+    "배터리": ["LG에너지솔루션", "삼성SDI", "에코프로비엠", "포스코퓨처엠", "엘앤에프"],
+    "자동차": ["현대자동차", "기아", "현대모비스"],
+    "조선": ["HD한국조선해양", "HD현대중공업", "한화오션", "삼성중공업"],
+    "방산": ["한화에어로스페이스", "한국항공우주산업", "LIG넥스원", "현대로템"],
+    "철강": ["POSCO홀딩스", "현대제철", "동국제강"],
+    "석유화학·정유": ["LG화학", "롯데케미칼", "금호석유화학", "S-Oil", "SK이노베이션"],
+    "전자부품·디스플레이": ["LG전자", "삼성전기", "LG이노텍", "LG디스플레이"],
+    "통신": ["SK텔레콤", "KT", "LG유플러스"],
+}
+INDUSTRY_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
+MAX_INDUSTRY_CORPS = 10
+
 MAX_WORKERS = 6  # 동시에 보낼 DART 요청 수 (한 번 조회에 최대 44번이라 분당 한도에는 여유)
 REQUEST_TIMEOUT = 20  # DART 응답을 기다리는 최대 시간(초)
 CACHE_TTL = 6 * 3600  # 재무 조회 결과를 저장해두는 시간
@@ -249,6 +264,18 @@ NET_NAMES = [
     "연결분기순이익", "연결반기순이익", "연결당기순이익(손실)",
 ]
 NET_IDS = ["ifrs-full_ProfitLoss", "ifrs_ProfitLoss"]  # 당기순이익의 표준 계정 코드 (이름이 회사마다 달라도 잡힘)
+# 재무상태 항목: (계정명들, 표준 계정 코드들, 찾을 재무제표). 계정명은 띄어쓰기를 지우고 비교한다.
+BS_ITEMS = {
+    "liab": (["부채총계"], ["ifrs-full_Liabilities", "ifrs_Liabilities"], ("BS",)),
+    "equity": (["자본총계"], ["ifrs-full_Equity", "ifrs_Equity"], ("BS",)),
+    "cash": (["현금및현금성자산"], ["ifrs-full_CashAndCashEquivalents", "ifrs_CashAndCashEquivalents"], ("BS",)),
+    "inv": (["재고자산"], ["ifrs-full_Inventories", "ifrs_Inventories"], ("BS",)),
+    "capex": (["유형자산의취득", "유형자산취득"],
+              ["ifrs-full_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+               "ifrs-full_PurchaseOfPropertyPlantAndEquipment"], ("CF",)),
+}
+BS_NAMES = [n for names, _, _ in BS_ITEMS.values() for n in names]
+BS_IDS = [i for _, ids, _ in BS_ITEMS.values() for i in ids]
 LOSS_ONLY_NAMES = ["영업손실", "당기순손실", "분기순손실", "반기순손실"]  # 이 이름이면 값이 양수여도 손실로 처리
 
 # 보고서 코드: 1분기 / 반기 / 3분기 / 사업보고서(연간)
@@ -278,7 +305,7 @@ def get_session():
 
 # 저장해 두는 데이터의 모양이 바뀌면(예: 순이익 추가) 이 숫자를 올린다.
 # 그래야 앱을 고친 직후에도 예전 형식으로 저장된 결과(순이익 없음)를 다시 쓰지 않는다.
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 
 @st.cache_resource
@@ -303,9 +330,9 @@ def slim(df):
     """필요한 계정(매출·영업이익·순이익)과 열만 남겨 저장 용량을 줄인다. 없으면 None."""
     if df is None or df.empty or "account_nm" not in df.columns:
         return None
-    keep = account_names(df).isin(REVENUE_NAMES + OPERATING_NAMES + NET_NAMES)
+    keep = account_names(df).isin(REVENUE_NAMES + OPERATING_NAMES + NET_NAMES + BS_NAMES)
     if "account_id" in df.columns:
-        keep |= df["account_id"].astype(str).str.strip().isin(NET_IDS)
+        keep |= df["account_id"].astype(str).str.strip().isin(NET_IDS + BS_IDS)
     rows = df[keep]
     if rows.empty:
         return None
@@ -527,19 +554,20 @@ def to_int(x):
     return -value if negative else value
 
 
-def pick(df, names, column="thstrm_amount", ids=None):
-    """손익계산서에서 계정과목(names 중 하나)의 금액을 뽑아냄. ids(표준 계정 코드)가 있으면 그것부터 찾는다."""
+def pick(df, names, column="thstrm_amount", ids=None, sj=("IS", "CIS")):
+    """재무제표에서 계정과목(names 중 하나)의 금액을 뽑아냄. ids(표준 계정 코드)가 있으면 그것부터 찾는다.
+    sj: 찾을 재무제표 (기본 손익계산서. 재무상태표는 BS, 현금흐름표는 CF)"""
     if df is None or column not in df.columns:
         return None
     rows = df.iloc[0:0]
     if ids and "account_id" in df.columns:
         rows = df[df["account_id"].astype(str).str.strip().isin(ids)]
         if "sj_div" in rows.columns:
-            rows = rows[rows["sj_div"].isin(["IS", "CIS"])]  # 현금흐름표·자본변동표의 같은 코드는 제외
+            rows = rows[rows["sj_div"].isin(sj)]  # 다른 재무제표의 같은 코드는 제외 (예: 현금흐름표의 당기순이익)
     if rows.empty:
         rows = df[account_names(df).isin(names)]
     if "sj_div" in rows.columns:
-        is_rows = rows[rows["sj_div"].isin(["IS", "CIS"])]
+        is_rows = rows[rows["sj_div"].isin(sj)]
         if not is_rows.empty:
             rows = is_rows
     if rows.empty:
@@ -550,6 +578,18 @@ def pick(df, names, column="thstrm_amount", ids=None):
     if value is not None and value > 0 and re.sub(r"\s+", "", str(row["account_nm"])) in LOSS_ONLY_NAMES:
         value = -value
     return value
+
+
+def bs_values(df, with_capex=False):
+    """재무상태 항목 (기말 잔액). CAPEX는 연간(사업보고서)만: 분기보고서 현금흐름표는 누적 금액이라 분기 값이 아니다."""
+    out = {}
+    for key, (names, ids, sj) in BS_ITEMS.items():
+        if key == "capex" and not with_capex:
+            out[key] = None
+            continue
+        v = pick(df, names, ids=ids, sj=sj)
+        out[key] = abs(v) if key == "capex" and v is not None else v  # 취득액은 (괄호) 음수로 적힌 경우가 많다
+    return out
 
 
 def link_of(df):
@@ -599,6 +639,7 @@ def make_record(label, sort_key, cur, yoy=None, qoq=None):
         "rev_qoq": pct_change(rev, qoq["rev"]) if qoq else None,
         "op_qoq": op_change(op, qoq["op"]) if qoq else None,
         "net_qoq": op_change(net, qoq.get("net")) if qoq else None,
+        "bs": cur.get("bs") or {},
         "link": cur["link"],
     }
 
@@ -617,6 +658,7 @@ def collect_yearly(corp_code, start, end, tick):
         data[y] = {
             "rev": pick(df, REVENUE_NAMES), "op": pick(df, OPERATING_NAMES),
             "net": pick(df, NET_NAMES, ids=NET_IDS), "link": link_of(df),
+            "bs": bs_values(df, with_capex=True),
         }
 
     records = []
@@ -654,7 +696,8 @@ def collect_quarterly(corp_code, start, end, tick):
         ops = quarter_values(*reports, OPERATING_NAMES)
         nets = quarter_values(*reports, NET_NAMES, ids=NET_IDS)
         for i in range(4):  # 1~3분기는 각 분기 보고서, 4분기는 사업보고서로 연결
-            data[(y, i + 1)] = {"rev": revs[i], "op": ops[i], "net": nets[i], "link": link_of(reports[i])}
+            data[(y, i + 1)] = {"rev": revs[i], "op": ops[i], "net": nets[i], "link": link_of(reports[i]),
+                                "bs": bs_values(reports[i])}  # 4분기 = 사업보고서의 기말 잔액
 
     records = []
     for y in range(start, end + 1):
@@ -744,6 +787,38 @@ def build_table(records, period, for_export=False, unit=DEFAULT_UNIT):
     return df
 
 
+def debt_ratio(bs):
+    """부채비율(%) = 부채총계 ÷ 자본총계 × 100. 자본이 0 이하면 '자본잠식'."""
+    liab, equity = bs.get("liab"), bs.get("equity")
+    if liab is None or equity is None:
+        return None
+    if equity <= 0:
+        return "자본잠식"
+    return liab / equity * 100
+
+
+def build_bs_table(records, period, for_export=False, unit=DEFAULT_UNIT):
+    """재무상태 표: 기간, 부채비율, 현금성자산, 재고자산, (연도별) CAPEX. 값이 하나도 없으면 빈 표."""
+    yearly = period != "분기별"
+    rows = []
+    for r in sorted_records(records):
+        bs = r.get("bs") or {}
+        ratio = debt_ratio(bs)
+        if for_export:
+            row = {"기간": r["label"], "부채비율(%)": round(ratio, 1) if isinstance(ratio, float) else ratio,
+                   f"현금성자산({unit})": num_amount(bs.get("cash"), unit), f"재고자산({unit})": num_amount(bs.get("inv"), unit)}
+            if yearly:
+                row[f"CAPEX({unit})"] = num_amount(bs.get("capex"), unit)
+        else:
+            row = {"기간": r["label"], "부채비율": f"{ratio:,.1f}%" if isinstance(ratio, float) else (ratio or "-"),
+                   "현금성자산": fmt_amount(bs.get("cash"), unit), "재고자산": fmt_amount(bs.get("inv"), unit)}
+            if yearly:
+                row["CAPEX"] = fmt_amount(bs.get("capex"), unit)
+        if any(bs.get(k) is not None for k in ("liab", "equity", "cash", "inv", "capex")):
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def safe_filename(text):
     """파일 이름에 쓸 수 없는 문자(공백, 슬래시 등)를 밑줄로 바꾼다."""
     return re.sub(r'[\\/:*?"<>|\s]+', "_", text).strip("_") or "기업"
@@ -806,6 +881,150 @@ def feed_table(rows):
             "원문": df["rcept_no"].astype(str).map(lambda n: DART_VIEW_URL.format(n) if n else None),
         }
     )
+
+
+# ------------------------------------------------------------
+# 업종 합산 (여러 회사 같은 기간 실적 합계)
+# ------------------------------------------------------------
+def latest_period(today=None):
+    """지금 볼 수 있는 가장 최근 정기보고서 기간 (제출 기한 기준, 잠정실적 공시는 제외)."""
+    t = today or TODAY
+    md = (t.month, t.day)
+    if md >= (11, 15):
+        return t.year, "3Q"
+    if md >= (8, 15):
+        return t.year, "2Q"
+    if md >= (5, 16):
+        return t.year, "1Q"
+    if md >= (3, 31):
+        return t.year - 1, "4Q"
+    return t.year - 1, "3Q"
+
+
+def period_codes(period):
+    """기간 -> 필요한 보고서 코드들. 4분기는 '연간 - 3분기 누적'이라 네 보고서가 모두 필요."""
+    return {"연간": [ANNUAL], "1Q": [Q1], "2Q": [H1], "3Q": [Q3], "4Q": [Q1, H1, Q3, ANNUAL]}[period]
+
+
+def period_values(reports, period):
+    """보고서들 {코드: 데이터} -> 그 기간의 {rev, op, net}"""
+    if period == "연간" or period in ("1Q", "2Q", "3Q"):
+        df = reports.get(period_codes(period)[0])
+        return {"rev": pick(df, REVENUE_NAMES), "op": pick(df, OPERATING_NAMES), "net": pick(df, NET_NAMES, ids=NET_IDS)}
+    r = [reports.get(c) for c in (Q1, H1, Q3, ANNUAL)]
+    return {
+        "rev": quarter_values(*r, REVENUE_NAMES)[3],
+        "op": quarter_values(*r, OPERATING_NAMES)[3],
+        "net": quarter_values(*r, NET_NAMES, ids=NET_IDS)[3],
+    }
+
+
+def collect_industry(corps, year, period):
+    """여러 회사의 올해·전년 같은 기간 실적. corps: [(회사명, 고유번호)] -> {회사명: {"now": {...}, "prev": {...}}}"""
+    session, store = get_session(), get_cache_store()
+    jobs = [(name, code, y, c) for name, code in corps for y in (year, year - 1) for c in period_codes(period)]
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        results = list(pool.map(lambda j: fetch(session, store, j[1], j[2], j[3]), jobs))
+    got = {(j[0], j[2], j[3]): r for j, r in zip(jobs, results)}
+    out = {}
+    for name, _ in corps:
+        out[name] = {
+            y_key: period_values({c: got.get((name, y, c)) for c in period_codes(period)}, period)
+            for y_key, y in (("now", year), ("prev", year - 1))
+        }
+    return out
+
+
+def won_text(v):
+    """원 -> 기사체 금액. 123조4567억원 / 4567억원 / -320억원"""
+    if v is None:
+        return "-"
+    eok_total = int(round(abs(v) / 1e8))
+    jo, rest = divmod(eok_total, 10000)
+    if jo and rest:
+        body = f"{jo:,}조{rest}억원"
+    elif jo:
+        body = f"{jo:,}조원"
+    else:
+        body = f"{rest}억원"  # 기사 표기: 7200억원 (쉼표 없음)
+    return ("-" if v < 0 else "") + body
+
+
+def change_text(c):
+    """증감 -> 기사체. 8.8% 증가 / 3.1% 감소 / 흑자전환"""
+    if c is None:
+        return None
+    if isinstance(c, str):
+        return c
+    return f"{abs(c):.1f}% {'증가' if c >= 0 else '감소'}"
+
+
+def industry_result(data, unit):
+    """조회 결과 -> (표, 합계 dict, 데이터 있는 회사 수)"""
+    rows, tot_now, tot_prev = [], {"rev": 0, "op": 0, "net": 0}, {"rev": 0, "op": 0, "net": 0}
+    has_now = {"rev": 0, "op": 0, "net": 0}
+    both = {k: {"now": 0, "prev": 0, "n": 0} for k in ("rev", "op", "net")}
+    used = 0
+    for corp, d in data.items():
+        now, prev = d["now"], d["prev"]
+        if all(now[k] is None for k in ("rev", "op", "net")):
+            continue
+        used += 1
+        for k in ("rev", "op", "net"):
+            if now[k] is not None:
+                tot_now[k] += now[k]
+                has_now[k] += 1
+                if prev[k] is not None:  # 전년 비교는 두 해 모두 값이 있는 회사끼리
+                    both[k]["now"] += now[k]
+                    both[k]["prev"] += prev[k]
+                    both[k]["n"] += 1
+        margin = now["op"] / now["rev"] * 100 if now["op"] is not None and now["rev"] else None
+        rows.append({
+            "회사": corp,
+            "매출액": fmt_amount(now["rev"], unit), "매출 전년比": fmt_change(pct_change(now["rev"], prev["rev"])),
+            "영업이익": fmt_amount(now["op"], unit), "영업이익 전년比": fmt_change(op_change(now["op"], prev["op"])),
+            "영업이익률": f"{margin:.1f}%" if margin is not None else "-",
+            "순이익": fmt_amount(now["net"], unit), "순이익 전년比": fmt_change(op_change(now["net"], prev["net"])),
+        })
+    total = {}
+    for k in ("rev", "op", "net"):
+        total[k] = tot_now[k] if has_now[k] else None
+        b = both[k]
+        total[k + "_chg"] = (pct_change if k == "rev" else op_change)(b["now"], b["prev"]) if b["n"] else None
+    if rows:
+        margin = total["op"] / total["rev"] * 100 if total["op"] is not None and total["rev"] else None
+        rows.append({
+            "회사": f"합계 ({used}개사)",
+            "매출액": fmt_amount(total["rev"], unit), "매출 전년比": fmt_change(total["rev_chg"]),
+            "영업이익": fmt_amount(total["op"], unit), "영업이익 전년比": fmt_change(total["op_chg"]),
+            "영업이익률": f"{margin:.1f}%" if margin is not None else "-",
+            "순이익": fmt_amount(total["net"], unit), "순이익 전년比": fmt_change(total["net_chg"]),
+        })
+    return pd.DataFrame(rows), total, used
+
+
+def industry_sentence(label, used, year, period, total):
+    """기사 첫 문장 초안."""
+    when = f"{year}년" if period == "연간" else f"{year}년 {period[0]}분기"
+    base = "전년 대비" if period == "연간" else "전년 동기 대비"
+    parts = []
+    for k, name in (("rev", "매출"), ("op", "영업이익"), ("net", "순이익")):
+        v = total.get(k)
+        if v is None:
+            continue
+        nm = "영업손실" if k == "op" and v < 0 else ("순손실" if k == "net" and v < 0 else name)
+        chg = change_text(total.get(k + "_chg"))
+        parts.append(f"{nm} {won_text(abs(v) if v < 0 else v)}" + (f"({base} {chg})" if chg else ""))
+    if not parts:
+        return ""
+    return f"{label} {used}개사의 {when} 합산 실적은 " + ", ".join(parts) + "으로 집계됐다."
+
+
+def total_row_style(row):
+    """합계 줄은 굵게 + 옅은 배경."""
+    bold = str(row.get("회사", "")).startswith("합계")
+    return ["font-weight: 800; background-color: #eef4fb" if bold else "" for _ in row]
+
 
 
 # ------------------------------------------------------------
@@ -886,8 +1105,18 @@ def is_total(text):
     return str(text or "").replace(" ", "") in ("합계", "총계", "계", "전체", "소계", "합 계")
 
 
-def employee_summary(jo):
-    """직원 현황: (직원 수, 1인 평균 급여[원]). 사업부문·성별로 나뉜 표에서 합계 줄은 빼고 더한다."""
+def parse_years(text):
+    """평균 근속연수 '12.3' / '12년 3개월' / '12년' -> 12.3 / 12.25 / 12.0. 모르면 None."""
+    t = str(text or "").replace(",", "").strip()
+    m = re.match(r"^\s*(\d+(?:\.\d+)?)\s*년?\s*(?:(\d+)\s*개월)?\s*$", t)
+    if not m:
+        return None
+    return float(m.group(1)) + (int(m.group(2)) / 12 if m.group(2) else 0)
+
+
+def employee_stats(jo):
+    """직원 현황 -> {count, avg(1인 평균 급여, 원), tenure(평균 근속, 년), contract(계약직 비중 %), female(여성 비중 %)}.
+    사업부문·성별로 나뉜 표에서 합계 줄은 빼고 더한다."""
     rows = dart_rows(jo, ["sm", "fyer_salary_totamt"])
     detail = [r for r in rows if not is_total(r.get("fo_bbm")) and not is_total(r.get("sexdstn"))]
     if not detail:  # 성별 합계만 있는 경우 -> 부문별 합계 줄을 더함
@@ -896,17 +1125,33 @@ def employee_summary(jo):
         detail = rows
     count = sum(to_int(r.get("sm")) or 0 for r in detail)
     total = sum(to_int(r.get("fyer_salary_totamt")) or 0 for r in detail)
-    if not count or not total:
-        return (count or None), None
-    return count, total / count
+    out = {"count": count or None, "avg": total / count if count and total else None,
+           "tenure": None, "contract": None, "female": None}
+    if not count:
+        return out
+    weighted = [(parse_years(r.get("avrg_cnwk_sdytrn")), to_int(r.get("sm")) or 0) for r in detail]
+    weighted = [(y, n) for y, n in weighted if y is not None and n]
+    if weighted:
+        out["tenure"] = sum(y * n for y, n in weighted) / sum(n for _, n in weighted)
+    if any(r.get("cnttk_co") not in (None, "", "-") for r in detail):
+        out["contract"] = sum(to_int(r.get("cnttk_co")) or 0 for r in detail) / count * 100
+    sexes = [str(r.get("sexdstn") or "").strip() for r in detail]
+    if any(x.startswith("여") for x in sexes) and any(x.startswith("남") for x in sexes):
+        out["female"] = sum(to_int(r.get("sm")) or 0 for r, x in zip(detail, sexes) if x.startswith("여")) / count * 100
+    return out
+
+
+def employee_summary(jo):
+    """직원 현황: (직원 수, 1인 평균 급여[원])."""
+    st_ = employee_stats(jo)
+    return st_["count"], st_["avg"]
 
 
 def collect_pay(corps, year, reprt_code):
     """여러 회사의 올해·전년 보수 자료를 동시에 조회. corps: [(회사명, 고유번호)]
     -> {회사명: {"now": {...}, "prev": {...}}}  (조회 실패는 DartApiError)"""
     session, store = get_session(), get_cache_store()
-    jobs = [(name, code, y, kind) for name, code in corps for y in (year, year - 1) for kind in PAY_APIS
-            if not (y == year - 1 and kind == "emp")]  # 직원 현황은 올해만
+    jobs = [(name, code, y, kind) for name, code in corps for y in (year, year - 1) for kind in PAY_APIS]
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         results = list(pool.map(lambda j: fetch_pay(session, store, j[3], j[1], j[2], reprt_code), jobs))
     got = {(j[0], j[2], j[3]): r for j, r in zip(jobs, results)}
@@ -919,6 +1164,8 @@ def collect_pay(corps, year, reprt_code):
             }
         now, prev = part(year), part(year - 1)
         now["emp"] = employee_summary(got.get((name, year, "emp")))
+        now["emp_stats"] = employee_stats(got.get((name, year, "emp")))
+        prev["emp_stats"] = employee_stats(got.get((name, year - 1, "emp")))
         out[name] = {"now": now, "prev": prev}
     return out
 
@@ -954,6 +1201,30 @@ def pay_tables(data):
     people = pd.DataFrame(people_rows, columns=["회사", "이름", "직위", "보수", "전년", "증감률", "원문", "_amt"])
     people = people.sort_values("_amt", ascending=False, kind="stable").drop(columns="_amt").reset_index(drop=True)
     return people, pd.DataFrame(summary_rows)
+
+
+def employee_table(data):
+    """직원 현황 비교 표 (평균 연봉 높은 순)."""
+    rows = []
+    for corp, d in data.items():
+        now, prev = d["now"].get("emp_stats") or {}, d["prev"].get("emp_stats") or {}
+        if not now.get("count"):
+            continue
+        diff = now["count"] - prev["count"] if prev.get("count") else None
+        rows.append({
+            "회사": corp,
+            "직원 수": f"{now['count']:,}",
+            "증감(명)": (f"{diff:+,}" if diff else "0") if diff is not None else "-",
+            "평균 연봉(만원)": f"{now['avg'] / 1e4:,.0f}" if now.get("avg") else "-",
+            "연봉 전년比": fmt_change(pct_change(now.get("avg"), prev.get("avg"))),
+            "평균 근속(년)": f"{now['tenure']:.1f}" if now.get("tenure") is not None else "-",
+            "계약직 비중": f"{now['contract']:.1f}%" if now.get("contract") is not None else "-",
+            "여성 비중": f"{now['female']:.1f}%" if now.get("female") is not None else "-",
+            "_avg": now.get("avg") or 0,
+        })
+    df = pd.DataFrame(rows, columns=["회사", "직원 수", "증감(명)", "평균 연봉(만원)", "연봉 전년比", "평균 근속(년)",
+                                     "계약직 비중", "여성 비중", "_avg"])
+    return df.sort_values("_avg", ascending=False, kind="stable").drop(columns="_avg").reset_index(drop=True)
 
 
 def change_style(cell):
@@ -1487,7 +1758,21 @@ def render_financials():
         height=(len(table) + 1) * 35 + 3,
     )
 
+    bs_table = build_bs_table(result["records"], result["period"], unit=unit)
+    if not bs_table.empty:
+        st.markdown("##### 재무상태")
+        capex_note = " · CAPEX = 유형자산 취득액(연간, 현금흐름표)" if result["period"] != "분기별" else ""
+        st.caption(f"기말 기준 · 단위: {unit} · 부채비율 = 부채총계 ÷ 자본총계{capex_note}")
+        st.dataframe(
+            bs_table, hide_index=True,
+            column_config={"기간": st.column_config.TextColumn("기간", width=95)},
+            height=(len(bs_table) + 1) * 35 + 3,
+        )
+
     export = build_table(result["records"], result["period"], for_export=True, unit=unit)
+    bs_export = build_bs_table(result["records"], result["period"], for_export=True, unit=unit)
+    if not bs_export.empty:  # 다운로드 파일에는 재무상태 열도 함께
+        export = export.merge(bs_export, on="기간", how="left")
     base_name = f"DART_{safe_filename(result['corp'])}_{result['period']}_{TODAY:%Y%m%d}"
     d1, d2, _ = st.columns([1, 1, 4])
     d1.download_button(
@@ -1505,6 +1790,101 @@ def render_financials():
             file_name=f"{base_name}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
+
+def fill_industry():
+    """업종을 고르면 그 업종 기업들을 입력칸에 채운다."""
+    group = st.session_state.get("ind_group")
+    if group in INDUSTRY_GROUPS:
+        st.session_state["ind_corps"] = ", ".join(INDUSTRY_GROUPS[group])
+
+
+def render_industry():
+    """탭: 업종 합산 - 여러 회사의 같은 기간 실적을 모으고 합계를 낸다."""
+    groups = list(INDUSTRY_GROUPS) + ["직접 입력"]
+    st.session_state.setdefault("ind_corps", ", ".join(INDUSTRY_GROUPS[groups[0]]))
+    st.selectbox("업종", groups, key="ind_group", on_change=fill_industry)  # 폼 밖: 고르면 아래 기업 칸이 바뀜
+    ly, lp = latest_period()
+    years = list(range(TODAY.year, 2014, -1))
+    with st.form("ind_search"):
+        corp_text = st.text_input(
+            "기업 (쉼표로 구분)", key="ind_corps", placeholder="예: 삼성전자, SK하이닉스",
+            help=f"업종을 고르면 대표 기업이 채워져요. 빼거나 더해서 최대 {MAX_INDUSTRY_CORPS}곳까지 합산할 수 있어요.",
+        )
+        c1, c2 = st.columns(2)
+        year = c1.selectbox("연도", years, index=years.index(ly), key="ind_year")
+        period = c2.radio("기간", INDUSTRY_PERIODS, index=INDUSTRY_PERIODS.index(lp), horizontal=True, key="ind_period")
+        submitted = st.form_submit_button("합산 조회")
+
+    if submitted:
+        names = []
+        for part in re.split(NEWS_SPLIT, corp_text):
+            part = canonical_corp(part)
+            if part and name_key(part) not in {name_key(n) for n in names}:
+                names.append(part)
+        if not names:
+            st.error("기업명을 입력해주세요.")
+        elif len(names) > MAX_INDUSTRY_CORPS:
+            st.error(f"기업은 한 번에 {MAX_INDUSTRY_CORPS}곳까지 넣을 수 있어요. (지금 {len(names)}곳)")
+        else:
+            st.session_state.pop("industry", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+            corps, missing = [], []
+            with st.spinner("기업 정보를 확인하는 중입니다..."):
+                for n in names:
+                    code = resolve_corp_code(n)
+                    if code:
+                        corps.append((n, code))
+                    else:
+                        missing.append(n)
+            for n in missing:
+                hint = [label for label, _ in suggest_corps(n, limit=3)]
+                st.warning(f'"{n}" 기업을 찾지 못해 빼고 합산했어요.' + (f" 혹시: {', '.join(hint)}" if hint else ""))
+            if corps:
+                with st.spinner("실적을 불러오는 중입니다..."):
+                    try:
+                        data = collect_industry(corps, int(year), period)
+                    except DartApiError as e:
+                        st.error(str(e))
+                    else:
+                        group = st.session_state.get("ind_group")
+                        # 업종 목록을 그대로 썼으면 문장에 업종 이름을, 고쳐 썼으면 '조회한'을 쓴다
+                        label = group if group in INDUSTRY_GROUPS and names == INDUSTRY_GROUPS[group] else "조회한"
+                        st.session_state["industry"] = {"data": data, "year": int(year), "period": period, "label": label}
+
+    res = st.session_state.get("industry")
+    if not res:
+        return
+    unit = st.radio("단위", list(UNITS), horizontal=True, key="ind_unit", label_visibility="collapsed")
+    table, total, used = industry_result(res["data"], unit)
+    when = f"{res['year']}년 연간" if res["period"] == "연간" else f"{res['year']}년 {res['period']}"
+    if table.empty:
+        st.warning(f"{when} 실적이 공시된 회사가 없어요. 아직 보고서가 나오기 전일 수 있어요. 기간을 바꿔보세요.")
+        return
+    empty = [c for c, d in res["data"].items() if all(d["now"][k] is None for k in ("rev", "op", "net"))]
+    st.caption(f"{when} · 연결 기준 · 단위: {unit} · 전년比는 두 해 모두 공시된 회사끼리 비교")
+    if empty:
+        st.caption(f"실적이 없어 합계에서 빠진 회사: {', '.join(empty)}")
+    st.dataframe(
+        table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
+        hide_index=True,
+        column_config={
+            "회사": st.column_config.TextColumn("회사", width=120),
+            "매출액": st.column_config.TextColumn("매출액", width=108),
+            "영업이익": st.column_config.TextColumn("영업이익", width=95),
+            "순이익": st.column_config.TextColumn("순이익", width=95),
+        },
+        height=(len(table) + 1) * 35 + 3,
+    )
+    sentence = industry_sentence(res["label"], used, res["year"], res["period"], total)
+    if sentence:
+        st.caption("기사 첫 문장 초안 — 오른쪽 위 아이콘을 누르면 복사돼요.")
+        st.code(sentence, language=None, wrap_lines=True)
+    st.download_button(
+        "CSV 다운로드",
+        table.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"업종합산_{safe_filename(res['label'])}_{res['year']}_{res['period']}.csv",
+        mime="text/csv",
+    )
 
 
 def render_disclosures():
@@ -1613,7 +1993,7 @@ def default_pay_year():
 
 
 def render_pay():
-    """탭: 임원 보수 (5억원 이상 개인별 보수 + 회사별 평균, 여러 회사 비교)"""
+    """탭: 보수·직원 (5억원 이상 개인별 보수 + 회사별 평균 + 직원 현황, 여러 회사 비교)"""
     years = list(range(TODAY.year, 2014, -1))
     with st.form("pay_search"):
         corp_text = st.text_input(
@@ -1675,6 +2055,18 @@ def render_pay():
         summary.style.map(change_style, subset=["전년比"]), hide_index=True,
         height=(len(summary) + 1) * 35 + 3,
     )
+
+    emp = employee_table(res["data"])
+    st.markdown("##### 직원 현황")
+    if emp.empty:
+        st.info("직원 현황 공시를 찾지 못했어요.")
+    else:
+        half = " · 반기보고서는 상반기 급여 기준" if res["report"].startswith("반기") else ""
+        st.caption(f"평균 연봉 높은 순 · 평균 연봉 = 급여 총액 ÷ 직원 수 · 증감·전년比는 전년 같은 보고서 기준{half}")
+        st.dataframe(
+            emp.style.map(change_style, subset=["증감(명)", "연봉 전년比"]), hide_index=True,
+            height=(len(emp) + 1) * 35 + 3,
+        )
 
     st.markdown("##### 개인별 보수 (5억원 이상)")
     if people.empty:
@@ -1989,16 +2381,18 @@ if not API_KEY:
     )
     st.stop()
 
-TAB_NAMES = ["재무 조회", "공시 목록", "임원 보수", "오늘의 공시", "단독 뉴스"]
+TAB_NAMES = ["재무 조회", "업종 합산", "공시 목록", "보수·직원", "오늘의 공시", "단독 뉴스"]
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_fin, tab_list, tab_pay, tab_feed, tab_news = tabs
+tab_fin, tab_ind, tab_list, tab_pay, tab_feed, tab_news = tabs
 with tab_fin:
     render_financials()
+with tab_ind:
+    render_industry()
 with tab_list:
     render_disclosures()
 with tab_pay:
