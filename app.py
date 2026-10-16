@@ -40,13 +40,12 @@ except ImportError:
 # 설정
 # ------------------------------------------------------------
 FS_DIV = "CFS"  # CFS = 연결재무제표, OFS = 별도(개별)재무제표
-UNIT = "억원"  # 금액 단위는 억원으로 고정
+UNITS = {"억원": (1e8, 0), "조원": (1e12, 2)}  # 단위: (나눌 값, 소수점 자리). 첫 번째가 기본값
+DEFAULT_UNIT = "억원"
 MAX_YEAR_SPAN = 10  # 한 번에 조회 가능한 최대 연도 수 (API 사용량 보호)
 DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
 DART_API_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"  # 재무제표
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"  # 공시 목록
-DART_EXEC_URL = "https://opendart.fss.or.kr/api/elestock.json"  # 임원·주요주주 소유보고
-DART_MAJOR_URL = "https://opendart.fss.or.kr/api/majorstock.json"  # 대량보유(5%) 상황보고
 
 MAX_WORKERS = 6  # 동시에 보낼 DART 요청 수 (한 번 조회에 최대 44번이라 분당 한도에는 여유)
 REQUEST_TIMEOUT = 20  # DART 응답을 기다리는 최대 시간(초)
@@ -55,9 +54,6 @@ EMPTY_TTL = 30 * 60  # '아직 공시 없음' 결과는 더 짧게 저장 (곧 �
 LIST_TTL = 10 * 60  # 공시 목록은 새 공시가 계속 올라오므로 짧게 저장
 LIST_PAGE_SIZE = 100  # DART 공시 목록 API가 한 번에 주는 최대 건수
 MAX_LIST_PAGES = 10  # 공시 목록은 최대 1,000건까지만 표시
-OWN_TTL = 10 * 60  # 지분 공시도 새로 올라오므로 짧게 저장
-OWN_KINDS = {"임원·주요주주": DART_EXEC_URL, "5% 대량보유": DART_MAJOR_URL}
-OWN_PERIODS = {"1개월": 31, "3개월": 92, "6개월": 183, "1년": 366, "전체": None}
 MAX_FEED_PAGES = 30  # 오늘의 공시는 시장마다 최대 3,000건까지만 확인
 FEED_MARKETS = {"코스피+코스닥": ["Y", "K"], "코스피": ["Y"], "코스닥": ["K"]}  # DART 법인구분: Y 코스피, K 코스닥
 CLS_NAMES = {"Y": "코스피", "K": "코스닥", "N": "코넥스", "E": "기타"}
@@ -237,7 +233,12 @@ NAVER_SECRET = load_secret("NAVER_CLIENT_SECRET")
 
 REVENUE_NAMES = ["매출액", "수익(매출액)", "영업수익"]
 OPERATING_NAMES = ["영업이익", "영업이익(손실)", "영업손익", "영업손실", "영업손실(이익)"]
-LOSS_ONLY_NAMES = ["영업손실"]  # 이 이름이면 값이 양수여도 손실로 처리
+NET_NAMES = [
+    "당기순이익", "당기순이익(손실)", "당기순손익", "당기순손실", "당기순손실(이익)", "연결당기순이익",
+    "분기순이익", "분기순이익(손실)", "분기순손실", "반기순이익", "반기순이익(손실)", "반기순손실",
+]
+NET_IDS = ["ifrs-full_ProfitLoss", "ifrs_ProfitLoss"]  # 당기순이익의 표준 계정 코드 (이름이 회사마다 달라도 잡힘)
+LOSS_ONLY_NAMES = ["영업손실", "당기순손실", "분기순손실", "반기순손실"]  # 이 이름이면 값이 양수여도 손실로 처리
 
 # 보고서 코드: 1분기 / 반기 / 3분기 / 사업보고서(연간)
 Q1, H1, Q3, ANNUAL = "11013", "11012", "11014", "11011"
@@ -270,14 +271,17 @@ def get_cache_store():
     return {}
 
 
-KEEP_COLUMNS = ["rcept_no", "sj_div", "account_nm", "thstrm_amount", "thstrm_add_amount"]
+KEEP_COLUMNS = ["rcept_no", "sj_div", "account_id", "account_nm", "thstrm_amount", "thstrm_add_amount"]
 
 
 def slim(df):
-    """필요한 계정(매출·영업이익)과 열만 남겨 저장 용량을 줄인다. 없으면 None."""
+    """필요한 계정(매출·영업이익·순이익)과 열만 남겨 저장 용량을 줄인다. 없으면 None."""
     if df is None or df.empty or "account_nm" not in df.columns:
         return None
-    rows = df[df["account_nm"].str.strip().isin(REVENUE_NAMES + OPERATING_NAMES)]
+    keep = df["account_nm"].str.strip().isin(REVENUE_NAMES + OPERATING_NAMES + NET_NAMES)
+    if "account_id" in df.columns:
+        keep |= df["account_id"].astype(str).str.strip().isin(NET_IDS)
+    rows = df[keep]
     if rows.empty:
         return None
     return rows[[c for c in KEEP_COLUMNS if c in rows.columns]].reset_index(drop=True)
@@ -498,11 +502,17 @@ def to_int(x):
     return -value if negative else value
 
 
-def pick(df, names, column="thstrm_amount"):
-    """손익계산서에서 계정과목(names 중 하나)의 금액을 뽑아냄."""
+def pick(df, names, column="thstrm_amount", ids=None):
+    """손익계산서에서 계정과목(names 중 하나)의 금액을 뽑아냄. ids(표준 계정 코드)가 있으면 그것부터 찾는다."""
     if df is None or column not in df.columns:
         return None
-    rows = df[df["account_nm"].str.strip().isin(names)]
+    rows = df.iloc[0:0]
+    if ids and "account_id" in df.columns:
+        rows = df[df["account_id"].astype(str).str.strip().isin(ids)]
+        if "sj_div" in rows.columns:
+            rows = rows[rows["sj_div"].isin(["IS", "CIS"])]  # 현금흐름표·자본변동표의 같은 코드는 제외
+    if rows.empty:
+        rows = df[df["account_nm"].str.strip().isin(names)]
     if "sj_div" in rows.columns:
         is_rows = rows[rows["sj_div"].isin(["IS", "CIS"])]
         if not is_rows.empty:
@@ -551,16 +561,19 @@ def op_change(cur, prev):
 
 
 def make_record(label, sort_key, cur, yoy=None, qoq=None):
-    rev, op = cur["rev"], cur["op"]
+    rev, op, net = cur["rev"], cur["op"], cur.get("net")
     return {
         "label": label,
         "sort": sort_key,
         "rev": rev,
         "op": op,
+        "net": net,
         "rev_yoy": pct_change(rev, yoy["rev"]) if yoy else None,
         "op_yoy": op_change(op, yoy["op"]) if yoy else None,
+        "net_yoy": op_change(net, yoy.get("net")) if yoy else None,  # 흑자전환·적자전환 표시는 영업이익과 같은 방식
         "rev_qoq": pct_change(rev, qoq["rev"]) if qoq else None,
         "op_qoq": op_change(op, qoq["op"]) if qoq else None,
+        "net_qoq": op_change(net, qoq.get("net")) if qoq else None,
         "link": cur["link"],
     }
 
@@ -576,25 +589,28 @@ def collect_yearly(corp_code, start, end, tick):
     data = {}
     for y in years:
         df = reports[(y, ANNUAL)]
-        data[y] = {"rev": pick(df, REVENUE_NAMES), "op": pick(df, OPERATING_NAMES), "link": link_of(df)}
+        data[y] = {
+            "rev": pick(df, REVENUE_NAMES), "op": pick(df, OPERATING_NAMES),
+            "net": pick(df, NET_NAMES, ids=NET_IDS), "link": link_of(df),
+        }
 
     records = []
     for y in range(start, end + 1):
         cur = data[y]
-        if cur["rev"] is None and cur["op"] is None:
+        if cur["rev"] is None and cur["op"] is None and cur["net"] is None:
             continue
         records.append(make_record(str(y), (y, 0), cur, yoy=data[y - 1]))
     return records
 
 
-def quarter_values(r1, r2, r3, r4, names):
+def quarter_values(r1, r2, r3, r4, names, ids=None):
     """1~4분기 값을 계산. 4분기 = 연간 - 3분기 누적."""
-    q1 = pick(r1, names)
-    q2 = pick(r2, names)
-    q3 = pick(r3, names)
-    annual = pick(r4, names)
+    q1 = pick(r1, names, ids=ids)
+    q2 = pick(r2, names, ids=ids)
+    q3 = pick(r3, names, ids=ids)
+    annual = pick(r4, names, ids=ids)
 
-    cum9 = pick(r3, names, "thstrm_add_amount")  # 3분기 누적(9개월)
+    cum9 = pick(r3, names, "thstrm_add_amount", ids=ids)  # 3분기 누적(9개월)
     if cum9 is None and None not in (q1, q2, q3):
         cum9 = q1 + q2 + q3
     q4 = annual - cum9 if annual is not None and cum9 is not None else None
@@ -611,14 +627,15 @@ def collect_quarterly(corp_code, start, end, tick):
         reports = [fetched[(y, c)] for c in codes]
         revs = quarter_values(*reports, REVENUE_NAMES)
         ops = quarter_values(*reports, OPERATING_NAMES)
+        nets = quarter_values(*reports, NET_NAMES, ids=NET_IDS)
         for i in range(4):  # 1~3분기는 각 분기 보고서, 4분기는 사업보고서로 연결
-            data[(y, i + 1)] = {"rev": revs[i], "op": ops[i], "link": link_of(reports[i])}
+            data[(y, i + 1)] = {"rev": revs[i], "op": ops[i], "net": nets[i], "link": link_of(reports[i])}
 
     records = []
     for y in range(start, end + 1):
         for q in range(1, 5):
             cur = data[(y, q)]
-            if cur["rev"] is None and cur["op"] is None:
+            if cur["rev"] is None and cur["op"] is None and cur["net"] is None:
                 continue
             qoq = data[(y, q - 1)] if q > 1 else data[(y - 1, 4)]
             records.append(make_record(f"{y} {q}Q", (y, q), cur, yoy=data[(y - 1, q)], qoq=qoq))
@@ -628,11 +645,12 @@ def collect_quarterly(corp_code, start, end, tick):
 # ------------------------------------------------------------
 # 표 만들기 (화면용 / 다운로드용)
 # ------------------------------------------------------------
-def fmt_amount(v):
-    """원 -> 억원 (천 단위 쉼표). 값이 없으면 '-'."""
+def fmt_amount(v, unit=DEFAULT_UNIT):
+    """원 -> 억원/조원 (천 단위 쉼표). 값이 없으면 '-'."""
     if v is None:
         return "-"
-    return f"{v / 1e8:,.0f}"
+    div, digits = UNITS[unit]
+    return f"{round(v / div, digits) + 0.0:,.{digits}f}"  # + 0.0: '-0.00'처럼 보이지 않게
 
 
 def fmt_change(c):
@@ -643,11 +661,12 @@ def fmt_change(c):
     return f"{c:+,.1f}%"
 
 
-def num_amount(v):
-    """다운로드 파일용: 원 -> 억원(숫자). 값이 없으면 None."""
+def num_amount(v, unit=DEFAULT_UNIT):
+    """다운로드 파일용: 원 -> 억원/조원(숫자). 값이 없으면 None."""
     if v is None:
         return None
-    return int(round(v / 1e8))
+    div, digits = UNITS[unit]
+    return int(round(v / div)) if digits == 0 else round(v / div, digits)
 
 
 def amount_style(cell):
@@ -657,8 +676,8 @@ def amount_style(cell):
 
 
 def style_table(table):
-    """매출액·영업이익 열에만 색과 굵기를 입힌다."""
-    return table.style.map(amount_style, subset=["매출액", "영업이익"])
+    """매출액·영업이익·순이익 열에만 색과 굵기를 입힌다."""
+    return table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"])
 
 
 def sorted_records(records):
@@ -666,10 +685,12 @@ def sorted_records(records):
     return sorted(records, key=lambda r: r["sort"])
 
 
-def build_table(records, period, for_export=False):
+def build_table(records, period, for_export=False, unit=DEFAULT_UNIT):
     quarterly = period == "분기별"
     yoy = "전년동기比" if quarterly else "전년比"
-    amt = num_amount if for_export else fmt_amount
+
+    def amt(v):
+        return num_amount(v, unit) if for_export else fmt_amount(v, unit)
 
     rows = []
     for r in sorted_records(records):
@@ -683,13 +704,17 @@ def build_table(records, period, for_export=False):
         row[f"영업이익 {yoy}"] = fmt_change(r["op_yoy"])
         if quarterly:
             row["영업이익 전분기比"] = fmt_change(r["op_qoq"])
+        row["순이익"] = amt(r.get("net"))
+        row[f"순이익 {yoy}"] = fmt_change(r.get("net_yoy"))
+        if quarterly:
+            row["순이익 전분기比"] = fmt_change(r.get("net_qoq"))
         row["원문"] = r["link"]
         rows.append(row)
 
     df = pd.DataFrame(rows)
     if for_export:
         df = df.rename(
-            columns={"매출액": f"매출액({UNIT})", "영업이익": f"영업이익({UNIT})", "원문": "공시원문링크"}
+            columns={"매출액": f"매출액({unit})", "영업이익": f"영업이익({unit})", "순이익": f"순이익({unit})", "원문": "공시원문링크"}
         )
     return df
 
@@ -751,99 +776,6 @@ def feed_table(rows):
             "원문": df["rcept_no"].astype(str).map(lambda n: DART_VIEW_URL.format(n) if n else None),
         }
     )
-
-
-# ------------------------------------------------------------
-# 지분 변동 (임원·주요주주 소유보고 / 5% 대량보유 상황보고)
-# ------------------------------------------------------------
-def fetch_ownership(session, store, corp_code, kind):
-    """지분 보고 전체 목록(DART가 기간 구분 없이 한 번에 준다). 없으면 []."""
-    key = ("own", corp_code, kind)
-    cached = cache_lookup(store, key, OWN_TTL)
-    if cached is not _MISSING:
-        return cached
-    jo = call_dart(session, OWN_KINDS[kind], {"crtfc_key": API_KEY, "corp_code": corp_code})
-    rows = jo["list"] if jo else []
-    cache_save(store, key, rows)
-    return rows
-
-
-def to_number(text):
-    """'1,234' / '-1,234' / '5.03' -> 숫자. 비었거나 '-'면 None."""
-    t = str(text or "").replace(",", "").replace("%", "").strip()
-    try:
-        return float(t)
-    except ValueError:
-        return None
-
-
-def fmt_delta(text, digits=0):
-    """증감 표시: +1,234 / -1,234 / 0. 숫자가 아니면 '-'."""
-    v = to_number(text)
-    if v is None:
-        return "-"
-    body = f"{abs(v):,.{digits}f}"
-    return f"+{body}" if v > 0 else (f"-{body}" if v < 0 else body)
-
-
-def fmt_plain(text, digits=0, suffix=""):
-    v = to_number(text)
-    return "-" if v is None else f"{v:,.{digits}f}{suffix}"
-
-
-def rcept_date(row):
-    """접수일 'YYYYMMDD' 또는 'YYYY-MM-DD' -> date. 이상하면 None."""
-    d = re.sub(r"\D", "", str(row.get("rcept_dt", "")))
-    try:
-        return datetime.strptime(d[:8], "%Y%m%d").date()
-    except ValueError:
-        return None
-
-
-def blank(text):
-    t = str(text or "").strip()
-    return "" if t in ("", "-") else t
-
-
-def ownership_table(rows, kind):
-    """지분 보고 목록 -> 화면용 표 (최신순으로 들어온 rows 그대로)."""
-    out = []
-    for r in rows:
-        day = rcept_date(r)
-        base = {"접수일": f"{day:%Y.%m.%d}" if day else "-", "보고자": blank(r.get("repror")) or "-"}
-        if kind == "임원·주요주주":
-            role = blank(r.get("isu_exctv_ofcps")) or blank(r.get("isu_main_shrholdr")) or "-"
-            reg = blank(r.get("isu_exctv_rgist_at"))
-            base.update({
-                "직위": f"{role} ({reg})" if reg and role != "-" else role,
-                "증감 주식수": fmt_delta(r.get("sp_stock_lmp_irds_cnt")),
-                "보유 주식수": fmt_plain(r.get("sp_stock_lmp_cnt")),
-                "보유비율": fmt_plain(r.get("sp_stock_lmp_rate"), 2, "%"),
-                "비율 증감": fmt_delta(r.get("sp_stock_lmp_irds_rate"), 2),
-            })
-        else:
-            base.update({
-                "보유비율": fmt_plain(r.get("stkrt"), 2, "%"),
-                "비율 증감": fmt_delta(r.get("stkrt_irds"), 2),
-                "보유 주식수": fmt_plain(r.get("stkqy")),
-                "증감 주식수": fmt_delta(r.get("stkqy_irds")),
-                "보고 사유": blank(r.get("report_resn")) or blank(r.get("report_tp")) or "-",
-            })
-        no = str(r.get("rcept_no", "")).strip()
-        base["원문"] = DART_VIEW_URL.format(no) if no else None
-        out.append(base)
-    return pd.DataFrame(out)
-
-
-def change_style(cell):
-    """증감 칸: 늘면 파랑, 줄면 빨강 (둘 다 굵게)."""
-    t = str(cell)
-    if t.startswith("+"):
-        return f"font-weight: bold; color: {POSITIVE_COLOR}"
-    if t.startswith("-") and t != "-":
-        return f"font-weight: bold; color: {NEGATIVE_COLOR}"
-    return ""
-
 
 
 # ------------------------------------------------------------
@@ -1312,8 +1244,9 @@ def render_financials():
         st.warning("조회된 데이터가 없습니다. 기업명(종목코드)과 연도를 확인해주세요.")
         return
 
-    table = build_table(result["records"], result["period"])
-    st.caption(f"{result['corp']} · 단위: {UNIT}")
+    unit = st.radio("단위", list(UNITS), horizontal=True, key="fin_unit", label_visibility="collapsed")  # 기본 억원, 조원으로 바꿀 수 있음
+    table = build_table(result["records"], result["period"], unit=unit)
+    st.caption(f"{result['corp']} · 단위: {unit}")
     # 스크롤 없이 전체가 보이도록 높이를 행 수에 맞춘다 (머리글 1줄 + 데이터 행, 한 줄당 약 35px)
     st.dataframe(
         style_table(table),
@@ -1323,7 +1256,7 @@ def render_financials():
         height=(len(table) + 1) * 35 + 3,
     )
 
-    export = build_table(result["records"], result["period"], for_export=True)
+    export = build_table(result["records"], result["period"], for_export=True, unit=unit)
     base_name = f"DART_{safe_filename(result['corp'])}_{result['period']}_{TODAY:%Y%m%d}"
     d1, d2, _ = st.columns([1, 1, 4])
     d1.download_button(
@@ -1441,64 +1374,6 @@ def last_weekday(day):
     while day.weekday() >= 5:
         day -= timedelta(days=1)
     return day
-
-
-def render_ownership():
-    """탭: 지분 변동 (임원·주요주주 주식 매매 / 5% 이상 대량보유 변동)"""
-    st.session_state.setdefault("own_corp", "삼성전자")
-    with st.form("own_search"):
-        corp_text = st.text_input("기업명 또는 종목코드", key="own_corp")
-        kind = st.radio("보고 종류", list(OWN_KINDS), horizontal=True, key="own_kind")
-        period = st.radio("기간", list(OWN_PERIODS), index=2, horizontal=True, key="own_period")
-        submitted = st.form_submit_button("지분 공시 조회") or st.session_state.pop("own_run", False)
-
-    if submitted:
-        corp = corp_text.strip()
-        if not corp:
-            st.error("기업명을 입력해주세요.")
-        else:
-            st.session_state.pop("ownership", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
-            corp = canonical_corp(corp)  # 대소문자 무시
-            corp_code = lookup_corp_code(corp, "own")
-            if corp_code:
-                with st.spinner("지분 공시를 불러오는 중입니다..."):
-                    try:
-                        rows = fetch_ownership(get_session(), get_cache_store(), corp_code, kind)
-                    except DartApiError as e:
-                        st.error(str(e))
-                    else:
-                        days = OWN_PERIODS[period]
-                        if days:
-                            since = TODAY - timedelta(days=days)
-                            rows = [r for r in rows if (rcept_date(r) or date.min) >= since]
-                        rows = sorted(rows, key=lambda r: (str(rcept_date(r) or ""), str(r.get("rcept_no", ""))), reverse=True)
-                        st.session_state["ownership"] = {"corp": corp, "kind": kind, "period": period, "rows": rows}
-
-    res = st.session_state.get("ownership")
-    if not res:
-        return
-    if not res["rows"]:
-        st.warning(f"최근 {res['period']} 동안 '{res['kind']}' 보고가 없습니다. 기간을 늘리거나 보고 종류를 바꿔보세요.")
-        return
-
-    table = ownership_table(res["rows"], res["kind"])
-    who = st.text_input("보고자 이름으로 거르기", key="own_who", placeholder="예: 이재용, 국민연금 (일부만 써도 돼요)")
-    if who.strip():
-        table = table[table["보고자"].str.replace(" ", "").str.contains(who.replace(" ", ""), case=False, regex=False)]
-
-    up = int(table["증감 주식수"].str.startswith("+").sum())
-    down = int(table["증감 주식수"].str.match(r"^-\d").sum())
-    name = res["rows"][0].get("corp_name") or res["corp"]
-    period_note = "전체 기간" if res["period"] == "전체" else f"최근 {res['period']}"
-    st.caption(f"{name} · {res['kind']} · {period_note} · {len(table):,}건 (주식 증가 {up} · 감소 {down}) · 최신순")
-    if table.empty:
-        st.info("이름이 일치하는 보고자가 없어요.")
-        return
-    st.dataframe(
-        table.style.map(change_style, subset=["증감 주식수", "비율 증감"]),
-        hide_index=True,
-        column_config={"원문": LINK_COLUMN},
-    )
 
 
 def render_feed():
@@ -1789,20 +1664,18 @@ if not API_KEY:
     )
     st.stop()
 
-TAB_NAMES = ["재무 조회", "공시 목록", "지분 변동", "오늘의 공시", "단독 뉴스"]
+TAB_NAMES = ["재무 조회", "공시 목록", "오늘의 공시", "단독 뉴스"]
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_fin, tab_list, tab_own, tab_feed, tab_news = tabs
+tab_fin, tab_list, tab_feed, tab_news = tabs
 with tab_fin:
     render_financials()
 with tab_list:
     render_disclosures()
-with tab_own:
-    render_ownership()
 with tab_feed:
     render_feed()
 with tab_news:
