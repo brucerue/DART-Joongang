@@ -17,6 +17,7 @@ import io
 import os
 import re
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -964,7 +965,8 @@ FAMOUS = [
 
 def name_key(name):
     """기업명을 비교용으로 정리: 소문자, (주)·공백·기호 제거, 영문은 한글 발음으로."""
-    text = re.sub(r"\(주\)|㈜|주식회사|\(유\)|유한회사|[\s\-.,&·()/]", "", str(name).lower())
+    text = unicodedata.normalize("NFKC", str(name)).lower()  # 전각 영문(ＳＫ)도 일반 영문으로
+    text = re.sub(r"\(주\)|㈜|주식회사|\(유\)|유한회사|[\s\-.,&·()/]", "", text)
     return "".join(LETTER_NAMES.get(ch, ch) for ch in text)
 
 
@@ -1017,6 +1019,17 @@ def suggest_corps(query, limit=SUGGEST_LIMIT, listed_only=False, exclude=None):
         label = f"{r['corp_name']} ({r['stock_code']})" if r["listed"] else r["corp_name"]
         out.append((label, r["stock_code"] if r["dup"] and r["listed"] else r["corp_name"]))
     return out
+
+
+def canonical_corp(corp):
+    """입력한 기업명을 DART에 등록된 정확한 표기로 바꾼다. 영문 대소문자는 구분하지 않는다.
+    예: sk하이닉스 -> SK하이닉스, lg엔솔은 기업명이 아니므로 그대로. 같은 이름이 여럿이면 상장사 우선."""
+    text = unicodedata.normalize("NFKC", str(corp)).strip()
+    if not text or text.isdigit():
+        return text
+    idx = get_name_index()  # 상장사가 먼저 오도록 정렬된 목록
+    hit = idx[idx["corp_name"].str.casefold() == text.casefold()]
+    return hit.iloc[0]["corp_name"] if not hit.empty else text
 
 
 def resolve_corp_code(corp):
@@ -1092,6 +1105,7 @@ def render_financials():
             quarterly = period == "분기별"
             st.session_state.pop("result", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
 
+            corp = canonical_corp(corp)  # 대소문자 무시 (sk하이닉스 -> SK하이닉스)
             corp_code = lookup_corp_code(corp, "fin")
             if corp_code:
                 total = (end - start + 2) * (4 if quarterly else 1)  # 증감률 계산용 전년도 포함
@@ -1172,6 +1186,7 @@ def render_disclosures():
             st.error("시작일이 종료일보다 늦을 수 없습니다.")
         else:
             st.session_state.pop("disclosures", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+            corp = canonical_corp(corp)  # 대소문자 무시
             corp_code = lookup_corp_code(corp, "list")
             if corp_code:
                 with st.spinner("공시 목록을 불러오는 중입니다..."):
@@ -1341,7 +1356,7 @@ def render_news():
         corps = []
         if mode == "기업명":
             for part in re.split(NEWS_SPLIT, corp_text):
-                part = part.strip()
+                part = canonical_corp(part)  # 대소문자 무시 (sk하이닉스 -> SK하이닉스)
                 if part.isdigit() and len(part) == 6:  # 종목코드를 넣었다면 기업명으로 바꿔서 검색
                     idx = get_name_index()
                     hit = idx[idx["stock_code"] == part]
