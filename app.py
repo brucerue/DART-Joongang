@@ -12,8 +12,10 @@ DART 매출액 / 영업이익 조회 (Streamlit)
 """
 
 import difflib
+import hashlib
 import html
 import io
+import json
 import os
 import re
 import time
@@ -74,6 +76,83 @@ INDUSTRY_GROUPS = {
     "통신": ["SK텔레콤", "KT", "LG유플러스"],
 }
 INDUSTRY_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
+
+# 주요사항보고서: 보고서명(공백·괄호 무시)에 들어 있는 말 -> (DART 주요정보 API, 칸 목록).
+# 칸: (항목 이름, 응답 키 또는 (시작, 끝) 키 묶음, 표시 방식 won=금액 / shares=주식수 / pct=% / price=원 / text=그대로).
+# 앞에 있는 것부터 맞춰 보므로, 더 긴 이름(예: 신주인수권부사채)을 먼저 둔다.
+FUND_PURPOSES = [("fdpp_fclt", "시설자금"), ("fdpp_bsninh", "영업양수자금"), ("fdpp_op", "운영자금"),
+                 ("fdpp_dtrp", "채무상환자금"), ("fdpp_ocsa", "타법인 증권 취득자금"), ("fdpp_etc", "기타자금")]
+_BOND_COMMON = [("사채 종류", "bd_knd", "text"), ("회차", "bd_tm", "text"), ("권면총액", "bd_fta", "won"),
+                ("표면이자율", "bd_intr_ex", "pct"), ("만기이자율", "bd_intr_sf", "pct"), ("만기일", "bd_mtd", "text"),
+                ("발행방법", "bdis_mthn", "text")]
+MAJOR_REPORTS = [
+    ("유상증자결정", "piicDecsn", "유상증자", [
+        ("증자방식", "ic_mthn", "text"), ("신주(보통주)", "nstk_ostk_cnt", "shares"), ("신주(기타주)", "nstk_estk_cnt", "shares"),
+        ("증자 전 발행주식(보통주)", "bfic_tisstk_ostk", "shares"), ("1주당 액면가", "fv_ps", "price")]),
+    ("무상증자결정", "fricDecsn", "무상증자", [
+        ("신주(보통주)", "nstk_ostk_cnt", "shares"), ("증자 전 발행주식(보통주)", "bfic_tisstk_ostk", "shares"),
+        ("1주당 배정 주식수", "nstk_ascnt_ps_ostk", "text"), ("신주배정기준일", "nstk_asstd", "text"),
+        ("신주 상장예정일", "nstk_lstprd", "text")]),
+    ("감자결정", "crDecsn", "감자", [
+        ("감자방법", "cr_mth", "text"), ("감자사유", "cr_rs", "text"), ("감자비율(보통주)", "cr_rt_ostk", "pct"),
+        ("감자 전 자본금", "bfcr_cpt", "won"), ("감자 후 자본금", "atcr_cpt", "won"), ("감자기준일", "cr_std", "text")]),
+    ("신주인수권부사채권발행결정", "bdwtIsDecsn", "신주인수권부사채(BW)", _BOND_COMMON + [
+        ("행사가액", "ex_prc", "price"), ("행사 시 발행 주식수", "nstk_isstk_cnt", "shares"),
+        ("주식총수 대비", "nstk_isstk_tisstk_vs", "pct"), ("행사기간", ("expd_bgd", "expd_edd"), "text"),
+        ("최저 조정가액", "act_mktprcfl_cvprc_lwtrsprc", "price"), ("납입일", "pymd", "text")]),
+    ("전환사채권발행결정", "cvbdIsDecsn", "전환사채(CB)", _BOND_COMMON + [
+        ("전환가액", "cv_prc", "price"), ("전환 시 발행 주식수", "cvisstk_cnt", "shares"),
+        ("주식총수 대비", "cvisstk_tisstk_vs", "pct"), ("전환청구기간", ("cvrqpd_bgd", "cvrqpd_edd"), "text"),
+        ("최저 조정가액", "act_mktprcfl_cvprc_lwtrsprc", "price"), ("납입일", "pymd", "text")]),
+    ("교환사채권발행결정", "exbdIsDecsn", "교환사채(EB)", _BOND_COMMON + [
+        ("교환가액", "ex_prc", "price"), ("교환대상", "extg", "text"), ("교환대상 주식수", "extg_stkcnt", "shares"),
+        ("주식총수 대비", "extg_tisstk_vs", "pct"), ("교환청구기간", ("exrqpd_bgd", "exrqpd_edd"), "text"),
+        ("납입일", "pymd", "text")]),
+    ("회사분할합병결정", None, None, []),  # 정리된 데이터 칸이 달라 AI 요약으로
+    ("회사분할결정", "cmpDvDecsn", "회사분할", [
+        ("분할방법", "dv_mth", "text"), ("분할비율", "dv_rt", "text"), ("이전할 사업", "dv_trfbsnprt_cn", "text"),
+        ("존속회사", "atdv_excmp_cmpnm", "text"), ("신설회사", "dvfcmp_cmpnm", "text"), ("신설회사 주요사업", "dvfcmp_mbsn", "text"),
+        ("신설부문 최근 매출", "dvfcmp_nbsn_rsl", "won"), ("신설회사 자산총계", "ffdtl_tast", "won"),
+        ("주주총회 예정일", "gmtsck_prd", "text"), ("분할기일", "dvdt", "text")]),
+    ("회사합병결정", "cmpMgDecsn", "회사합병", [
+        ("합병방법", "mg_mth", "text"), ("합병형태", "mg_stn", "text"), ("합병목적", "mg_pp", "text"), ("합병비율", "mg_rt", "text"),
+        ("합병상대회사", "mgptncmp_cmpnm", "text"), ("회사와의 관계", "mgptncmp_rl_cmpn", "text"),
+        ("상대회사 매출액", "rbsnfdtl_sl", "won"), ("상대회사 당기순이익", "rbsnfdtl_nic", "won"),
+        ("합병기일", "mgsc_mgdt", "text"), ("주식매수청구 가격", "aprskh_plnprc", "text")]),
+    ("영업양수결정", "bsnInhDecsn", "영업양수", [
+        ("양수영업", "inh_bsn", "text"), ("양수가액", "inh_prc", "won"), ("매출액 비중", "sl_rt", "pct"),
+        ("양수목적", "inh_pp", "text"), ("거래상대방", "dlptn_cmpnm", "text"), ("회사와의 관계", "dlptn_rl_cmpn", "text"),
+        ("양수기준일", "inh_prd_inh_std", "text")]),
+    ("영업양도결정", "bsnTrfDecsn", "영업양도", [
+        ("양도영업", "trf_bsn", "text"), ("양도가액", "trf_prc", "won"), ("매출액 비중", "sl_rt", "pct"),
+        ("양도목적", "trf_pp", "text"), ("거래상대방", "dlptn_cmpnm", "text"), ("회사와의 관계", "dlptn_rl_cmpn", "text"),
+        ("양도기준일", "trf_prd_trf_std", "text")]),
+    ("유형자산양수결정", "tgastInhDecsn", "유형자산 양수", [
+        ("자산구분", "ast_sen", "text"), ("자산명", "ast_nm", "text"), ("양수금액", "inhdtl_inhprc", "won"),
+        ("자산총액 대비", "inhdtl_tast_vs", "pct"), ("양수목적", "inh_pp", "text"), ("거래상대방", "dlptn_cmpnm", "text"),
+        ("양수기준일", "inh_prd_inh_std", "text")]),
+    ("유형자산양도결정", "tgastTrfDecsn", "유형자산 양도", [
+        ("자산구분", "ast_sen", "text"), ("자산명", "ast_nm", "text"), ("양도금액", "trfdtl_trfprc", "won"),
+        ("자산총액 대비", "trfdtl_tast_vs", "pct"), ("양도목적", "trf_pp", "text"), ("거래상대방", "dlptn_cmpnm", "text"),
+        ("양도기준일", "trf_prd_trf_std", "text")]),
+    ("타법인주식및출자증권양수결정", "otcprStkInvscrInhDecsn", "타법인 주식 양수", [
+        ("대상회사", "iscmp_cmpnm", "text"), ("대상회사 주요사업", "iscmp_mbsn", "text"), ("양수 주식수", "inhdtl_stkcnt", "shares"),
+        ("양수금액", "inhdtl_inhprc", "won"), ("자기자본 대비", "inhdtl_ecpt_vs", "pct"), ("양수 후 지분율", "atinh_eqrt", "pct"),
+        ("양수목적", "inh_pp", "text"), ("거래상대방", "dlptn_cmpnm", "text"), ("양수예정일", "inh_prd", "text")]),
+    ("타법인주식및출자증권양도결정", "otcprStkInvscrTrfDecsn", "타법인 주식 양도", [
+        ("대상회사", "iscmp_cmpnm", "text"), ("양도 주식수", "trfdtl_stkcnt", "shares"), ("양도금액", "trfdtl_trfprc", "won"),
+        ("자기자본 대비", "trfdtl_ecpt_vs", "pct"), ("양도 후 지분율", "attrf_eqrt", "pct"), ("양도목적", "trf_pp", "text"),
+        ("거래상대방", "dlptn_cmpnm", "text"), ("양도예정일", "trf_prd", "text")]),
+    ("자기주식취득결정", "tsstkAqDecsn", "자기주식 취득", [
+        ("취득예정 주식(보통주)", "aqpln_stk_ostk", "shares"), ("취득예정금액(보통주)", "aqpln_prc_ostk", "won"),
+        ("취득기간", ("aqexpd_bgd", "aqexpd_edd"), "text"), ("취득목적", "aq_pp", "text"), ("취득방법", "aq_mth", "text"),
+        ("위탁 증권사", "cs_iv_bk", "text")]),
+    ("자기주식처분결정", "tsstkDpDecsn", "자기주식 처분", [
+        ("처분예정 주식(보통주)", "dppln_stk_ostk", "shares"), ("처분예정금액(보통주)", "dppln_prc_ostk", "won"),
+        ("처분기간", ("dpprpd_bgd", "dpprpd_edd"), "text"), ("처분목적", "dp_pp", "text"), ("위탁 증권사", "cs_iv_bk", "text")]),
+]
+MAX_DIV_CORPS = 5
+
 MAX_INDUSTRY_CORPS = 10
 
 MAX_WORKERS = 6  # 동시에 보낼 DART 요청 수 (한 번 조회에 최대 44번이라 분당 한도에는 여유)
@@ -1347,14 +1426,16 @@ def ai_prompt(title, text):
     )
 
 
-def call_gemini(session, prompt):
+def call_gemini(session, prompt, system=None, json_mode=False):
     """Gemini 호출. 서버가 붐비면(500·502·503·504) 잠깐 쉬었다 다시 시도하고, 그래도 안 되면 가벼운 모델로 바꿔 시도.
     -> (요약 글, 실제로 쓴 모델)"""
     body = {
-        "systemInstruction": {"parts": [{"text": AI_SYSTEM}]},
+        "systemInstruction": {"parts": [{"text": system or AI_SYSTEM}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192},
     }
+    if json_mode:  # 표로 쓸 결과는 JSON으로만 받는다
+        body["generationConfig"]["responseMimeType"] = "application/json"
     models = [GEMINI_MODEL] + ([GEMINI_FALLBACK] if GEMINI_FALLBACK and GEMINI_FALLBACK != GEMINI_MODEL else [])
     res, model = None, GEMINI_MODEL
     for model in models:
@@ -1397,8 +1478,8 @@ def call_gemini(session, prompt):
     return text.strip(), model
 
 
-def call_claude(session, prompt):
-    body = {"model": ANTHROPIC_MODEL, "max_tokens": 2000, "temperature": 0.2, "system": AI_SYSTEM,
+def call_claude(session, prompt, system=None):
+    body = {"model": ANTHROPIC_MODEL, "max_tokens": 4000, "temperature": 0.2, "system": system or AI_SYSTEM,
             "messages": [{"role": "user", "content": prompt}]}
     headers = {"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"}
     try:
@@ -1427,13 +1508,428 @@ def ai_summary(rcept_no, title):
         return cached
     text = fetch_document_text(session, store, rcept_no)
     prompt = ai_prompt(title, text)
-    if AI_PROVIDER == "gemini":
-        summary, used = call_gemini(session, prompt)
-    else:
-        summary, used = call_claude(session, prompt), ANTHROPIC_MODEL
+    summary, used = ai_generate(prompt)
     value = (summary, len(text) > MAX_DOC_CHARS, used)
     cache_save(store, key, value)
     return value
+
+
+
+def ai_generate(prompt, system=None, json_mode=False):
+    """설정된 AI(Gemini 또는 Claude)로 글을 받는다. -> (글, 쓴 모델)"""
+    session = get_session()
+    if AI_PROVIDER == "gemini":
+        return call_gemini(session, prompt, system=system, json_mode=json_mode)
+    return call_claude(session, prompt, system=system), ANTHROPIC_MODEL
+
+
+def ai_model_name():
+    return GEMINI_MODEL if AI_PROVIDER == "gemini" else ANTHROPIC_MODEL
+
+
+def ai_cached(key, make):
+    """AI 결과 저장소: 같은 질문은 일주일 동안 다시 부르지 않는다."""
+    store = get_cache_store()
+    full = ("ai2", AI_PROVIDER, ai_model_name()) + tuple(key)
+    hit = cache_lookup(store, full, AI_TTL)
+    if hit is not _MISSING and hit:
+        return hit
+    value = make()
+    cache_save(store, full, value)
+    return value
+
+
+def parse_json(text):
+    """AI 답에서 JSON 부분만 꺼낸다 (```json 같은 표시가 붙어 와도). 실패하면 AiError."""
+    t = re.sub(r"^```(?:json)?|```$", "", str(text).strip(), flags=re.M).strip()
+    starts = [i for i in (t.find("{"), t.find("[")) if i >= 0]
+    if not starts:
+        raise AiError("AI 답을 표로 바꾸지 못했어요. 다시 시도해주세요.")
+    i = min(starts)
+    j = max(t.rfind("}"), t.rfind("]"))
+    try:
+        return json.loads(t[i:j + 1])
+    except ValueError as e:
+        raise AiError("AI 답을 표로 바꾸지 못했어요. 다시 시도해주세요.") from e
+
+
+def strip_correction(name):
+    """[기재정정]·[첨부정정] 같은 앞머리를 뗀 보고서명."""
+    return re.sub(r"^\s*(\[[^\]]*\]\s*)+", "", str(name or "")).strip()
+
+
+def is_correction(name):
+    return bool(re.match(r"^\s*\[[^\]]*정정[^\]]*\]", str(name or "")))
+
+
+def find_previous_version(r, rows):
+    """정정 공시의 바로 앞 버전(같은 보고서명, 더 이른 접수번호). 불러온 목록에 없으면 1년 전까지 DART에서 찾는다."""
+    rno, core = str(r.get("rcept_no", "")), disclosure_key(strip_correction(r.get("report_nm")))
+    corp = str(r.get("corp_code", "") or "")
+
+    def same(x):
+        return (disclosure_key(strip_correction(x.get("report_nm"))) == core and str(x.get("rcept_no", "")) < rno
+                and (not corp or str(x.get("corp_code", corp) or corp) == corp))
+
+    cands = [x for x in rows if same(x)]
+    if not cands and corp:
+        try:
+            end = datetime.strptime(str(r.get("rcept_dt") or rno[:8])[:8], "%Y%m%d").date()
+        except ValueError:
+            end = TODAY
+        found, _, _ = collect_disclosures(corp, end - timedelta(days=365), end)
+        cands = [x for x in found if same(x)]
+    return max(cands, key=lambda x: str(x.get("rcept_no", ""))) if cands else None
+
+
+def correction_diff(cur_rno, prev_rno, title):
+    """정정 전·후 원문을 비교해 바뀐 부분만."""
+    def make():
+        session, store = get_session(), get_cache_store()
+        before = fetch_document_text(session, store, prev_rno)[:35_000]
+        after = fetch_document_text(session, store, cur_rno)[:35_000]
+        prompt = (
+            f"공시 제목: {title}\n아래는 같은 공시의 정정 전 원문과 정정 후 원문이다. 바뀐 내용만 정리해줘. "
+            "정정 후 원문에 '정정사항'·'정정 전/정정 후' 표가 있으면 그것을 우선 근거로 쓴다.\n\n"
+            "**정정 사유**\n- (원문에 적힌 사유. 없으면 '원문에 없음')\n\n"
+            "**바뀐 내용**\n- 항목: 정정 전 → 정정 후 (숫자는 원문 그대로. 금액·기간·상대방·조건 변화를 우선)\n\n"
+            "**기사 관점에서 눈여겨볼 변화**\n- (계약 축소·해지, 일정 연기 등 원문에서 확인되는 것만. 없으면 '특이사항 없음')\n\n"
+            f"[정정 전 원문]\n{before}\n\n[정정 후 원문]\n{after}"
+        )
+        return ai_generate(prompt)
+    return ai_cached(("fix", cur_rno, prev_rno), make)
+
+
+def ask_disclosure(rno, title, question):
+    """고른 공시에 질문 -> 원문 근거와 함께 답."""
+    def make():
+        text = fetch_document_text(get_session(), get_cache_store(), rno)[:MAX_DOC_CHARS]
+        prompt = (
+            f"공시 제목: {title}\n질문: {question}\n\n아래 원문만 보고 답해줘. 형식:\n"
+            "**답**\n(2~4문장. 원문에서 확인되지 않으면 '원문에서 확인되지 않음'이라고만)\n\n"
+            "**근거**\n- \"원문 문장을 그대로 인용\" (최대 3개)\n\n"
+            f"[공시 원문]\n{text}"
+        )
+        return ai_generate(prompt)
+    return ai_cached(("ask", rno, question.strip()), make)
+
+
+NEWS_PICK_SYSTEM = (
+    "너는 한국 경제신문 산업부 데스크다. 공시 제목 목록만 보고 기사 가치가 높은 공시를 고른다. "
+    "제목에서 알 수 있는 사실만 근거로 삼고, 제목에 없는 숫자나 내용을 지어내지 않는다."
+)
+
+
+def pick_newsworthy(rows):
+    """오늘의 공시 제목 목록 -> 기사거리 최대 10건 [(행, 이유)]. 제목만 보낸다."""
+    items = rows[:400]
+    lines = [f"{i}. [{CLS_NAMES.get(r.get('corp_cls'), '')}] {r.get('corp_name', '')} | {str(r.get('report_nm', '')).strip()}"
+             for i, r in enumerate(items)]
+    digest = hashlib.md5("\n".join(lines).encode("utf-8")).hexdigest()
+
+    def make():
+        prompt = (
+            "아래 공시 중 산업부 기사로 쓸 만한 것을 최대 10개 골라줘. 대기업·업종 대표 기업, 큰 규모의 계약·투자·M&A·증자, "
+            "최대주주 변경, 실적 급변, 사업 철수·진출 같은 공시를 우선한다. 같은 회사의 비슷한 공시는 하나만. "
+            "정정 공시는 내용이 중요해 보일 때만.\n"
+            '반드시 JSON 배열로만 답해: [{"번호": 3, "이유": "한 문장"}, ...] (중요한 순서)\n\n' + "\n".join(lines)
+        )
+        return ai_generate(prompt, system=NEWS_PICK_SYSTEM, json_mode=True)
+
+    text, used = ai_cached(("pick", digest), make)
+    data = parse_json(text)
+    if isinstance(data, dict):
+        data = next((v for v in data.values() if isinstance(v, list)), [])
+    out, seen = [], set()
+    for d in data if isinstance(data, list) else []:
+        try:
+            i = int(d.get("번호"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if 0 <= i < len(items) and i not in seen:
+            seen.add(i)
+            out.append((items[i], str(d.get("이유", "")).strip()))
+    return out[:10], used
+
+
+# ---- 사업보고서 '사업의 내용' ----
+BIZ_ITEMS = [
+    "생산능력", "가동률", "주요 제품 가격", "주요 원재료·가격", "제품별 매출 비중",
+    "지역별(내수·수출) 매출 비중", "주요 고객", "연구개발비", "매출 대비 연구개발비 비중",
+]
+
+
+def find_annual_report(corp_code, year):
+    """그 사업연도의 사업보고서 (이듬해에 제출). -> 공시 목록의 한 줄 또는 None. 정정본이 있으면 가장 최신."""
+    session, store = get_session(), get_cache_store()
+    bgn, end = date(year + 1, 1, 1), min(date(year + 1, 12, 31), TODAY)
+    if bgn > TODAY:
+        return None
+    jo = fetch_disclosure_page(session, store, corp_code, bgn.strftime("%Y%m%d"), end.strftime("%Y%m%d"), 1, "A")
+    rows = [r for r in ((jo or {}).get("list") or []) if "사업보고서" in str(r.get("report_nm", ""))]
+    exact = [r for r in rows if f"({year}." in str(r.get("report_nm", ""))]
+    rows = exact or rows
+    return max(rows, key=lambda r: str(r.get("rcept_no", ""))) if rows else None
+
+
+def business_section(text):
+    """사업보고서 원문에서 'II. 사업의 내용' ~ 'III. 재무에 관한 사항' 부분. 목차의 같은 제목은 건너뛴다(가장 긴 구간)."""
+    starts = [m.start() for m in re.finditer(r"(?:II|Ⅱ)\s*[\.．]\s*사업의\s*내용", text)]
+    best = None
+    for st_ in starts:
+        m = re.search(r"(?:III|Ⅲ)\s*[\.．]\s*재무에\s*관한\s*사항", text[st_:])
+        seg = text[st_: st_ + m.start()] if m else text[st_: st_ + MAX_DOC_CHARS]
+        if best is None or len(seg) > len(best):
+            best = seg
+    return best
+
+
+def business_text(corp_code, year, limit=None):
+    """-> (사업의 내용 글자, 보고서 줄, 잘렸는지). 사업보고서가 없으면 AiError."""
+    limit = limit or MAX_DOC_CHARS
+    rep_row = find_annual_report(corp_code, year)
+    if not rep_row:
+        raise AiError(f"{year}년 사업보고서를 찾지 못했어요. (사업보고서는 이듬해 3월쯤 나와요)")
+    text = fetch_document_text(get_session(), get_cache_store(), str(rep_row["rcept_no"]))
+    sec = business_section(text) or text
+    return sec[:limit], rep_row, len(sec) > limit
+
+
+def business_extract(corp, corp_code, year):
+    """사업의 내용에서 산업부 단골 항목 뽑기 -> ({항목: {"값", "근거"}}, 보고서 줄, 잘렸는지, 모델)"""
+    sec, rep_row, cut = business_text(corp_code, year)
+
+    def make():
+        keys = ", ".join(f'"{k}"' for k in BIZ_ITEMS)
+        prompt = (
+            f"회사: {corp}\n아래는 {year}년 사업보고서의 'II. 사업의 내용'이다. 다음 항목을 원문에서 찾아 JSON 객체로만 답해줘.\n"
+            f"항목: {keys}\n"
+            '형식: {"항목": {"값": "짧게(80자 이내, 숫자·단위·기간 원문 그대로, 여러 제품이면 주요 2~3개)", '
+            '"근거": "원문 위치(예: 생산능력 표, 매출 실적 표)"}}\n'
+            "원문에서 찾을 수 없으면 값은 \"원문에 없음\", 근거는 \"\". 추정하거나 계산하지 마.\n\n"
+            f"[사업의 내용]\n{sec}"
+        )
+        return ai_generate(prompt, json_mode=True)
+
+    text, used = ai_cached(("biz", corp_code, str(rep_row["rcept_no"])), make)
+    data = parse_json(text)
+    if not isinstance(data, dict):
+        raise AiError("AI 답을 표로 바꾸지 못했어요. 다시 시도해주세요.")
+    out = {}
+    for k in BIZ_ITEMS:
+        v = data.get(k) or {}
+        if isinstance(v, str):
+            v = {"값": v, "근거": ""}
+        out[k] = {"값": str(v.get("값", "") or "원문에 없음").strip(), "근거": str(v.get("근거", "") or "").strip()}
+    return out, rep_row, cut, used
+
+
+def business_diff(corp, corp_code, year):
+    """올해·작년 사업의 내용 비교 -> (마크다운, 올해 보고서, 작년 보고서, 모델)"""
+    now, rep_now, _ = business_text(corp_code, year, 40_000)
+    before, rep_prev, _ = business_text(corp_code, year - 1, 40_000)
+
+    def make():
+        prompt = (
+            f"회사: {corp}\n아래는 같은 회사의 {year - 1}년과 {year}년 사업보고서 'II. 사업의 내용'이다. "
+            f"{year}년에 새로 등장하거나 크게 달라진 내용만 뽑아줘. 표현만 바뀐 것은 빼.\n\n"
+            "**새로 생긴 사업·제품**\n- 내용 (올해 원문: \"짧은 인용\")\n\n"
+            "**새 고객·협력사·시장**\n- ...\n\n**새 설비·투자·생산능력 변화**\n- ...\n\n"
+            "**새로 적힌 위험 요인**\n- ...\n\n**작년엔 있었는데 빠진 내용**\n- ...\n\n"
+            "각 항목에 해당 없으면 '없음'. 원문에 없는 해석은 쓰지 마.\n\n"
+            f"[{year - 1}년 사업의 내용]\n{before}\n\n[{year}년 사업의 내용]\n{now}"
+        )
+        return ai_generate(prompt)
+
+    text, used = ai_cached(("bizdiff", str(rep_now["rcept_no"]), str(rep_prev["rcept_no"])), make)
+    return text, rep_now, rep_prev, used
+
+
+
+# ------------------------------------------------------------
+# 주요사항보고서 숫자 (DART가 정리해 주는 칸)
+# ------------------------------------------------------------
+def major_report_spec(report_nm):
+    """보고서명 -> MAJOR_REPORTS의 (키워드, API, 이름, 칸) 또는 None. 주요사항보고서만."""
+    key = disclosure_key(report_nm)
+    if "주요사항보고서" not in key:
+        return None
+    for spec in MAJOR_REPORTS:
+        if disclosure_key(spec[0]) in key:
+            return spec if spec[1] else None
+    return None
+
+
+def fmt_field(value, kind):
+    """칸 값 -> 화면 글자. 비었거나 '-'면 None."""
+    t = str(value if value is not None else "").strip()
+    if t in ("", "-", "해당사항없음", "해당사항 없음"):
+        return None
+    if kind in ("won", "shares", "price"):
+        v = to_int(t)
+        if v is None:
+            return t
+        if kind == "won":
+            return won_text(v) if abs(v) >= 1e8 else f"{v:,}원"
+        return f"{v:,}주" if kind == "shares" else f"{v:,}원"
+    if kind == "pct":
+        return t if t.endswith("%") else f"{t}%"
+    return t
+
+
+def major_report_rows(row, spec):
+    """DART 응답 한 줄 -> [(항목, 값)]. 유상증자·사채는 자금 용도 합계와 비중도 붙인다."""
+    out = []
+    for label, keys, kind in spec[3]:
+        if isinstance(keys, tuple):
+            a, b = (fmt_field(row.get(k), "text") for k in keys)
+            val = f"{a} ~ {b}" if a and b else (a or b)
+        else:
+            val = fmt_field(row.get(keys), kind)
+        if val:
+            out.append((label, val))
+    if any(k in row for k, _ in FUND_PURPOSES):
+        uses = [(name, to_int(row.get(k)) or 0) for k, name in FUND_PURPOSES]
+        total = sum(v for _, v in uses)
+        if total > 0:
+            out.insert(1 if spec[1] == "piicDecsn" else 3, ("조달 총액", won_text(total)))
+            for name, v in uses:
+                if v > 0:
+                    out.append((f"자금 용도: {name}", f"{won_text(v) if v >= 1e8 else f'{v:,}원'} ({v / total * 100:.0f}%)"))
+        if spec[1] == "piicDecsn":
+            new, before = to_int(row.get("nstk_ostk_cnt")), to_int(row.get("bfic_tisstk_ostk"))
+            if new and before:
+                out.append(("증자 비율(보통주)", f"{new / before * 100:.1f}%"))
+    return out
+
+
+def fetch_major_report(session, store, api, corp_code, rcept_no, rcept_dt):
+    """주요사항 API는 접수번호가 아니라 기간으로 조회한다 -> 접수일 앞뒤로 찾아 같은 접수번호를 고른다.
+    정정 공시면 최초 접수일이 더 이르므로 1년 전부터 찾는다. -> (행, 정확히 일치했는지) 또는 (None, False)"""
+    key = ("major", api, corp_code, rcept_no)
+    cached = cache_lookup(store, key, CACHE_TTL)
+    if cached is not _MISSING:
+        return cached
+    end = str(rcept_dt or rcept_no[:8])[:8]
+    try:
+        bgn = (datetime.strptime(end, "%Y%m%d") - timedelta(days=365)).strftime("%Y%m%d")
+    except ValueError:
+        return None, False
+    jo = call_dart(session, f"https://opendart.fss.or.kr/api/{api}.json",
+                   {"crtfc_key": API_KEY, "corp_code": corp_code, "bgn_de": bgn, "end_de": end})
+    rows = (jo or {}).get("list") or []
+    exact = [r for r in rows if str(r.get("rcept_no", "")).strip() == rcept_no]
+    if exact:
+        value = (exact[0], True)
+    elif rows:  # 정정 공시: 같은 결정의 최신 내용(접수번호가 가장 큰 것)
+        value = (max(rows, key=lambda r: str(r.get("rcept_no", ""))), False)
+    else:
+        value = (None, False)
+    cache_save(store, key, value)
+    return value
+
+
+# ------------------------------------------------------------
+# 배당 · 자사주 (사업·반기보고서)
+# ------------------------------------------------------------
+def div_key(text):
+    return re.sub(r"[\s()（）]", "", str(text or ""))
+
+
+def dividend_summary(jo):
+    """배당에 관한 사항 -> {"now": {...}, "prev": {...}}. total(원), payout(%), dps(원), yield(%)"""
+    rows = dart_rows(jo, ["se", "thstrm"])
+
+    def find(word, common=False, prefer=""):
+        cands = [r for r in rows if word in div_key(r.get("se"))]
+        if common:
+            c2 = [r for r in cands if "보통" in str(r.get("stock_knd", ""))]
+            cands = c2 or cands
+        if prefer:
+            c3 = [r for r in cands if prefer in div_key(r.get("se"))]
+            cands = c3 or cands
+        return cands[0] if cands else None
+
+    def num(r, col):
+        if not r:
+            return None
+        t = str(r.get(col, "")).replace(",", "").strip()
+        try:
+            return float(t)
+        except ValueError:
+            return None
+
+    total, payout = find("현금배당금총액"), find("현금배당성향", prefer="연결")
+    dps, yld = find("주당현금배당금", common=True), find("현금배당수익률", common=True)
+    out = {}
+    for k, col in (("now", "thstrm"), ("prev", "frmtrm")):
+        t = num(total, col)
+        out[k] = {"total": t * 1e6 if t is not None else None,  # 공시 단위: 백만원
+                  "payout": num(payout, col), "dps": num(dps, col), "yield": num(yld, col)}
+    return out
+
+
+def treasury_summary(jo):
+    """자기주식 취득·처분 현황 -> 보통주 {start, acq, disp, burn, end} (주). 총계 줄이 있으면 그것을 쓴다."""
+    rows = dart_rows(jo, ["stock_knd", "trmend_qy"])
+    common = [r for r in rows if "보통" in str(r.get("stock_knd", ""))] or rows
+    total = [r for r in common if "총계" in div_key(r.get("acqs_mth1")) or "합계" in div_key(r.get("acqs_mth1"))]
+    pick_rows = total[:1] or [r for r in common
+                              if not any(w in div_key(r.get(f"acqs_mth{i}")) for i in (1, 2, 3) for w in ("소계", "총계", "합계"))]
+    if not pick_rows:
+        return None
+    keys = {"start": "bsis_qy", "acq": "change_qy_acqs", "disp": "change_qy_dsps", "burn": "change_qy_incnr", "end": "trmend_qy"}
+    return {k: sum(to_int(r.get(c)) or 0 for r in pick_rows) for k, c in keys.items()}
+
+
+def collect_div(corps, year, reprt_code):
+    """여러 회사의 배당·자사주 현황 (동시에 조회)."""
+    session, store = get_session(), get_cache_store()
+    apis = {"div": "alotMatter", "tsk": "tesstkAcqsDspsSttus"}
+
+    def one(job):
+        name, code, kind = job
+        key = ("divtsk", kind, code, year, reprt_code)
+        cached = cache_lookup(store, key, CACHE_TTL)
+        if cached is not _MISSING:
+            return cached
+        jo = call_dart(session, f"https://opendart.fss.or.kr/api/{apis[kind]}.json",
+                       {"crtfc_key": API_KEY, "corp_code": code, "bsns_year": str(year), "reprt_code": reprt_code})
+        cache_save(store, key, jo)
+        return jo
+
+    jobs = [(name, code, kind) for name, code in corps for kind in apis]
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        results = list(pool.map(one, jobs))
+    got = {(j[0], j[2]): r for j, r in zip(jobs, results)}
+    return {name: {"div": dividend_summary(got.get((name, "div"))), "tsk": treasury_summary(got.get((name, "tsk"))),
+                   "rcept_no": next((str(r.get("rcept_no")) for r in dart_rows(got.get((name, "div")), ["rcept_no"])), None)}
+            for name, _ in corps}
+
+
+def div_tables(data):
+    """-> (배당 표, 자사주 표)"""
+    drows, trows = [], []
+    for corp, d in data.items():
+        now, prev = d["div"]["now"], d["div"]["prev"]
+        if any(v is not None for v in now.values()):
+            drows.append({
+                "회사": corp,
+                "배당금 총액": won_text(now["total"]) if now["total"] else ("0원" if now["total"] == 0 else "-"),
+                "총액 전년比": fmt_change(pct_change(now["total"], prev["total"])) if now["total"] and prev["total"] else "-",
+                "배당성향": f"{now['payout']:.1f}%" if now["payout"] is not None else "-",
+                "주당 배당금": f"{now['dps']:,.0f}원" if now["dps"] is not None else "-",
+                "전년 주당": f"{prev['dps']:,.0f}원" if prev["dps"] is not None else "-",
+                "시가배당률": f"{now['yield']:.2f}%" if now["yield"] is not None else "-",
+            })
+        t = d["tsk"]
+        if t:
+            trows.append({
+                "회사": corp, "기초 보유": f"{t['start']:,}", "취득": f"{t['acq']:+,}" if t["acq"] else "0",
+                "처분": f"{-t['disp']:+,}" if t["disp"] else "0", "소각": f"{-t['burn']:+,}" if t["burn"] else "0",
+                "기말 보유": f"{t['end']:,}",
+            })
+    return pd.DataFrame(drows), pd.DataFrame(trows)
 
 
 
@@ -2087,49 +2583,254 @@ def render_industry():
     )
 
 
-def render_ai_summary(rows, prefix):
-    """표 아래 'AI 요약' 상자: 공시 하나를 골라 원문을 열지 않고 핵심만 본다."""
-    with st.expander("AI 요약 — 원문을 열지 않고 핵심만 보기"):
-        if not AI_PROVIDER:
-            st.caption("AI 요약을 쓰려면 Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
-            return
+def render_major_numbers(r):
+    """고른 공시가 주요사항보고서(유상증자·CB·분할·양수도 등)면 DART 정리 칸을 표로."""
+    spec = major_report_spec(r.get("report_nm", ""))
+    if not spec:
+        return
+    code = str(r.get("corp_code", "")).strip()
+    rno = str(r["rcept_no"]).strip()
+    if not code:
+        return
+    try:
+        row, exact = fetch_major_report(get_session(), get_cache_store(), spec[1], code, rno, r.get("rcept_dt"))
+    except DartApiError as e:
+        st.error(str(e))
+        return
+    st.markdown(f"**핵심 숫자 · {spec[2]}**")
+    items = major_report_rows(row, spec) if row else []
+    if not items:
+        st.caption("DART 정리 데이터가 아직 없어요. 아래 AI 요약이나 원문으로 확인해주세요.")
+        return
+    st.dataframe(pd.DataFrame(items, columns=["항목", "내용"]), hide_index=True,
+                 column_config={"내용": st.column_config.TextColumn("내용", width="large")},
+                 height=(len(items) + 1) * 35 + 3)
+    note = "DART 정리 데이터 (원문 그대로의 숫자)"
+    if not exact:
+        note += " · 정정 공시라 같은 결정의 최신 내용을 보여줘요"
+    st.caption(note)
+
+
+def render_ai_summary(rows, prefix, all_rows=None):
+    """표 아래 '공시 자세히 보기' 상자: 공시 하나를 골라 핵심 숫자(주요사항보고서)·AI 요약·질문·정정 비교."""
+    with st.expander("공시 자세히 보기 — 핵심 숫자 · AI 요약 · 질문"):
         items = [r for r in rows if str(r.get("rcept_no", "")).strip()][:500]
         if not items:
-            st.caption("요약할 공시가 없어요.")
+            st.caption("고를 공시가 없어요.")
             return
 
         def label(r):
             d = str(r.get("rcept_dt", ""))
             d = f"{d[4:6]}.{d[6:8]}" if len(d) == 8 else d
             corp = f"{r.get('corp_name', '')} · " if r.get("corp_name") else ""
-            return f"{d} {corp}{str(r.get('report_nm', '')).strip()}"
+            mark = "[숫자표] " if major_report_spec(r.get("report_nm", "")) else ""
+            return f"{mark}{d} {corp}{str(r.get('report_nm', '')).strip()}"
 
         idx = st.selectbox(
-            "요약할 공시", range(len(items)), index=None, format_func=lambda i: label(items[i]),
-            placeholder="공시를 고르세요 (지금 표에 보이는 공시)", key=f"{prefix}_ai_pick",
+            "볼 공시", range(len(items)), index=None, format_func=lambda i: label(items[i]),
+            placeholder="공시를 고르세요 ([숫자표]는 핵심 숫자가 바로 나와요)", key=f"{prefix}_ai_pick",
         )
         if idx is None:
             return
         r = items[idx]
         rno = str(r["rcept_no"]).strip()
-        title = label(r)
+        title = label(r).replace("[숫자표] ", "")
+        render_major_numbers(r)
+        if not AI_PROVIDER:
+            st.caption("AI 요약을 쓰려면 Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
+            st.markdown(f"[DART 원문 보기]({DART_VIEW_URL.format(rno)})")
+            return
+
+        fix = is_correction(r.get("report_nm"))
+        cols = st.columns(2 if fix else 1)
+        go_sum = cols[0].button("AI 요약", key=f"{prefix}_ai_go", type="primary")
+        go_fix = cols[1].button("정정 전후 비교", key=f"{prefix}_fix_go") if fix else False
+
         saved = st.session_state.get(f"{prefix}_ai")
-        if st.button("AI 요약", key=f"{prefix}_ai_go", type="primary"):
+        if go_sum:
             with st.spinner("원문을 읽고 요약하는 중입니다... (긴 공시는 10~30초 걸려요)"):
                 try:
                     summary, truncated, used = ai_summary(rno, title)
                 except (AiError, DartApiError) as e:
                     st.error(str(e))
-                    return
-            saved = {"rcept_no": rno, "summary": summary, "truncated": truncated, "model": used}
-            st.session_state[f"{prefix}_ai"] = saved
+                else:
+                    saved = {"rcept_no": rno, "summary": summary, "truncated": truncated, "model": used}
+                    st.session_state[f"{prefix}_ai"] = saved
         if saved and saved["rcept_no"] == rno:
             st.markdown(saved["summary"])
             notes = [f"AI 요약({saved.get('model') or AI_PROVIDER}) · 숫자는 반드시 원문으로 확인하세요"]
             if saved["truncated"]:
                 notes.append(f"원문이 길어 앞부분 {MAX_DOC_CHARS:,}자만 요약했어요")
             st.caption(" · ".join(notes))
-            st.markdown(f"[DART 원문 보기]({DART_VIEW_URL.format(rno)})")
+
+        if fix:
+            fsaved = st.session_state.get(f"{prefix}_fix")
+            if go_fix:
+                with st.spinner("정정 전 공시를 찾아 비교하는 중입니다..."):
+                    try:
+                        prev = find_previous_version(r, all_rows or rows)
+                        if not prev:
+                            raise AiError("정정 전 공시를 찾지 못했어요. (1년 안에 같은 이름의 공시가 없어요)")
+                        text, used = correction_diff(rno, str(prev["rcept_no"]), title)
+                    except (AiError, DartApiError) as e:
+                        st.error(str(e))
+                    else:
+                        fsaved = {"rcept_no": rno, "text": text, "model": used, "prev": str(prev["rcept_no"]),
+                                  "prev_title": str(prev.get("report_nm", "")).strip()}
+                        st.session_state[f"{prefix}_fix"] = fsaved
+            if fsaved and fsaved["rcept_no"] == rno:
+                st.markdown("**정정 전후 비교**")
+                st.markdown(fsaved["text"])
+                st.caption(f"AI 비교({fsaved['model']}) · 정정 전: {fsaved['prev_title']} · 숫자는 반드시 원문으로 확인하세요")
+                st.markdown(f"[정정 전 원문]({DART_VIEW_URL.format(fsaved['prev'])})")
+
+        q = st.text_input("이 공시에 질문하기", key=f"{prefix}_q", placeholder="예: 계약 상대방이 누구야? 자금은 어디에 써?")
+        qsaved = st.session_state.get(f"{prefix}_qa")
+        if st.button("질문", key=f"{prefix}_q_go"):
+            if not q.strip():
+                st.error("질문을 입력해주세요.")
+            else:
+                with st.spinner("원문에서 찾는 중입니다..."):
+                    try:
+                        text, used = ask_disclosure(rno, title, q)
+                    except (AiError, DartApiError) as e:
+                        st.error(str(e))
+                    else:
+                        qsaved = {"rcept_no": rno, "q": q.strip(), "text": text, "model": used}
+                        st.session_state[f"{prefix}_qa"] = qsaved
+        if qsaved and qsaved["rcept_no"] == rno and qsaved["q"] == q.strip():
+            st.markdown(qsaved["text"])
+            st.caption(f"AI 답변({qsaved['model']}) · 근거 문장을 원문에서 확인하세요")
+        st.markdown(f"[DART 원문 보기]({DART_VIEW_URL.format(rno)})")
+
+
+def render_news_picks(rows, res_id):
+    """오늘의 공시: 제목만 보고 AI가 기사거리 10건을 고른다 (참고용)."""
+    if not AI_PROVIDER:
+        return
+    with st.expander("AI 기사거리 추리기 — 제목만 보고 고른 참고용 10건"):
+        st.caption(f"지금 표에 보이는 공시 {min(len(rows), 400):,}건의 제목만 AI에 보내요. 내용은 원문이나 AI 요약으로 꼭 확인하세요.")
+        saved = st.session_state.get("feed_picks")
+        if st.button("기사거리 추리기", key="feed_pick_go", type="primary"):
+            with st.spinner("제목을 훑어보는 중입니다..."):
+                try:
+                    picks, used = pick_newsworthy(rows)
+                except AiError as e:
+                    st.error(str(e))
+                else:
+                    saved = {"id": res_id, "picks": picks, "model": used, "n": len(rows)}
+                    st.session_state["feed_picks"] = saved
+        if saved and saved["id"] == res_id:
+            if not saved["picks"]:
+                st.info("AI가 고른 공시가 없어요. 다시 시도해주세요.")
+                return
+            df = pd.DataFrame([{
+                "회사": r.get("corp_name", ""), "보고서명": str(r.get("report_nm", "")).strip(), "이유": why,
+                "원문": DART_VIEW_URL.format(r["rcept_no"]) if r.get("rcept_no") else None,
+            } for r, why in saved["picks"]])
+            st.dataframe(df, hide_index=True, column_config={
+                "이유": st.column_config.TextColumn("이유", width="large"), "원문": LINK_COLUMN})
+            st.caption(f"AI 추천({saved['model']}) · 제목만 보고 고른 것이라 참고용이에요")
+
+
+def render_ai_analysis():
+    """탭: AI 분석 - 사업보고서 '사업의 내용'에서 핵심 항목 비교 / 전년 대비 새로 생긴 내용."""
+    if not AI_PROVIDER:
+        st.info("AI 분석을 쓰려면 Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
+        return
+    modes = ["핵심 항목 비교 (여러 회사)", "전년 대비 새로 생긴 내용 (한 회사)"]
+    mode = st.radio("분석", modes, key="aia_mode")
+    multi = mode == modes[0]
+    years = list(range(TODAY.year, 2014, -1))
+    with st.form("aia_search"):
+        corp_text = st.text_input(
+            "기업명 (여러 곳은 쉼표로)" if multi else "기업명", key="aia_corp",
+            placeholder="예: LG에너지솔루션, 삼성SDI, SK이노베이션" if multi else "예: 삼성전자",
+            help="쉼표로 나눠 최대 5곳. 회사마다 사업보고서를 AI가 읽어서 회사당 10~30초 걸려요." if multi else None,
+        )
+        year = st.selectbox("사업연도 (사업보고서 기준)", years, index=years.index(default_pay_year()), key="aia_year")
+        submitted = st.form_submit_button("AI 분석")
+
+    if submitted:
+        names = []
+        for part in re.split(NEWS_SPLIT, corp_text):
+            part = canonical_corp(part)
+            if part and name_key(part) not in {name_key(n) for n in names}:
+                names.append(part)
+        limit = 5 if multi else 1
+        if not names:
+            st.error("기업명을 입력해주세요.")
+        elif len(names) > limit:
+            st.error(f"기업은 한 번에 {limit}곳까지 넣을 수 있어요. (지금 {len(names)}곳)")
+        else:
+            st.session_state.pop("aia", None)
+            corps = []
+            if len(names) == 1:
+                code = lookup_corp_code(names[0], "aia")
+                if code:
+                    corps.append((names[0], code))
+            else:
+                for n in names:
+                    code = resolve_corp_code(n)
+                    if code:
+                        corps.append((n, code))
+                    else:
+                        st.warning(f'"{n}" 기업을 찾지 못해 빼고 분석했어요.')
+            if corps and multi:
+                results, errors = {}, []
+                bar = st.progress(0.0, text="사업보고서를 읽는 중입니다...")
+                for k, (n, code) in enumerate(corps):
+                    bar.progress(k / len(corps), text=f"{n} 사업보고서를 읽는 중입니다... ({k + 1}/{len(corps)})")
+                    try:
+                        results[n] = business_extract(n, code, int(year))
+                    except (AiError, DartApiError) as e:
+                        errors.append(f"{n}: {e}")
+                bar.empty()
+                st.session_state["aia"] = {"mode": "compare", "year": int(year), "results": results, "errors": errors}
+            elif corps:
+                n, code = corps[0]
+                with st.spinner(f"{n}의 {int(year) - 1}년·{year}년 사업보고서를 비교하는 중입니다... (30초~1분)"):
+                    try:
+                        text, rep_now, rep_prev, used = business_diff(n, code, int(year))
+                    except (AiError, DartApiError) as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state["aia"] = {"mode": "diff", "year": int(year), "corp": n, "text": text,
+                                                   "now": rep_now, "prev": rep_prev, "model": used}
+
+    res = st.session_state.get("aia")
+    if not res:
+        st.caption("사업보고서의 'II. 사업의 내용'을 AI가 읽고 정리해요. 공개된 공시 원문만 보내요.")
+        return
+    if res["mode"] == "compare":
+        for e in res["errors"]:
+            st.warning(e)
+        if not res["results"]:
+            return
+        corps = list(res["results"])
+        table = pd.DataFrame({"항목": BIZ_ITEMS, **{c: [res["results"][c][0][k]["값"] for k in BIZ_ITEMS] for c in corps}})
+        st.markdown(f"##### {res['year']}년 사업보고서 핵심 항목")
+        models = sorted({v[3] for v in res["results"].values()})
+        st.caption(f"AI 추출({', '.join(models)}) · '원문에 없음'은 사업보고서에 해당 내용이 없거나 AI가 찾지 못한 것 · 숫자는 반드시 원문으로 확인하세요")
+        st.dataframe(table, hide_index=True, height=(len(table) + 1) * 35 + 3,
+                     column_config={"항목": st.column_config.TextColumn("항목", width=150),
+                                    **{c: st.column_config.TextColumn(c, width=170) for c in corps}})
+        cut = [c for c in corps if res["results"][c][2]]
+        if cut:
+            st.caption(f"사업의 내용이 길어 앞부분 {MAX_DOC_CHARS:,}자만 읽은 회사: {', '.join(cut)}")
+        with st.expander("근거 보기 (원문 어디서 찾았는지)"):
+            ev = pd.DataFrame([{"회사": c, "항목": k, "값": res["results"][c][0][k]["값"], "근거": res["results"][c][0][k]["근거"] or "-"}
+                               for c in corps for k in BIZ_ITEMS])
+            st.dataframe(ev, hide_index=True)
+        st.markdown(" · ".join(f"[{c} 사업보고서]({DART_VIEW_URL.format(res['results'][c][1]['rcept_no'])})" for c in corps))
+        st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
+                           file_name=f"사업내용비교_{res['year']}.csv", mime="text/csv")
+    else:
+        st.markdown(f"##### {res['corp']} · {res['year']}년 사업보고서에서 새로 생긴 내용")
+        st.markdown(res["text"])
+        st.caption(f"AI 비교({res['model']}) · {res['year'] - 1}년 대비 · 인용 문장은 원문에서 확인하세요")
+        st.markdown(f"[{res['year']}년 사업보고서]({DART_VIEW_URL.format(res['now']['rcept_no'])}) · "
+                    f"[{res['year'] - 1}년 사업보고서]({DART_VIEW_URL.format(res['prev']['rcept_no'])})")
 
 
 def render_disclosures():
@@ -2223,7 +2924,7 @@ def render_disclosures():
         hide_index=True,
         column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
     )
-    render_ai_summary(shown, "list")
+    render_ai_summary(shown, "list", all_rows=res["rows"])
 
 
 def last_weekday(day):
@@ -2339,6 +3040,79 @@ def render_pay():
     )
 
 
+def render_dividend():
+    """탭: 배당·자사주 - 회사별 배당금 총액·배당성향·주당 배당금과 자사주 취득·처분·소각."""
+    years = list(range(TODAY.year, 2014, -1))
+    with st.form("div_search"):
+        corp_text = st.text_input(
+            "기업명 (여러 곳은 쉼표로)", key="div_corp", placeholder="예: 삼성전자, 현대차, KB금융",
+            help=f"쉼표(,)나 슬래시(/)로 나눠 최대 {MAX_DIV_CORPS}곳까지 비교해요.",
+        )
+        c1, c2 = st.columns(2)
+        year = c1.selectbox("사업연도", years, index=years.index(default_pay_year()), key="div_year")
+        report = c2.radio("보고서", list(PAY_REPORTS), horizontal=True, key="div_report")
+        submitted = st.form_submit_button("배당·자사주 조회") or st.session_state.pop("div_run", False)
+
+    if submitted:
+        names = []
+        for part in re.split(NEWS_SPLIT, corp_text):
+            part = canonical_corp(part)
+            if part and name_key(part) not in {name_key(n) for n in names}:
+                names.append(part)
+        if not names:
+            st.error("기업명을 입력해주세요.")
+        elif len(names) > MAX_DIV_CORPS:
+            st.error(f"기업은 한 번에 {MAX_DIV_CORPS}곳까지 넣을 수 있어요. (지금 {len(names)}곳)")
+        else:
+            st.session_state.pop("dividend", None)
+            corps = []
+            if len(names) == 1:
+                code = lookup_corp_code(names[0], "div")
+                if code:
+                    corps.append((names[0], code))
+            else:
+                with st.spinner("기업 정보를 확인하는 중입니다..."):
+                    for n in names:
+                        code = resolve_corp_code(n)
+                        if code:
+                            corps.append((n, code))
+                        else:
+                            hint = [label for label, _ in suggest_corps(n, limit=3)]
+                            st.warning(f'"{n}" 기업을 찾지 못해 빼고 조회했어요.' + (f" 혹시: {', '.join(hint)}" if hint else ""))
+            if corps:
+                with st.spinner("배당·자사주 공시를 불러오는 중입니다..."):
+                    try:
+                        data = collect_div(corps, int(year), PAY_REPORTS[report])
+                    except DartApiError as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state["dividend"] = {"data": data, "year": int(year), "report": report}
+
+    res = st.session_state.get("dividend")
+    if not res:
+        return
+    div, tsk = div_tables(res["data"])
+    label = f"{res['year']}년 {res['report'].split(' ')[0]}"
+    st.markdown("##### 배당")
+    if div.empty:
+        st.info(f"{label}에 배당 공시가 없어요. 연도나 보고서를 바꿔보세요.")
+    else:
+        half = " · 반기보고서는 중간배당 기준" if res["report"].startswith("반기") else ""
+        st.caption(f"{label} · 배당성향은 연결 기준 · 주당 배당금·시가배당률은 보통주{half}")
+        st.dataframe(div.style.map(change_style, subset=["총액 전년比"]), hide_index=True,
+                     height=(len(div) + 1) * 35 + 3)
+    st.markdown("##### 자사주 (보통주, 주)")
+    if tsk.empty:
+        st.info(f"{label}에 자기주식 현황 공시가 없어요.")
+    else:
+        st.caption("기초 보유 → 취득 · 처분 · 소각 → 기말 보유 · 해당 보고서 기간 동안의 변동")
+        st.dataframe(tsk.style.map(change_style, subset=["취득", "처분", "소각"]), hide_index=True,
+                     height=(len(tsk) + 1) * 35 + 3)
+    links = [f"[{c} 원문]({DART_VIEW_URL.format(d['rcept_no'])})" for c, d in res["data"].items() if d.get("rcept_no")]
+    if links:
+        st.markdown(" · ".join(links))
+
+
 def render_feed():
     """탭 3: 오늘의 공시 - 하루 동안 전 상장사가 낸 공시 중 취재거리가 될 만한 것만 모아 보기"""
     with st.form("feed_search"):
@@ -2402,7 +3176,8 @@ def render_feed():
         hide_index=True,
         column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
     )
-    render_ai_summary(shown, "feed")
+    render_ai_summary(shown, "feed", all_rows=res["rows"])
+    render_news_picks(shown, res["id"])
 
 
 def render_news():
@@ -2553,11 +3328,24 @@ footer { visibility: hidden; }
 h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !important; padding-bottom: 0.2rem; }
 [data-testid="stCaptionContainer"] { color: #7a8699; }
 
-/* 탭 */
-[data-baseweb="tab-list"] { gap: 0.4rem; border-bottom: 1px solid #dde3ec; }
-[data-baseweb="tab"] { font-weight: 600; padding: 0.6rem 1.1rem; }
-[data-baseweb="tab-highlight"] { background-color: #1c7ed6 !important; height: 3px; }
-[data-baseweb="tab"][aria-selected="true"] { color: #1c7ed6 !important; }
+/* 탭: 한 줄에 4개씩 바둑판으로 (옆으로 밀지 않아도 모두 보이게) */
+[data-testid="stTabs"] [role="tablist"] {
+    display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.35rem;
+    overflow: visible !important; width: 100% !important; border-bottom: none !important; margin-bottom: 0.6rem;
+}
+[data-testid="stTab"] {
+    display: flex; align-items: center; justify-content: center; min-width: 0; margin: 0 !important;
+    padding: 0.55rem 0.2rem !important; border: 1px solid #dde3ec; border-radius: 10px; background: #ffffff; cursor: pointer;
+}
+[data-testid="stTab"] p { font-size: 0.88rem; font-weight: 600; white-space: nowrap; margin: 0; color: #334155; }
+[data-testid="stTab"]:hover { border-color: #1c7ed6; }
+[data-testid="stTab"][aria-selected="true"] { background: #1c7ed6; border-color: #1c7ed6; }
+[data-testid="stTab"][aria-selected="true"] p { color: #ffffff !important; }
+[data-testid="stTab"] > div:not([data-testid]) { display: none; }  /* 기본 밑줄 표시는 숨김 */
+[data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after { display: none !important; }
+[data-testid="stTabs"] [role="tablist"] { box-shadow: none !important; background: none !important; }
+@media (max-width: 400px) { [data-testid="stTab"] p { font-size: 0.8rem; } }  /* 작은 휴대폰에서도 글자가 칸 안에 */
+[data-testid="stTabs"] [role="tablist"] ~ button, [data-testid="stTabs"] button[aria-label*="croll"] { display: none !important; }
 
 /* 입력 카드 */
 [data-testid="stForm"] {
@@ -2628,14 +3416,14 @@ if not API_KEY:
     )
     st.stop()
 
-TAB_NAMES = ["재무 조회", "업종 합산", "공시 목록", "보수·직원", "오늘의 공시", "단독 뉴스"]
+TAB_NAMES = ["재무 조회", "업종 합산", "공시 목록", "보수·직원", "배당·자사주", "AI 분석", "오늘의 공시", "단독 뉴스"]
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_fin, tab_ind, tab_list, tab_pay, tab_feed, tab_news = tabs
+tab_fin, tab_ind, tab_list, tab_pay, tab_div, tab_aia, tab_feed, tab_news = tabs
 with tab_fin:
     render_financials()
 with tab_ind:
@@ -2644,6 +3432,10 @@ with tab_list:
     render_disclosures()
 with tab_pay:
     render_pay()
+with tab_div:
+    render_dividend()
+with tab_aia:
+    render_ai_analysis()
 with tab_feed:
     render_feed()
 with tab_news:
