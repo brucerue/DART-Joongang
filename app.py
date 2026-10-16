@@ -753,9 +753,14 @@ def disclosure_key(text):
     return re.sub(r"[\s·ㆍ()\[\]]", "", str(text).lower())
 
 
+REGULAR_REPORTS = ["사업보고서", "반기보고서", "분기보고서"]  # 공시 목록 결과의 '정기공시' 버튼
+
+
 def match_preset(rows, preset):
     """묶음 이름으로 공시를 걸러낸다. '전체'·'모든 공시'는 그대로, '주요 전체'는 모든 묶음의 합."""
-    if preset in MAJOR_DISCLOSURES:
+    if preset == "정기공시":
+        words = REGULAR_REPORTS
+    elif preset in MAJOR_DISCLOSURES:
         words = MAJOR_DISCLOSURES[preset]
     elif preset == "주요 전체":
         words = [w for ws in MAJOR_DISCLOSURES.values() for w in ws]
@@ -1211,7 +1216,7 @@ def render_financials():
     this_year = TODAY.year
 
     with st.form("search"):
-        corp_text = st.text_input("기업명 또는 종목코드", value="삼성전자", key="fin_corp")
+        corp_text = st.text_input("기업명 또는 종목코드", key="fin_corp", placeholder="예: 삼성전자 또는 005930")
         period = st.radio("조회 단위", ["연도별", "분기별"], horizontal=True, key="fin_period")
         c1, c2 = st.columns(2)
         start = c1.number_input("시작연도", min_value=2015, max_value=this_year, value=2021, step=1, key="fin_start")
@@ -1269,7 +1274,14 @@ def render_financials():
         style_table(table),
         hide_index=True,
         # 기간 칸: "2025 4Q"가 모바일에서도 잘리지 않게 넓힌다
-        column_config={"기간": st.column_config.TextColumn("기간", width=95), "원문": LINK_COLUMN},
+        column_config={
+            "기간": st.column_config.TextColumn("기간", width=95),
+            # 금액 칸: 삼성전자 매출(3,336,059억원)도 굵은 글씨로 잘리지 않는 너비
+            "매출액": st.column_config.TextColumn("매출액", width=108),
+            "영업이익": st.column_config.TextColumn("영업이익", width=95),
+            "순이익": st.column_config.TextColumn("순이익", width=95),
+            "원문": LINK_COLUMN,
+        },
         height=(len(table) + 1) * 35 + 3,
     )
 
@@ -1298,7 +1310,7 @@ def render_disclosures():
     first_day = date(1999, 1, 1)
 
     with st.form("list_search"):
-        corp_text = st.text_input("기업명 또는 종목코드", value="삼성전자", key="list_corp")
+        corp_text = st.text_input("기업명 또는 종목코드", key="list_corp", placeholder="예: 삼성전자 또는 005930")
         c0, c1, c2 = st.columns(3)
         kind_label = c0.selectbox("공시 유형", list(DISCLOSURE_TYPES), key="list_kind")
         start = c1.date_input(
@@ -1361,7 +1373,7 @@ def render_disclosures():
     # 주요 공시 버튼과 검색은 이미 가져온 목록 안에서 걸러내는 것이라 DART를 다시 부르지 않는다
     preset = st.radio(
         "주요 공시",
-        ["전체"] + list(MAJOR_DISCLOSURES),
+        ["전체", "정기공시"] + list(MAJOR_DISCLOSURES),
         horizontal=True,
         key=f"list_preset_{res['id']}",  # 건수가 조회마다 바뀌므로 키도 새로 만든다 (feed_view와 같은 이유)
         format_func=lambda p: f"{p} ({len(match_preset(res['rows'], p)):,})",
@@ -1467,7 +1479,7 @@ def render_news():
         )
         return
 
-    st.session_state.setdefault("news_corp", "삼성전자")  # 기본값 (관심 목록 주소로 들어오면 그 기업들)
+    st.session_state.setdefault("news_corp", "")  # 처음엔 빈칸 (관심 목록 주소로 들어오면 그 기업들)
     mode = st.radio("검색 방식", ["기업명", "섹터"], horizontal=True, key="news_mode")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     with st.form("news_search"):
         if mode == "기업명":
