@@ -2921,14 +2921,11 @@ def render_disclosures():
 
     today_str = TODAY.strftime("%Y%m%d")
     table = disclosure_table(shown)
-    table.insert(0, "새", ["NEW" if str(r.get("rcept_dt", "")) == today_str else "" for r in shown])  # 오늘 올라온 공시
-    fresh = int((table["새"] == "NEW").sum())
-    if fresh:
-        st.caption(f"NEW = 오늘 올라온 공시 {fresh}건")
+    table.insert(0, "new", ["NEW" if str(r.get("rcept_dt", "")) == today_str else "" for r in shown])  # 오늘 올라온 공시
     st.dataframe(
-        table.style.map(lambda v: f"color: {NEGATIVE_COLOR}; font-weight: 800" if v == "NEW" else "", subset=["새"]),
+        table.style.map(lambda v: f"color: {NEGATIVE_COLOR}; font-weight: 800" if v == "NEW" else "", subset=["new"]),
         hide_index=True,
-        column_config={"새": st.column_config.TextColumn("새", width=55),
+        column_config={"new": st.column_config.TextColumn(" ", width=50),  # 머리글은 비워 둔다
                        "보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
     )
     render_ai_summary(shown, "list", all_rows=res["rows"])
