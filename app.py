@@ -1683,15 +1683,42 @@ def business_section(text):
     return best
 
 
+# 사업의 내용이 아주 길 때(삼성전자 등) 앞부분만 자르면 생산능력·가동률 표가 빠진다.
+# 그래서 아래 소제목이 나오는 곳 주변을 골라 모은다.
+BIZ_FOCUS = [r"주요\s*제품", r"제품\s*가격|가격\s*변동", r"원재료", r"생산\s*능력", r"생산\s*실적", r"가동\s*률",
+             r"매출\s*실적|판매\s*실적|매출에\s*관한", r"주요\s*매출처|주요\s*고객", r"수출|내수", r"연구\s*개발"]
+
+
+def focus_business(sec, limit):
+    """긴 '사업의 내용'에서 산업부 단골 항목이 있는 부분만 골라 limit 글자 안으로. -> (글자, 골라냈는지)
+    항목마다 처음 나오는 두 곳 주변을 모으고, 전체가 limit을 넘으면 주변 범위를 줄여 다시 모은다."""
+    if len(sec) <= limit:
+        return sec, False
+    starts = sorted({m.start() for pat in BIZ_FOCUS for m in list(re.finditer(pat, sec))[:2]})
+    for win in (5_000, 3_500, 2_500, 1_500, 1_000):
+        spans = sorted([(0, min(3_000, win))] + [(max(0, s0 - 200), s0 + win) for s0 in starts])
+        merged = []
+        for a, b in spans:
+            if merged and a <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+            else:
+                merged.append((a, b))
+        pieces = [sec[a:b] for a, b in merged]
+        if sum(len(x) for x in pieces) <= limit:
+            break
+    return "\n…\n".join(pieces)[:limit], True
+
+
 def business_text(corp_code, year, limit=None):
-    """-> (사업의 내용 글자, 보고서 줄, 잘렸는지). 사업보고서가 없으면 AiError."""
+    """-> (사업의 내용 글자, 보고서 줄, 골라 읽었는지). 사업보고서가 없으면 AiError."""
     limit = limit or MAX_DOC_CHARS
     rep_row = find_annual_report(corp_code, year)
     if not rep_row:
         raise AiError(f"{year}년 사업보고서를 찾지 못했어요. (사업보고서는 이듬해 3월쯤 나와요)")
     text = fetch_document_text(get_session(), get_cache_store(), str(rep_row["rcept_no"]))
     sec = business_section(text) or text
-    return sec[:limit], rep_row, len(sec) > limit
+    focused, cut = focus_business(sec, limit)
+    return focused, rep_row, cut
 
 
 def business_extract(corp, corp_code, year):
@@ -1710,7 +1737,7 @@ def business_extract(corp, corp_code, year):
         )
         return ai_generate(prompt, json_mode=True)
 
-    text, used = ai_cached(("biz", corp_code, str(rep_row["rcept_no"])), make)
+    text, used = ai_cached(("biz2", corp_code, str(rep_row["rcept_no"])), make)
     data = parse_json(text)
     if not isinstance(data, dict):
         raise AiError("AI 답을 표로 바꾸지 못했어요. 다시 시도해주세요.")
@@ -2817,7 +2844,11 @@ def render_ai_analysis():
                                     **{c: st.column_config.TextColumn(c, width=170) for c in corps}})
         cut = [c for c in corps if res["results"][c][2]]
         if cut:
-            st.caption(f"사업의 내용이 길어 앞부분 {MAX_DOC_CHARS:,}자만 읽은 회사: {', '.join(cut)}")
+            st.caption(f"사업의 내용이 길어 관련 부분만 골라 읽은 회사: {', '.join(cut)}")
+        empty = [c for c in corps if all(v["값"] == "원문에 없음" for v in res["results"][c][0].values())]
+        if empty:
+            st.warning(f"{', '.join(empty)}: 항목을 하나도 찾지 못했어요. 사업보고서 형식이 달라서일 수 있어요. "
+                       "잠시 뒤 다시 해보시거나 아래 원문 링크로 확인해주세요.")
         with st.expander("근거 보기 (원문 어디서 찾았는지)"):
             ev = pd.DataFrame([{"회사": c, "항목": k, "값": res["results"][c][0][k]["값"], "근거": res["results"][c][0][k]["근거"] or "-"}
                                for c in corps for k in BIZ_ITEMS])
