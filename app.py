@@ -1653,127 +1653,6 @@ def pick_newsworthy(rows):
     return out[:10], used
 
 
-# ---- 사업보고서 '사업의 내용' ----
-BIZ_ITEMS = [
-    "생산능력", "가동률", "주요 제품 가격", "주요 원재료·가격", "제품별 매출 비중",
-    "지역별(내수·수출) 매출 비중", "주요 고객", "연구개발비", "매출 대비 연구개발비 비중",
-]
-
-
-def find_annual_report(corp_code, year):
-    """그 사업연도의 사업보고서 (이듬해에 제출). -> 공시 목록의 한 줄 또는 None. 정정본이 있으면 가장 최신."""
-    session, store = get_session(), get_cache_store()
-    bgn, end = date(year + 1, 1, 1), min(date(year + 1, 12, 31), TODAY)
-    if bgn > TODAY:
-        return None
-    jo = fetch_disclosure_page(session, store, corp_code, bgn.strftime("%Y%m%d"), end.strftime("%Y%m%d"), 1, "A")
-    rows = [r for r in ((jo or {}).get("list") or []) if "사업보고서" in str(r.get("report_nm", ""))]
-    exact = [r for r in rows if f"({year}." in str(r.get("report_nm", ""))]
-    rows = exact or rows
-    return max(rows, key=lambda r: str(r.get("rcept_no", ""))) if rows else None
-
-
-def business_section(text):
-    """사업보고서 원문에서 'II. 사업의 내용' ~ 'III. 재무에 관한 사항' 부분. 목차의 같은 제목은 건너뛴다(가장 긴 구간)."""
-    starts = [m.start() for m in re.finditer(r"(?:II|Ⅱ)\s*[\.．]\s*사업의\s*내용", text)]
-    best = None
-    for st_ in starts:
-        m = re.search(r"(?:III|Ⅲ)\s*[\.．]\s*재무에\s*관한\s*사항", text[st_:])
-        seg = text[st_: st_ + m.start()] if m else text[st_: st_ + MAX_DOC_CHARS]
-        if best is None or len(seg) > len(best):
-            best = seg
-    return best
-
-
-# 사업의 내용이 아주 길 때(삼성전자 등) 앞부분만 자르면 생산능력·가동률 표가 빠진다.
-# 그래서 아래 소제목이 나오는 곳 주변을 골라 모은다.
-BIZ_FOCUS = [r"주요\s*제품", r"제품\s*가격|가격\s*변동", r"원재료", r"생산\s*능력", r"생산\s*실적", r"가동\s*률",
-             r"매출\s*실적|판매\s*실적|매출에\s*관한", r"주요\s*매출처|주요\s*고객", r"수출|내수", r"연구\s*개발"]
-
-
-def focus_business(sec, limit):
-    """긴 '사업의 내용'에서 산업부 단골 항목이 있는 부분만 골라 limit 글자 안으로. -> (글자, 골라냈는지)
-    항목마다 처음 나오는 두 곳 주변을 모으고, 전체가 limit을 넘으면 주변 범위를 줄여 다시 모은다."""
-    if len(sec) <= limit:
-        return sec, False
-    starts = sorted({m.start() for pat in BIZ_FOCUS for m in list(re.finditer(pat, sec))[:2]})
-    for win in (5_000, 3_500, 2_500, 1_500, 1_000):
-        spans = sorted([(0, min(3_000, win))] + [(max(0, s0 - 200), s0 + win) for s0 in starts])
-        merged = []
-        for a, b in spans:
-            if merged and a <= merged[-1][1]:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], b))
-            else:
-                merged.append((a, b))
-        pieces = [sec[a:b] for a, b in merged]
-        if sum(len(x) for x in pieces) <= limit:
-            break
-    return "\n…\n".join(pieces)[:limit], True
-
-
-def business_text(corp_code, year, limit=None):
-    """-> (사업의 내용 글자, 보고서 줄, 골라 읽었는지). 사업보고서가 없으면 AiError."""
-    limit = limit or MAX_DOC_CHARS
-    rep_row = find_annual_report(corp_code, year)
-    if not rep_row:
-        raise AiError(f"{year}년 사업보고서를 찾지 못했어요. (사업보고서는 이듬해 3월쯤 나와요)")
-    text = fetch_document_text(get_session(), get_cache_store(), str(rep_row["rcept_no"]))
-    sec = business_section(text) or text
-    focused, cut = focus_business(sec, limit)
-    return focused, rep_row, cut
-
-
-def business_extract(corp, corp_code, year):
-    """사업의 내용에서 산업부 단골 항목 뽑기 -> ({항목: {"값", "근거"}}, 보고서 줄, 잘렸는지, 모델)"""
-    sec, rep_row, cut = business_text(corp_code, year)
-
-    def make():
-        keys = ", ".join(f'"{k}"' for k in BIZ_ITEMS)
-        prompt = (
-            f"회사: {corp}\n아래는 {year}년 사업보고서의 'II. 사업의 내용'이다. 다음 항목을 원문에서 찾아 JSON 객체로만 답해줘.\n"
-            f"항목: {keys}\n"
-            '형식: {"항목": {"값": "짧게(80자 이내, 숫자·단위·기간 원문 그대로, 여러 제품이면 주요 2~3개)", '
-            '"근거": "원문 위치(예: 생산능력 표, 매출 실적 표)"}}\n'
-            "원문에서 찾을 수 없으면 값은 \"원문에 없음\", 근거는 \"\". 추정하거나 계산하지 마.\n\n"
-            f"[사업의 내용]\n{sec}"
-        )
-        return ai_generate(prompt, json_mode=True)
-
-    text, used = ai_cached(("biz2", corp_code, str(rep_row["rcept_no"])), make)
-    data = parse_json(text)
-    if not isinstance(data, dict):
-        raise AiError("AI 답을 표로 바꾸지 못했어요. 다시 시도해주세요.")
-    out = {}
-    for k in BIZ_ITEMS:
-        v = data.get(k) or {}
-        if isinstance(v, str):
-            v = {"값": v, "근거": ""}
-        out[k] = {"값": str(v.get("값", "") or "원문에 없음").strip(), "근거": str(v.get("근거", "") or "").strip()}
-    return out, rep_row, cut, used
-
-
-def business_diff(corp, corp_code, year):
-    """올해·작년 사업의 내용 비교 -> (마크다운, 올해 보고서, 작년 보고서, 모델)"""
-    now, rep_now, _ = business_text(corp_code, year, 40_000)
-    before, rep_prev, _ = business_text(corp_code, year - 1, 40_000)
-
-    def make():
-        prompt = (
-            f"회사: {corp}\n아래는 같은 회사의 {year - 1}년과 {year}년 사업보고서 'II. 사업의 내용'이다. "
-            f"{year}년에 새로 등장하거나 크게 달라진 내용만 뽑아줘. 표현만 바뀐 것은 빼.\n\n"
-            "**새로 생긴 사업·제품**\n- 내용 (올해 원문: \"짧은 인용\")\n\n"
-            "**새 고객·협력사·시장**\n- ...\n\n**새 설비·투자·생산능력 변화**\n- ...\n\n"
-            "**새로 적힌 위험 요인**\n- ...\n\n**작년엔 있었는데 빠진 내용**\n- ...\n\n"
-            "각 항목에 해당 없으면 '없음'. 원문에 없는 해석은 쓰지 마.\n\n"
-            f"[{year - 1}년 사업의 내용]\n{before}\n\n[{year}년 사업의 내용]\n{now}"
-        )
-        return ai_generate(prompt)
-
-    text, used = ai_cached(("bizdiff", str(rep_now["rcept_no"]), str(rep_prev["rcept_no"])), make)
-    return text, rep_now, rep_prev, used
-
-
-
 # ------------------------------------------------------------
 # 주요사항보고서 숫자 (DART가 정리해 주는 칸)
 # ------------------------------------------------------------
@@ -2762,110 +2641,6 @@ def render_news_picks(rows, res_id):
             st.caption(f"AI 추천({saved['model']}) · 제목만 보고 고른 것이라 참고용이에요")
 
 
-def render_ai_analysis():
-    """탭: AI 분석 - 사업보고서 '사업의 내용'에서 핵심 항목 비교 / 전년 대비 새로 생긴 내용."""
-    if not AI_PROVIDER:
-        st.info("AI 분석을 쓰려면 Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
-        return
-    modes = ["핵심 항목 비교 (여러 회사)", "전년 대비 새로 생긴 내용 (한 회사)"]
-    mode = st.radio("분석", modes, key="aia_mode")
-    multi = mode == modes[0]
-    years = list(range(TODAY.year, 2014, -1))
-    with st.form("aia_search"):
-        corp_text = st.text_input(
-            "기업명 (여러 곳은 쉼표로)" if multi else "기업명", key="aia_corp",
-            placeholder="예: LG에너지솔루션, 삼성SDI, SK이노베이션" if multi else "예: 삼성전자",
-            help="쉼표로 나눠 최대 5곳. 회사마다 사업보고서를 AI가 읽어서 회사당 10~30초 걸려요." if multi else None,
-        )
-        year = st.selectbox("사업연도 (사업보고서 기준)", years, index=years.index(default_pay_year()), key="aia_year")
-        submitted = st.form_submit_button("AI 분석")
-
-    if submitted:
-        names = []
-        for part in re.split(NEWS_SPLIT, corp_text):
-            part = canonical_corp(part)
-            if part and name_key(part) not in {name_key(n) for n in names}:
-                names.append(part)
-        limit = 5 if multi else 1
-        if not names:
-            st.error("기업명을 입력해주세요.")
-        elif len(names) > limit:
-            st.error(f"기업은 한 번에 {limit}곳까지 넣을 수 있어요. (지금 {len(names)}곳)")
-        else:
-            st.session_state.pop("aia", None)
-            corps = []
-            if len(names) == 1:
-                code = lookup_corp_code(names[0], "aia")
-                if code:
-                    corps.append((names[0], code))
-            else:
-                for n in names:
-                    code = resolve_corp_code(n)
-                    if code:
-                        corps.append((n, code))
-                    else:
-                        st.warning(f'"{n}" 기업을 찾지 못해 빼고 분석했어요.')
-            if corps and multi:
-                results, errors = {}, []
-                bar = st.progress(0.0, text="사업보고서를 읽는 중입니다...")
-                for k, (n, code) in enumerate(corps):
-                    bar.progress(k / len(corps), text=f"{n} 사업보고서를 읽는 중입니다... ({k + 1}/{len(corps)})")
-                    try:
-                        results[n] = business_extract(n, code, int(year))
-                    except (AiError, DartApiError) as e:
-                        errors.append(f"{n}: {e}")
-                bar.empty()
-                st.session_state["aia"] = {"mode": "compare", "year": int(year), "results": results, "errors": errors}
-            elif corps:
-                n, code = corps[0]
-                with st.spinner(f"{n}의 {int(year) - 1}년·{year}년 사업보고서를 비교하는 중입니다... (30초~1분)"):
-                    try:
-                        text, rep_now, rep_prev, used = business_diff(n, code, int(year))
-                    except (AiError, DartApiError) as e:
-                        st.error(str(e))
-                    else:
-                        st.session_state["aia"] = {"mode": "diff", "year": int(year), "corp": n, "text": text,
-                                                   "now": rep_now, "prev": rep_prev, "model": used}
-
-    res = st.session_state.get("aia")
-    if not res:
-        st.caption("사업보고서의 'II. 사업의 내용'을 AI가 읽고 정리해요. 공개된 공시 원문만 보내요.")
-        return
-    if res["mode"] == "compare":
-        for e in res["errors"]:
-            st.warning(e)
-        if not res["results"]:
-            return
-        corps = list(res["results"])
-        table = pd.DataFrame({"항목": BIZ_ITEMS, **{c: [res["results"][c][0][k]["값"] for k in BIZ_ITEMS] for c in corps}})
-        st.markdown(f"##### {res['year']}년 사업보고서 핵심 항목")
-        models = sorted({v[3] for v in res["results"].values()})
-        st.caption(f"AI 추출({', '.join(models)}) · '원문에 없음'은 사업보고서에 해당 내용이 없거나 AI가 찾지 못한 것 · 숫자는 반드시 원문으로 확인하세요")
-        st.dataframe(table, hide_index=True, height=(len(table) + 1) * 35 + 3,
-                     column_config={"항목": st.column_config.TextColumn("항목", width=150),
-                                    **{c: st.column_config.TextColumn(c, width=170) for c in corps}})
-        cut = [c for c in corps if res["results"][c][2]]
-        if cut:
-            st.caption(f"사업의 내용이 길어 관련 부분만 골라 읽은 회사: {', '.join(cut)}")
-        empty = [c for c in corps if all(v["값"] == "원문에 없음" for v in res["results"][c][0].values())]
-        if empty:
-            st.warning(f"{', '.join(empty)}: 항목을 하나도 찾지 못했어요. 사업보고서 형식이 달라서일 수 있어요. "
-                       "잠시 뒤 다시 해보시거나 아래 원문 링크로 확인해주세요.")
-        with st.expander("근거 보기 (원문 어디서 찾았는지)"):
-            ev = pd.DataFrame([{"회사": c, "항목": k, "값": res["results"][c][0][k]["값"], "근거": res["results"][c][0][k]["근거"] or "-"}
-                               for c in corps for k in BIZ_ITEMS])
-            st.dataframe(ev, hide_index=True)
-        st.markdown(" · ".join(f"[{c} 사업보고서]({DART_VIEW_URL.format(res['results'][c][1]['rcept_no'])})" for c in corps))
-        st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
-                           file_name=f"사업내용비교_{res['year']}.csv", mime="text/csv")
-    else:
-        st.markdown(f"##### {res['corp']} · {res['year']}년 사업보고서에서 새로 생긴 내용")
-        st.markdown(res["text"])
-        st.caption(f"AI 비교({res['model']}) · {res['year'] - 1}년 대비 · 인용 문장은 원문에서 확인하세요")
-        st.markdown(f"[{res['year']}년 사업보고서]({DART_VIEW_URL.format(res['now']['rcept_no'])}) · "
-                    f"[{res['year'] - 1}년 사업보고서]({DART_VIEW_URL.format(res['prev']['rcept_no'])})")
-
-
 def render_disclosures():
     """탭 2: 공시 목록 (DART에서 기업명을 눌렀을 때 나오는 목록)"""
     first_day = date(1999, 1, 1)
@@ -3675,9 +3450,9 @@ footer { visibility: hidden; }
 h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !important; padding-bottom: 0.2rem; }
 [data-testid="stCaptionContainer"] { color: #7a8699; }
 
-/* 탭: 바둑판으로 (옆으로 밀지 않아도 모두 보이게). 컴퓨터는 한 줄 5개, 휴대폰은 한 줄 3개(탭 9개 = 3×3) */
+/* 탭: 한 줄에 4개씩 2줄 바둑판으로 (옆으로 밀지 않아도 모두 보이게) */
 [data-testid="stTabs"] [role="tablist"] {
-    display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.35rem;
+    display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.35rem;
     overflow: visible !important; width: 100% !important; border-bottom: none !important; margin-bottom: 0.6rem;
 }
 [data-testid="stTab"] {
@@ -3691,7 +3466,6 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 [data-testid="stTab"] > div:not([data-testid]) { display: none; }  /* 기본 밑줄 표시는 숨김 */
 [data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after { display: none !important; }
 [data-testid="stTabs"] [role="tablist"] { box-shadow: none !important; background: none !important; }
-@media (max-width: 640px) { [data-testid="stTabs"] [role="tablist"] { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 400px) { [data-testid="stTab"] p { font-size: 0.8rem; } }  /* 작은 휴대폰에서도 글자가 칸 안에 */
 [data-testid="stTabs"] [role="tablist"] ~ button, [data-testid="stTabs"] button[aria-label*="croll"] { display: none !important; }
 
@@ -3776,29 +3550,27 @@ if not API_KEY:
     )
     st.stop()
 
-TAB_NAMES = ["재무 조회", "업종 합산", "공시 목록", "보수·직원", "배당·자사주", "AI 분석", "오늘의 공시", "단독 뉴스", "재계 순위"]
+TAB_NAMES = ["재무 조회", "업종 합산", "재계 순위", "단독 뉴스", "오늘의 공시", "공시 목록", "배당·자사주", "보수·직원"]  # 4개씩 2줄
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_fin, tab_ind, tab_list, tab_pay, tab_div, tab_aia, tab_feed, tab_news, tab_chaebol = tabs
+tab_fin, tab_ind, tab_chaebol, tab_news, tab_feed, tab_list, tab_div, tab_pay = tabs
 with tab_fin:
     render_financials()
 with tab_ind:
     render_industry()
-with tab_list:
-    render_disclosures()
-with tab_pay:
-    render_pay()
-with tab_div:
-    render_dividend()
-with tab_aia:
-    render_ai_analysis()
-with tab_feed:
-    render_feed()
-with tab_news:
-    render_news()
 with tab_chaebol:
     render_chaebol()
+with tab_news:
+    render_news()
+with tab_feed:
+    render_feed()
+with tab_list:
+    render_disclosures()
+with tab_div:
+    render_dividend()
+with tab_pay:
+    render_pay()
