@@ -4279,6 +4279,263 @@ if not API_KEY:
     )
     st.stop()
 
+# ------------------------------------------------------------
+# 정기보고서 표 조회: 주주·지분 / 임원·감사 / 투자·자금 (AI 없이 DART 표를 그대로 정리)
+# ------------------------------------------------------------
+RT_REPORTS = {"사업보고서": "11011", "반기보고서": "11012", "1분기보고서": "11013", "3분기보고서": "11014"}
+MAX_RT_CORPS = 5
+RT_TREND_YEARS = 5  # 연도별 추이: 고른 연도까지 최근 5년
+RT_META = {"rcept_no", "corp_cls", "corp_code", "corp_name", "stlm_dt"}
+_MONEY = "금액은 DART 원본 단위 그대로예요 (원 또는 백만원 — 원문에서 확인하세요)."
+_BAL = [("remndr_exprtn1", "잔여만기", "t"), ("remndr_exprtn2", "잔여만기(세부)", "t")]
+
+# 항목: key -> dict(title, api, desc, cols[(필드, 열 이름, 종류 t=글 i=숫자)], note)
+RT_SECTIONS = {
+    "hyslr": dict(title="최대주주 현황", api="hyslrSttus", desc="최대주주와 특수관계인의 주식 수·지분율 (기초·기말)",
+                  cols=[("nm", "성명", "t"), ("relate", "관계", "t"), ("stock_knd", "주식 종류", "t"),
+                        ("bsis_posesn_stock_co", "기초 주식 수", "i"), ("bsis_posesn_stock_qota_rt", "기초 지분율(%)", "t"),
+                        ("trmend_posesn_stock_co", "기말 주식 수", "i"), ("trmend_posesn_stock_qota_rt", "기말 지분율(%)", "t"), ("rm", "비고", "t")]),
+    "hyslrchg": dict(title="최대주주 변동", api="hyslrChgSttus", desc="최대주주가 바뀐 이력과 변동 사유",
+                     cols=[("change_on", "변동일", "t"), ("mxmm_shrholdr_nm", "최대주주", "t"), ("posesn_stock_co", "보유 주식 수", "i"),
+                           ("qota_rt", "지분율(%)", "t"), ("change_cause", "변동 원인", "t"), ("rm", "비고", "t")]),
+    "mrhl": dict(title="소액주주 현황", api="mrhlSttus", desc="소액주주 수·지분율 (1% 미만 주주)",
+                 cols=[("se", "구분", "t"), ("shrholdr_co", "소액주주 수", "i"), ("shrholdr_tot_co", "전체 주주 수", "i"),
+                       ("shrholdr_rate", "주주 비율(%)", "t"), ("hold_stock_co", "소액주주 보유 주식", "i"), ("stock_tot_co", "총 발행 주식", "i"),
+                       ("hold_stock_rate", "보유 비율(%)", "t")]),
+    "stock": dict(title="주식 총수 현황", api="stockTotqySttus", desc="발행할 주식 총수, 발행주식 수, 자기주식, 유통주식 수",
+                  cols=[("se", "구분", "t"), ("isu_stock_totqy", "발행할 주식 총수", "i"), ("now_to_isu_stock_totqy", "현재까지 발행", "i"),
+                        ("now_to_dcrs_stock_totqy", "현재까지 감소", "i"), ("redc", "감자", "i"), ("profit_incnr", "이익소각", "i"),
+                        ("rdmstk_repy", "상환주식 상환", "i"), ("etc", "기타", "i"), ("istc_totqy", "발행주식 총수", "i"),
+                        ("tesstk_co", "자기주식", "i"), ("distb_stock_co", "유통주식 수", "i")]),
+    "irds": dict(title="증자(감자) 현황", api="irdsSttus", desc="최근 몇 년간 유상·무상증자와 감자의 일자·방법·주식 수·금액",
+                 cols=[("isu_dcrs_de", "일자", "t"), ("isu_dcrs_stle", "형태", "t"), ("isu_dcrs_stock_knd", "주식 종류", "t"),
+                       ("isu_dcrs_qy", "수량", "i"), ("isu_dcrs_mstvdv_fval_amount", "주당 액면가(원)", "i"), ("isu_dcrs_mstvdv_amount", "주당 발행·감소가(원)", "i")]),
+    "exctv": dict(title="임원 현황", api="exctvSttus", desc="임원 명단·직위·담당 업무·주요 경력·재직기간 (등기·상근 여부)",
+                  cols=[("nm", "성명", "t"), ("sexdstn", "성별", "t"), ("birth_ym", "출생", "t"), ("ofcps", "직위", "t"),
+                        ("rgist_exctv_at", "등기임원", "t"), ("fte_at", "상근", "t"), ("chrg_job", "담당 업무", "t"),
+                        ("main_career", "주요 경력", "t"), ("mxmm_shrholdr_relate", "최대주주와 관계", "t"),
+                        ("hffc_pd", "재직기간", "t"), ("tenure_end_on", "임기 만료", "t")]),
+    "outdir": dict(title="사외이사 및 변동", api="outcmpnyDrctrNdChangeSttus", desc="이사 수·사외이사 수와 연중 선임·해임·중도퇴임",
+                   cols=[("drctr_co", "이사 수", "i"), ("otcmp_drctr_co", "사외이사 수", "i"), ("apnt", "선임", "i"),
+                         ("rlsofc", "해임", "i"), ("mdstrm_resig", "중도 퇴임", "i")]),
+    "auditor": dict(title="감사인·감사의견", api="accnutAdtorNmNdAdtOpinion", desc="회계감사인(감사법인)과 감사의견, 강조사항, 핵심감사사항 (최근 3개 사업연도)",
+                    cols=[("bsns_year", "사업연도", "t"), ("adtor", "감사인", "t"), ("adt_opinion", "감사의견", "t"),
+                          ("adt_reprt_spcmnt_matter", "감사보고서 특기사항", "t"), ("emphs_matter", "강조사항", "t"), ("core_adt_matter", "핵심감사사항", "t")]),
+    "adtsvc": dict(title="감사용역 (보수·시간)", api="adtServcCnclsSttus", desc="감사인과 맺은 감사용역의 계약 보수·시간, 실제 수행 보수·시간",
+                   cols=[("bsns_year", "사업연도", "t"), ("adtor", "감사인", "t"), ("cn", "내용", "t"), ("mendng", "보수", "t"),
+                         ("tot_reqre_time", "총소요시간", "t"), ("adt_cntrct_dtls_mendng", "계약 보수", "t"), ("adt_cntrct_dtls_time", "계약 시간", "t"),
+                         ("real_exc_dtls_mendng", "실제 보수", "t"), ("real_exc_dtls_time", "실제 시간", "t")], note=_MONEY),
+    "nonadt": dict(title="비감사용역 (감사인과의 계약)", api="accnutAdtorNonAdtServcCnclsSttus", desc="감사인에게 맡긴 비감사용역(세무·컨설팅 등)의 계약일·내용·보수",
+                   cols=[("bsns_year", "사업연도", "t"), ("cntrct_cncls_de", "계약 체결일", "t"), ("servc_cn", "용역 내용", "t"),
+                         ("servc_exc_pd", "수행 기간", "t"), ("servc_mendng", "보수", "t"), ("rm", "비고", "t")], note=_MONEY),
+    "unrst": dict(title="미등기임원 보수", api="unrstExctvMendngSttus", desc="등기되지 않은 임원의 인원·연간 급여 총액·1인 평균",
+                  cols=[("se", "구분", "t"), ("nmpr", "인원", "i"), ("fyer_salary_totamt", "연간 급여 총액", "i"),
+                        ("jan_salary_alotm", "1인 평균 급여", "i"), ("rm", "비고", "t")], note=_MONEY),
+    "paytype": dict(title="이사·감사 보수 (유형별)", api="drctrAdtAllMendngSttusMendngPymntamtTyCl", desc="등기이사·사외이사·감사위원 등 유형별 인원과 보수 총액·1인 평균",
+                    cols=[("se", "구분", "t"), ("nmpr", "인원", "i"), ("pymnt_totamt", "보수 총액", "i"), ("psn1_avrg_pymntamt", "1인 평균", "i"), ("rm", "비고", "t")], note=_MONEY),
+    "paylimit": dict(title="주총 승인 보수 한도", api="drctrAdtAllMendngSttusGmtsckConfmAmount", desc="주주총회에서 승인한 이사·감사 보수 한도 (실제 지급액과 비교해 보세요)",
+                     cols=[("se", "구분", "t"), ("nmpr", "인원", "i"), ("mendng_limit_amount", "승인 한도", "i"), ("rm", "비고", "t")], note=_MONEY),
+    "invest": dict(title="타법인 출자 현황", api="otrCprInvstmntSttus", desc="다른 법인에 출자한 지분: 취득 시기·목적·지분율·장부가·증감",
+                   cols=[("inv_prm", "법인명", "t"), ("frst_acqs_de", "최초 취득일", "t"), ("invstmnt_purps", "출자 목적", "t"),
+                         ("frst_acqs_amount", "최초 취득 금액", "i"), ("bsis_blnc_qy", "기초 수량", "i"), ("bsis_blnc_qota_rt", "기초 지분율(%)", "t"),
+                         ("bsis_blnc_acntbk_amount", "기초 장부가", "i"), ("incrs_dcrs_acqs_dsps_qy", "증감 수량", "i"),
+                         ("incrs_dcrs_acqs_dsps_amount", "증감 금액", "i"), ("incrs_dcrs_evl_lstmn", "평가손익", "i"),
+                         ("trmend_blnc_qy", "기말 수량", "i"), ("trmend_blnc_qota_rt", "기말 지분율(%)", "t"), ("trmend_blnc_acntbk_amount", "기말 장부가", "i"),
+                         ("recent_bsns_year_fnnr_sttus_tot_assets", "피투자사 총자산", "i"), ("recent_bsns_year_fnnr_sttus_thstrm_ntpf", "피투자사 순이익", "i")], note=_MONEY),
+    "bill": dict(title="회사채 미상환 잔액", api="entrprsBilScritsNrdmpBlce", desc="공모·사모 회사채의 잔여만기별 미상환 잔액 (만기 도래 부담 확인)",
+                 cols=_BAL + [("de10_below", "1년 이하", "i"), ("de10_excess_de20_below", "1~2년", "i"), ("de20_excess_de30_below", "2~3년", "i"),
+                              ("de30_excess", "3년 초과", "i"), ("sm", "합계", "i")], note=_MONEY),
+    "cp": dict(title="기업어음 미상환 잔액", api="cprndNrdmpBlce", desc="기업어음(CP)의 잔여만기별 미상환 잔액",
+               cols=_BAL + [("de10_below", "10일 이하", "i"), ("de10_excess_de30_below", "10~30일", "i"), ("de30_excess_de90_below", "30~90일", "i"),
+                            ("de90_excess_de180_below", "90~180일", "i"), ("de180_excess_yy1_below", "180일~1년", "i"),
+                            ("yy1_excess_yy2_below", "1~2년", "i"), ("yy2_excess_yy3_below", "2~3년", "i"), ("yy3_excess", "3년 초과", "i"), ("sm", "합계", "i")], note=_MONEY),
+    "srt": dict(title="단기사채 미상환 잔액", api="srtpdPsndbtNrdmpBlce", desc="단기사채의 잔여만기별 미상환 잔액과 발행 한도",
+                cols=_BAL + [("de10_below", "10일 이하", "i"), ("de10_excess_de30_below", "10~30일", "i"), ("de30_excess_de90_below", "30~90일", "i"),
+                             ("de90_excess_de180_below", "90~180일", "i"), ("de180_excess_yy1_below", "180일~1년", "i"),
+                             ("sm", "합계", "i"), ("isu_lmt", "발행 한도", "i"), ("remndr_lmt", "잔여 한도", "i")], note=_MONEY),
+    "hybrid": dict(title="신종자본증권 미상환 잔액", api="ncrtsNrdmpBlce", desc="신종자본증권(영구채 등)의 잔여만기별 미상환 잔액",
+                   cols=_BAL + [("yy1_below", "1년 이하", "i"), ("yy1_excess_yy5_below", "1~5년", "i"), ("yy5_excess_yy10_below", "5~10년", "i"),
+                                ("yy10_excess_yy15_below", "10~15년", "i"), ("yy15_excess_yy20_below", "15~20년", "i"),
+                                ("yy20_excess_yy30_below", "20~30년", "i"), ("yy30_excess", "30년 초과", "i"), ("sm", "합계", "i")], note=_MONEY),
+    "cond": dict(title="조건부자본증권 미상환 잔액", api="cndlCaplScritsNrdmpBlce", desc="조건부자본증권(코코본드 등)의 잔여만기별 미상환 잔액",
+                 cols=_BAL + [("yy1_below", "1년 이하", "i"), ("yy1_excess_yy2_below", "1~2년", "i"), ("yy2_excess_yy3_below", "2~3년", "i"),
+                              ("yy3_excess_yy4_below", "3~4년", "i"), ("yy4_excess_yy5_below", "4~5년", "i"), ("yy5_excess_yy10_below", "5~10년", "i"),
+                              ("yy10_excess_yy20_below", "10~20년", "i"), ("yy20_excess_yy30_below", "20~30년", "i"), ("yy30_excess", "30년 초과", "i"), ("sm", "합계", "i")], note=_MONEY),
+    "debtiss": dict(title="채무증권 발행 실적", api="detScritsIsuAcmslt", desc="회사채·CP 등을 언제 얼마나 어떤 금리로 발행했는지",
+                    cols=[("isu_cmpny", "발행회사", "t"), ("scrits_knd_nm", "증권 종류", "t"), ("isu_mth_nm", "발행 방법", "t"),
+                          ("isu_de", "발행일", "t"), ("facvalu_totamt", "액면 총액", "i"), ("intrt", "이자율", "t"),
+                          ("evl_grad_instt", "신용평가", "t"), ("mtd", "만기일", "t"), ("repy_at", "상환 여부", "t"), ("mngt_cmpny", "주관사", "t")], note=_MONEY),
+    "pubuse": dict(title="공모자금 사용 내역", api="pssrpCptalUseDtls", desc="공모(유상증자·사채 등)로 조달한 돈의 사용 계획과 실제 사용 내역",
+                   cols=[("se_nm", "구분", "t"), ("tm", "회차", "t"), ("pay_de", "납입일", "t"), ("pay_amount", "납입 금액", "i"),
+                         ("on_dclrt_cptal_use_plan", "신고서상 사용 계획", "t"), ("real_cptal_use_sttus", "실제 사용 현황", "t"),
+                         ("rs_cptal_use_plan_useprps", "계획 용도", "t"), ("rs_cptal_use_plan_prcure_amount", "계획 금액", "i"),
+                         ("real_cptal_use_dtls_cn", "실제 사용 내용", "t"), ("real_cptal_use_dtls_amount", "실제 사용 금액", "i"),
+                         ("dffrnc_occrrnc_resn", "차이 발생 사유", "t")], note=_MONEY),
+    "prvuse": dict(title="사모자금 사용 내역", api="prvsrpCptalUseDtls", desc="사모로 조달한 돈의 사용 계획과 실제 사용 내역",
+                   cols=[("se_nm", "구분", "t"), ("tm", "회차", "t"), ("pay_de", "납입일", "t"), ("pay_amount", "납입 금액", "i"),
+                         ("mtrpt_cptal_use_plan_useprps", "계획 용도", "t"), ("mtrpt_cptal_use_plan_prcure_amount", "계획 금액", "i"),
+                         ("real_cptal_use_dtls_cn", "실제 사용 내용", "t"), ("real_cptal_use_dtls_amount", "실제 사용 금액", "i"),
+                         ("dffrnc_occrrnc_resn", "차이 발생 사유", "t")], note=_MONEY),
+}
+RT_VIEWS = {  # 화면 이름 -> (입력칸 접두어, 항목 키들)
+    "주주·지분": ("rts", ["hyslr", "hyslrchg", "mrhl", "stock", "irds"]),
+    "임원·감사": ("rte", ["exctv", "outdir", "auditor", "adtsvc", "nonadt", "unrst", "paytype", "paylimit"]),
+    "투자·자금": ("rti", ["invest", "bill", "cp", "srt", "hybrid", "cond", "debtiss", "pubuse", "prvuse"]),
+}
+
+
+def rt_collect(jobs):
+    """[(이름, 기업코드, 연도, API, 보고서코드)] -> {(이름, 연도): 응답 또는 None} (동시 조회, 6시간 저장)"""
+    session, store = get_session(), get_cache_store()
+
+    def one(job):
+        name, code, year, api, reprt = job
+        key = ("rt", api, code, year, reprt)
+        cached = cache_lookup(store, key, CACHE_TTL)
+        if cached is not _MISSING:
+            return cached
+        jo = call_dart(session, f"https://opendart.fss.or.kr/api/{api}.json",
+                       {"crtfc_key": API_KEY, "corp_code": code, "bsns_year": str(year), "reprt_code": reprt})
+        cache_save(store, key, jo)
+        return jo
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        results = list(pool.map(one, jobs))
+    return {(j[0], j[2]): r for j, r in zip(jobs, results)}
+
+
+def rt_cell(value, kind):
+    text = str(value).strip() if value is not None else ""
+    if text in ("", "-"):
+        return "-"
+    if kind == "i":
+        n = to_int(text)
+        return f"{n:,}" if n is not None else text
+    return text
+
+
+def rt_frame(spec, results, trend):
+    """조회 결과 -> (표, 데이터 없는 곳 목록). 표는 앞에 회사(비교) 또는 연도(추이) 열, 맨 뒤에 원문 열."""
+    rows, empty = [], []
+    for (name, year), jo in results.items():
+        got = [r for r in ((jo or {}).get("list") or []) if isinstance(r, dict)]
+        if not got:
+            empty.append(f"{year}년" if trend else name)
+            continue
+        for r in got:
+            rows.append(dict(r, __corp=name, __year=year))
+    if not rows:
+        return pd.DataFrame(), empty
+    cols = [c for c in spec["cols"] if any(str(r.get(c[0], "")).strip() not in ("", "-") for r in rows)]
+    if not cols:  # 필드 이름이 달라졌으면 받은 그대로 보여준다
+        keys = [k for k in rows[0] if k not in RT_META and not k.startswith("__")]
+        cols = [(k, k, "t") for k in keys]
+    head = ("연도", "__year") if trend else ("회사", "__corp")
+    out = []
+    for r in rows:
+        line = {head[0]: f"{r['__year']}" if trend else r["__corp"]}
+        for field, label, kind in cols:
+            line[label] = rt_cell(r.get(field), kind)
+        line["원문"] = DART_VIEW_URL.format(r["rcept_no"]) if r.get("rcept_no") else ""
+        out.append(line)
+    return pd.DataFrame(out), empty
+
+
+def render_rt(view):
+    """정기보고서 표 화면 하나 (주주·지분 / 임원·감사 / 투자·자금)."""
+    prefix, keys = RT_VIEWS[view]
+    years = list(range(TODAY.year, 2014, -1))
+    with st.form(f"{prefix}_search"):
+        corp_text = st.text_input(
+            "기업명 (여러 곳은 쉼표로)", key=f"{prefix}_corp", placeholder="예: 삼성전자, SK하이닉스",
+            help=f"쉼표(,)나 슬래시(/)로 나눠 최대 {MAX_RT_CORPS}곳까지 비교해요. 연도별 추이는 첫 번째 기업만 봅니다.",
+        )
+        item = st.selectbox("항목", keys, format_func=lambda k: RT_SECTIONS[k]["title"], key=f"{prefix}_item")
+        c1, c2 = st.columns(2)
+        year = c1.selectbox("사업연도", years, index=years.index(default_pay_year()), key=f"{prefix}_year")
+        report = c2.selectbox("보고서", list(RT_REPORTS), key=f"{prefix}_report")
+        mode = st.radio("보기", ["기업 비교 (한 해)", f"연도별 추이 (최근 {RT_TREND_YEARS}년, 첫 기업)"], horizontal=True, key=f"{prefix}_mode")
+        submitted = st.form_submit_button("조회") or st.session_state.pop(f"{prefix}_run", False)
+
+    stored = f"{prefix}_res"
+    if submitted:
+        st.session_state.pop(stored, None)
+        st.session_state.pop(f"{prefix}_find", None)  # 새 조회에는 이전 검색어를 지운다
+        trend = mode.startswith("연도별")
+        names = []
+        for part in re.split(NEWS_SPLIT, corp_text):
+            part = canonical_corp(part)
+            if part and name_key(part) not in {name_key(n) for n in names}:
+                names.append(part)
+        if not names:
+            st.error("기업명을 입력해주세요.")
+        elif len(names) > MAX_RT_CORPS:
+            st.error(f"기업은 한 번에 {MAX_RT_CORPS}곳까지 넣을 수 있어요. (지금 {len(names)}곳)")
+        else:
+            corps = []
+            if len(names) == 1 or trend:
+                code = lookup_corp_code(names[0], prefix)
+                if code:
+                    corps.append((names[0], code))
+            else:
+                with st.spinner("기업 정보를 확인하는 중입니다..."):
+                    for n in names:
+                        code = resolve_corp_code(n)
+                        if code:
+                            corps.append((n, code))
+                        else:
+                            hint = [label for label, _ in suggest_corps(n, limit=3)]
+                            st.warning(f'"{n}" 기업을 찾지 못해 빼고 조회했어요.' + (f" 혹시: {', '.join(hint)}" if hint else ""))
+            if corps:
+                spec = RT_SECTIONS[item]
+                reprt = RT_REPORTS[report]
+                if trend:
+                    jobs = [(corps[0][0], corps[0][1], y, spec["api"], reprt) for y in range(int(year) - RT_TREND_YEARS + 1, int(year) + 1)]
+                else:
+                    jobs = [(n, c, int(year), spec["api"], reprt) for n, c in corps]
+                with st.spinner(f"{spec['title']}을(를) 불러오는 중입니다..."):
+                    try:
+                        results = rt_collect(jobs)
+                    except DartApiError as e:
+                        st.error(str(e))
+                    else:
+                        df, empty = rt_frame(spec, results, trend)
+                        st.session_state[stored] = {"item": item, "df": df, "empty": empty, "trend": trend, "year": int(year),
+                                                    "report": report, "corp": corps[0][0], "id": time.time_ns()}
+
+    res = st.session_state.get(stored)
+    if not res:
+        st.caption("기업·항목·연도를 고르고 '조회'를 누르세요. AI 없이 DART 정기보고서의 표를 그대로 정리해 보여줍니다.")
+        return
+    spec, df = RT_SECTIONS[res["item"]], res["df"]
+    scope = f"{res['corp']} · 최근 {RT_TREND_YEARS}년 추이" if res["trend"] else f"{res['year']}년"
+    st.markdown(f"##### {spec['title']}")
+    st.caption(f"{scope} · {res['report']} · {spec['desc']}")
+    if spec.get("note"):
+        st.caption(spec["note"])
+    if res["empty"]:
+        st.caption("데이터 없음: " + ", ".join(res["empty"]) + " (해당 보고서에 이 항목이 없거나 아직 공시 전이에요)")
+    if df.empty:
+        st.info("조회된 데이터가 없어요. 연도나 보고서를 바꿔보세요.")
+        return
+    word = st.text_input("표 안에서 찾기", key=f"{prefix}_find", placeholder="예: 국민연금, 삼성전기 (띄어쓰기로 여러 단어 = 모두 포함)")
+    shown = df
+    if word.strip():
+        words = [w.lower() for w in word.split()]
+        text = df.drop(columns=["원문"]).astype(str).agg(" ".join, axis=1).str.lower()
+        shown = df[text.map(lambda t: all(w in t for w in words))]
+    st.caption(f"{len(shown):,}행" + (f" (전체 {len(df):,}행 중)" if len(shown) != len(df) else ""))
+    if shown.empty:
+        st.info("검색어와 일치하는 행이 없어요.")
+        return
+    st.dataframe(shown, hide_index=True, column_config={"원문": LINK_COLUMN}, height=min(len(shown) + 1, 16) * 35 + 3)
+    st.download_button(
+        "CSV 다운로드", shown.drop(columns=["원문"]).to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"{safe_filename(spec['title'])}_{safe_filename(res['corp'] if res['trend'] else str(res['year']))}.csv",
+        mime="text/csv", key=f"{prefix}_dl_{res['id']}",
+    )
+
+
 REPORT_KINDS = ("사업보고서", "반기보고서", "분기보고서")
 
 
@@ -4372,9 +4629,10 @@ def render_report_ai():
     st.markdown(f"[DART 원문 보기]({DART_VIEW_URL.format(rno)})")
 
 
-PERIODIC_VIEWS = ["배당·자사주", "보수·직원", "AI 분석"]
+PERIODIC_VIEWS = ["AI 분석", "배당·자사주", "보수·직원", "주주·지분", "임원·감사", "투자·자금"]
 # 정기보고서 탭은 고른 화면의 입력칸만 그린다. 안 그린 화면의 입력값은 Streamlit이 지우므로, 화면을 오가도 남도록 미리 일반 값으로 옮겨 둔다.
-PERIODIC_KEEP = ["rai_corp", "rai_pick", "rai_item", "pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report"]
+PERIODIC_KEEP = [f"{p}_{k}" for p, _ in RT_VIEWS.values() for k in ("corp", "item", "year", "report", "mode", "find")] + [
+    "rai_corp", "rai_pick", "rai_item", "pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report"]
 
 
 def render_periodic():
@@ -4387,8 +4645,10 @@ def render_periodic():
         render_dividend()
     elif view == "보수·직원":
         render_pay()
-    else:
+    elif view == "AI 분석":
         render_report_ai()
+    else:
+        render_rt(view)
 
 
 TAB_NAMES = ["재무 조회", "업종 합산", "재계 순위", "단독 뉴스", "오늘의 공시", "공시 목록", "정기보고서"]  # 4개씩 2줄
