@@ -3595,18 +3595,119 @@ def render_pay():
     render_exctv(res, label)
 
 
+def parse_unregistered_execs(text):
+    """사업·반기·분기보고서 원문 글 -> 미등기임원 현황 표의 행들 (API 임원 현황과 같은 필드 이름).
+    API(exctvSttus)에는 미등기임원이 빠지는 경우가 많아 원문의 '미등기임원 현황' 표를 직접 읽는다."""
+    lines = text.replace("\x0c", "\n").split("\n")
+    starts = [i for i, l in enumerate(lines)
+              if re.search(r"미등기\s*임원\s*현황", l) and "변동" not in l and len(l.strip()) <= 40 and "….." not in l]
+    cell_keys = [
+        (r"성명", "nm"), (r"성별", "sexdstn"), (r"출생", "birth_ym"), (r"직위", "ofcps"), (r"상근", "fte_at"),
+        (r"담당업무", "chrg_job"), (r"주요경력", "main_career"), (r"학력", "_edu"),
+        (r"최대주주", "mxmm_shrholdr_relate"), (r"재직", "hffc_pd"),
+    ]
+    default10 = ["nm", "sexdstn", "birth_ym", "ofcps", "fte_at", "chrg_job", "main_career", "_edu", "mxmm_shrholdr_relate", "hffc_pd"]
+    best = []
+    for st_i in starts:
+        header, rows = None, []
+        for l in lines[st_i + 1:st_i + 4000]:
+            s = l.strip()
+            if re.match(r"^[가-하]\s*\.\s*\S", s) and not rows and header is not None and "미등기" not in s:
+                break
+            if rows and (re.match(r"^[가-하]\s*\.\s*\S", s) or re.match(r"^\d{1,2}\s*\.\s*\S", s) or re.match(r"^[IVX]+\s*\.\s*\S", s)):
+                break  # 다음 소제목(마. 미등기임원의 변동 등)이 나오면 끝
+            if " | " not in s:
+                continue
+            cells = [c.strip() for c in re.sub(r"\s*\|\s*$", "", s).split(" | ")]  # 줄 끝의 칸 구분(|)은 떼고 나눈다
+            while cells and cells[-1] == "":
+                cells.pop()
+            if len(cells) >= 6 and cells[1] in ("남", "여"):
+                rows.append(cells)
+            elif not rows and "성명" in s.replace(" ", ""):
+                header = cells
+        if len(rows) > len(best):
+            best = [(header, r) for r in rows]
+    out = []
+    for header, cells in best:
+        keys = None
+        if header and len(header) == len(cells):
+            keys = []
+            for h in header:
+                hn = re.sub(r"\s+", "", h)
+                keys.append(next((k for pat, k in cell_keys if re.search(pat, hn)), "_x"))
+        if not keys or keys.count("nm") != 1:
+            keys = default10[:len(cells)] if len(cells) >= 10 else (default10[:7] + default10[8:])[:len(cells)]
+        row = {k: v for k, v in zip(keys, cells) if not k.startswith("_")}
+        row["rgist_exctv_at"] = "미등기임원"
+        out.append(row)
+    return out
+
+
+def unregistered_execs(rcept_no):
+    """접수번호 -> (미등기임원 행들, 오류 문구 또는 None). 원문을 받아 읽는 데 몇 초 걸려서 결과만 일주일 저장한다."""
+    session, store = get_session(), get_cache_store()
+    key = ("unreg", rcept_no)
+    cached = cache_lookup(store, key, AI_TTL)
+    if cached is not _MISSING:
+        return cached, None
+    try:
+        text = doc_text_from_zip(download_document(session, rcept_no))
+    except AiError as e:
+        return [], str(e)
+    rows = parse_unregistered_execs(text.split("\n\n")[0]) or parse_unregistered_execs(text)
+    cache_save(store, key, rows)
+    return rows, None
+
+
+def find_periodic_rcept(corp_code, year, reprt):
+    """API가 접수번호를 안 줄 때: 정기보고서 목록에서 해당 연도·종류의 보고서를 찾는다 (정정본이 있으면 가장 늦게 낸 것)."""
+    month, kind = {"11011": (12, "사업보고서"), "11012": (6, "반기보고서"), "11013": (3, "분기보고서"), "11014": (9, "분기보고서")}[reprt]
+    best = None
+    for r in periodic_reports(corp_code):
+        per = report_period_of(r.get("report_nm"))
+        if per and per[0] == year and (reprt == "11011" or per[1] == month) and strip_correction(r.get("report_nm")).startswith(kind):
+            if best is None or str(r["rcept_no"]) > str(best["rcept_no"]):
+                best = r
+    return str(best["rcept_no"]).strip() if best else None
+
+
 def rt_exctv(corps, year, reprt):
-    """회사별 임원 현황(등기·미등기 모두) -> (표, 데이터 없는 회사 목록)"""
-    jobs = [(n, c, year, RT_SECTIONS["exctv"]["api"], reprt) for n, c in corps]
-    got = rt_collect(jobs)
-    part = {(n, year): got.get((n, year, RT_SECTIONS["exctv"]["api"])) for n, _ in corps}
-    return rt_frame(RT_SECTIONS["exctv"], part, False)
+    """회사별 임원 현황 = API(등기임원 등) + 원문의 미등기임원 현황 표. -> (표, 데이터 없는 회사 목록, 안내 문구들)"""
+    api = RT_SECTIONS["exctv"]["api"]
+    got = rt_collect([(n, c, year, api, reprt) for n, c in corps])
+    notes, part, rcepts = [], {}, {}
+    for n, c in corps:
+        jo = got.get((n, year, api))
+        lst = [dict(r) for r in ((jo or {}).get("list") or []) if isinstance(r, dict)]
+        rno = next((str(r["rcept_no"]).strip() for r in lst if r.get("rcept_no")), None)
+        if not rno:
+            try:
+                rno = find_periodic_rcept(c, year, reprt)
+            except DartApiError:
+                rno = None
+        rcepts[n] = rno
+        part[(n, year)] = lst
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        extra = dict(zip(rcepts, pool.map(lambda n: unregistered_execs(rcepts[n]) if rcepts[n] else ([], None), rcepts)))
+    for n, _ in corps:
+        rows, err = extra[n]
+        if err:
+            notes.append(f"{n}: 미등기임원은 원문을 받지 못해 빠졌어요 ({err})")
+        have = {person_key(r.get("nm", "")) for r in part[(n, year)]}  # API에 이미 있는 사람은 다시 넣지 않는다
+        for r in rows:
+            if person_key(r.get("nm", "")) not in have:
+                part[(n, year)].append(dict(r, rcept_no=rcepts[n] or ""))
+    part = {k: ({"list": v} if v else None) for k, v in part.items()}
+    df, empty = rt_frame(RT_SECTIONS["exctv"], part, False)
+    return df, empty, notes
 
 
 def render_exctv(res, label):
     """임직원 화면 맨 아래: 임원 현황 (등기임원 + 미등기임원)."""
-    df, empty = res["exctv"]
+    df, empty, notes = res["exctv"]
     st.markdown("##### 임원 현황 (등기·미등기)")
+    for note in notes:
+        st.caption(note)
     if empty:
         st.caption("데이터 없음: " + ", ".join(empty))
     if df.empty:
