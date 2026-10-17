@@ -2293,34 +2293,59 @@ def lookup_corp_code(corp, prefix):
 CHART_ITEMS = [("rev", "매출액"), ("op", "영업이익"), ("net", "순이익")]
 
 
+CHART_COLORS = {"매출액": "#1c7ed6", "영업이익": "#f08c00", "순이익": "#2f9e44"}  # 파랑 · 주황 · 초록
+
+
+CHART_COLORS = {"매출액": "#1c7ed6", "영업이익": "#f08c00", "순이익": "#2f9e44"}  # 파랑 · 주황 · 초록
+
+
 def chart_frames(records, unit=DEFAULT_UNIT):
-    """실적 표를 막대 그래프용 표로. -> {항목 이름: 표(기간 × [플러스, 마이너스])}. 전부 비어 있는 항목은 뺀다.
-    플러스·마이너스를 열로 나눠 두면 마이너스 막대만 빨갛게 그릴 수 있다 (한 기간엔 둘 중 하나만 값이 있어 겹치지 않음)."""
-    out = {}
-    recs = sorted_records(records)
-    for key, name in CHART_ITEMS:
-        vals = [num_amount(r.get(key), unit) for r in recs]
-        if all(v is None for v in vals):
-            continue
-        df = pd.DataFrame(
-            {"플러스": [v if v is not None and v >= 0 else 0 for v in vals],
-             "마이너스": [v if v is not None and v < 0 else 0 for v in vals]},
-            index=[r["label"] for r in recs],
-        )
-        out[name] = df
-    return out
+    """실적 표를 막대 그래프용 '길게 늘어선' 표로. -> 열 [기간, 항목, 금액], 기간은 표와 같은 순서. 값이 없는 칸은 뺀다."""
+    rows = []
+    for r in sorted_records(records):
+        for key, name in CHART_ITEMS:
+            v = num_amount(r.get(key), unit)
+            if v is not None:
+                rows.append({"기간": r["label"], "항목": name, "금액": v})
+    return pd.DataFrame(rows, columns=["기간", "항목", "금액"])
+
+
+def chart_spec(periods, unit):
+    """한 그래프에 기간별로 매출액·영업이익·순이익 막대를 나란히 (Vega-Lite). 마이너스는 0선 아래로 내려간다.
+    확대·이동 같은 조작(params)은 넣지 않아, 화면을 위아래로 밀 때 그래프가 걸리지 않는다."""
+    names = list(CHART_COLORS)
+    return {
+        "height": 320,
+        "layer": [
+            {
+                "mark": {"type": "bar", "tooltip": True},
+                "encoding": {
+                    "x": {"field": "기간", "type": "ordinal", "sort": list(periods),
+                          "axis": {"title": None, "labelAngle": 0 if len(periods) <= 8 else -45, "labelOverlap": "parent"}},
+                    "xOffset": {"field": "항목", "type": "nominal", "sort": names},
+                    "y": {"field": "금액", "type": "quantitative", "axis": {"title": unit, "format": ",.~f"}},
+                    "color": {
+                        "field": "항목", "type": "nominal",
+                        "scale": {"domain": names, "range": list(CHART_COLORS.values())},
+                        "legend": {"title": None, "orient": "top"},
+                    },
+                    "tooltip": [{"field": "기간"}, {"field": "항목"}, {"field": "금액", "format": ",.~f", "title": f"금액({unit})"}],
+                },
+            },
+            {"mark": {"type": "rule", "color": "#94a3b8"}, "encoding": {"y": {"datum": 0}}},
+        ],
+    }
 
 
 def render_fin_charts(records, unit):
-    """실적 표 아래 막대 그래프: 금액만 (전년비·전분기비는 뺌). 기간 순서는 표와 같다."""
-    frames = chart_frames(records, unit)
-    if not frames:
+    """실적 표 아래 막대 그래프: 금액만 (전년비·전분기비는 뺌). 한 그래프에 세 항목을 나란히."""
+    df = chart_frames(records, unit)
+    if df.empty:
         st.caption("그릴 수 있는 금액이 없어요.")
         return
-    st.caption(f"단위: {unit} · 파랑 = 플러스, 빨강 = 마이너스(적자)")
-    for name, df in frames.items():
-        st.markdown(f"**{name}**")
-        st.bar_chart(df, color=[POSITIVE_COLOR, NEGATIVE_COLOR], height=220)
+    periods = [r["label"] for r in sorted_records(records)]
+    st.caption(f"단위: {unit} · 마이너스(적자)는 0선 아래로 내려가요")
+    st.vega_lite_chart(df, chart_spec(periods, unit), use_container_width=True)
 
 
 def sign_streak(records, key):
