@@ -341,7 +341,8 @@ def load_secret(name):
 NAVER_ID = load_secret("NAVER_CLIENT_ID")
 NAVER_SECRET = load_secret("NAVER_CLIENT_SECRET")
 
-# AI 공시 요약 (선택). GEMINI_API_KEY가 있으면 Gemini, 없고 ANTHROPIC_API_KEY가 있으면 Claude를 쓴다.
+# AI 기능 (선택). ANTHROPIC_API_KEY가 있으면 Claude(유료), 없고 GEMINI_API_KEY가 있으면 Gemini(무료 한도)를 쓴다.
+# 둘 다 넣어 두었다면 Secrets의 AI_PROVIDER = "gemini" 또는 "claude"로 고를 수 있다.
 # 모델 이름은 자주 바뀌므로 Secrets의 GEMINI_MODEL / ANTHROPIC_MODEL로 바꿀 수 있다.
 GEMINI_KEY = load_secret("GEMINI_API_KEY")
 GEMINI_MODEL = load_secret("GEMINI_MODEL") or "gemini-3.6-flash"
@@ -349,7 +350,13 @@ GEMINI_MODEL = load_secret("GEMINI_MODEL") or "gemini-3.6-flash"
 GEMINI_FALLBACK = load_secret("GEMINI_FALLBACK_MODEL") or "gemini-3.5-flash-lite"
 ANTHROPIC_KEY = load_secret("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = load_secret("ANTHROPIC_MODEL") or "claude-haiku-5-5"
-AI_PROVIDER = "gemini" if GEMINI_KEY else ("claude" if ANTHROPIC_KEY else None)
+_want = (load_secret("AI_PROVIDER") or "").strip().lower()
+if _want == "gemini" and GEMINI_KEY:
+    AI_PROVIDER = "gemini"
+elif _want == "claude" and ANTHROPIC_KEY:
+    AI_PROVIDER = "claude"
+else:
+    AI_PROVIDER = "claude" if ANTHROPIC_KEY else ("gemini" if GEMINI_KEY else None)
 
 # 계정명은 회사·연도마다 바뀔 수 있다 (예: LG에너지솔루션 2026년부터 '매출액 및 기타수익').
 # 그래서 표준 계정 코드(_IDS)로 먼저 찾고, 없으면 이름으로 찾는다. 이름은 띄어쓰기를 지우고 비교.
@@ -1480,20 +1487,41 @@ def call_gemini(session, prompt, system=None, json_mode=False):
     return text.strip(), model
 
 
-def call_claude(session, prompt, system=None):
+def call_claude(session, prompt, system=None, json_mode=False):
+    """Claude 호출. 서버가 붐비면(429·500·502·503·529) 잠깐 쉬었다 두 번 더 시도한다."""
+    if json_mode:  # Claude는 JSON 모드가 따로 없으니 말로 요청한다 (앞뒤에 붙은 ```json 표시는 parse_json이 걷어냄)
+        prompt += "\n\n설명 없이 JSON만 출력해라."
     body = {"model": ANTHROPIC_MODEL, "max_tokens": 4000, "temperature": 0.2, "system": system or AI_SYSTEM,
             "messages": [{"role": "user", "content": prompt}]}
     headers = {"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"}
-    try:
-        res = session.post("https://api.anthropic.com/v1/messages", json=body, headers=headers, timeout=AI_TIMEOUT)
-    except Exception as e:
-        raise AiError("Claude 서버 응답이 없거나 늦어지고 있어요. 잠시 후 다시 시도해주세요.") from e
+    res = None
+    for attempt in range(3):
+        try:
+            res = session.post("https://api.anthropic.com/v1/messages", json=body, headers=headers, timeout=AI_TIMEOUT)
+        except Exception:
+            res = None
+        if res is not None and res.status_code not in (429, 500, 502, 503, 529):
+            break
+        if attempt < 2:
+            time.sleep(2 * (attempt + 1))
+    if res is None:
+        raise AiError("Claude 서버 응답이 없거나 늦어지고 있어요. 잠시 후 다시 시도해주세요.")
     if res.status_code in (401, 403):
         raise AiError("Claude API 키가 올바르지 않아요. Secrets의 ANTHROPIC_API_KEY를 확인해주세요.")
     if res.status_code == 429:
         raise AiError("Claude 사용량 한도를 넘었어요. 잠시 후 다시 시도해주세요.")
+    if res.status_code in (500, 502, 503, 529):
+        raise AiError("Claude 서버가 지금 붐벼서 응답하지 못했어요 (API 키 문제는 아니에요). 1~2분 뒤 다시 눌러주세요.")
+    if res.status_code == 404:
+        raise AiError(f"Claude 모델 '{ANTHROPIC_MODEL}'을 찾지 못했어요. Secrets의 ANTHROPIC_MODEL 이름을 확인해주세요.")
     if res.status_code != 200:
-        raise AiError(f"Claude 응답 오류 [{res.status_code}]")
+        try:
+            msg = res.json().get("error", {}).get("message", "")
+        except Exception:
+            msg = ""
+        if "credit balance" in msg.lower():
+            raise AiError("Anthropic 크레딧 잔액이 부족해요. console.anthropic.com의 Plans & Billing에서 충전해주세요.")
+        raise AiError(f"Claude 응답 오류 [{res.status_code}] {msg}".strip())
     text = "".join(b.get("text", "") for b in res.json().get("content", []) if b.get("type") == "text")
     if not text.strip():
         raise AiError("Claude가 요약을 돌려주지 않았어요. 다시 시도해주세요.")
@@ -1522,7 +1550,7 @@ def ai_generate(prompt, system=None, json_mode=False):
     session = get_session()
     if AI_PROVIDER == "gemini":
         return call_gemini(session, prompt, system=system, json_mode=json_mode)
-    return call_claude(session, prompt, system=system), ANTHROPIC_MODEL
+    return call_claude(session, prompt, system=system, json_mode=json_mode), ANTHROPIC_MODEL
 
 
 def ai_model_name():
@@ -2456,7 +2484,7 @@ def render_fin_ai(result):
     """재무 조회 결과 아래 'AI 분석' 상자."""
     st.markdown("##### AI 분석")
     if not AI_PROVIDER:
-        st.caption("AI 분석을 쓰려면 Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
+        st.caption("AI 분석을 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude)를 추가해주세요. (무료 Gemini를 쓰려면 GEMINI_API_KEY를 추가해주세요.)")
         return
     prompt_sig = hashlib.sha1(fin_ai_prompt(result["corp"], result["records"], result["period"]).encode("utf-8")).hexdigest()
     go = st.button("조회한 실적·재무상태 AI 분석", key="fin_ai_go", type="primary")
@@ -2740,7 +2768,7 @@ def render_ai_summary(rows, prefix, all_rows=None):
         title = label(r).replace("[NEW] ", "").replace("[숫자표] ", "")
         render_major_numbers(r)
         if not AI_PROVIDER:
-            st.caption("AI 요약을 쓰려면 Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
+            st.caption("AI 요약을 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude)를 추가해주세요. (무료 Gemini를 쓰려면 GEMINI_API_KEY를 추가해주세요.)")
             st.markdown(f"[DART 원문 보기]({DART_VIEW_URL.format(rno)})")
             return
 
