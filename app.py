@@ -19,9 +19,11 @@ import io
 import json
 import os
 import re
+import threading
 import time
 import unicodedata
 import zipfile
+from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -2325,9 +2327,14 @@ DIV_MODES = ["기업 비교", "연도별 추이 (5년)"]
 DIV_TREND_YEARS = 5
 
 
-def div_trend_table(got, corps, years):
-    """연도별 추이 표 (오래된 해가 위). -> (표, {회사: 주당 배당금 [(연도, 원)]})"""
+KRX_DIV_COLS = ["기말 종가", "배당수익률(기말)", "배당수익률(현재가)"]  # KRX 시세로 직접 계산한 칸
+
+
+def div_trend_table(got, corps, years, px=None):
+    """연도별 추이 표 (오래된 해가 위). px = dividend_prices 결과(없으면 수익률 칸 생략).
+    -> (표, {회사: 주당 배당금 [(연도, 원)]})"""
     rows, dps = [], {}
+    ends = px[0] if px else {}
     for name, _ in corps:
         for y in sorted(years):
             d = got.get((name, y))
@@ -2344,6 +2351,8 @@ def div_trend_table(got, corps, years):
                 "배당성향": f"{now['payout']:.1f}%" if now["payout"] is not None else "-",
                 "주당 배당금": f"{now['dps']:,.0f}원" if now["dps"] is not None else "-",
                 "시가배당률": f"{now['yield']:.2f}%" if now["yield"] is not None else "-",
+                **({"기말 종가": f"{ends[(name, y)]:,.0f}원" if (name, y) in ends else "-",
+                    "배당수익률(기말)": yield_text(now["dps"], ends.get((name, y)))} if px else {}),
                 "자사주 취득": (f"{t['acq']:+,}" if t["acq"] else "0") if t else "-",
                 "자사주 소각": (f"{-t['burn']:+,}" if t["burn"] else "0") if t else "-",
                 "기말 보유": f"{t['end']:,}" if t else "-",
@@ -2470,9 +2479,10 @@ def collect_tsk_decisions(corps, years):
     return rows, truncated
 
 
-def div_tables(data):
-    """-> (배당 표, 자사주 표)"""
+def div_tables(data, px=None, year=None):
+    """-> (배당 표, 자사주 표). px = dividend_prices 결과(없으면 수익률 칸 생략)"""
     drows, trows = [], []
+    ends, cur = (px[0], px[1]) if px else ({}, {})
     for corp, d in data.items():
         now, prev = d["div"]["now"], d["div"]["prev"]
         if any(v is not None for v in now.values()):
@@ -2484,6 +2494,9 @@ def div_tables(data):
                 "주당 배당금": f"{now['dps']:,.0f}원" if now["dps"] is not None else "-",
                 "전년 주당": f"{prev['dps']:,.0f}원" if prev["dps"] is not None else "-",
                 "시가배당률": f"{now['yield']:.2f}%" if now["yield"] is not None else "-",
+                **({"기말 종가": f"{ends[(corp, year)]:,.0f}원" if (corp, year) in ends else "-",
+                    "배당수익률(기말)": yield_text(now["dps"], ends.get((corp, year))),
+                    "배당수익률(현재가)": yield_text(now["dps"], cur.get(corp))} if px else {}),
             })
         t = d["tsk"]
         if t:
@@ -3342,7 +3355,7 @@ def render_industry():
                         group = st.session_state.get("ind_group")
                         # 업종 목록을 그대로 썼으면 문장에 업종 이름을, 고쳐 썼으면 '조회한'을 쓴다
                         label = group if group in INDUSTRY_GROUPS and names == INDUSTRY_GROUPS[group] else "조회한"
-                        st.session_state["industry"] = {"data": data, "year": int(year), "period": period, "label": label}
+                        st.session_state["industry"] = {"data": data, "year": int(year), "period": period, "label": label, "corps": corps}
 
     res = st.session_state.get("industry")
     if not res:
@@ -3352,6 +3365,7 @@ def render_industry():
     when = f"{res['year']}년 연간" if res["period"] == "연간" else f"{res['year']}년 {res['period']}"
     if table.empty:
         st.warning(f"{when} 실적이 공시된 회사가 없어요. 아직 보고서가 나오기 전일 수 있어요. 기간을 바꿔보세요.")
+        render_industry_caps(res)  # 시가총액은 실적과 상관없이 볼 수 있다
         return
     empty = [c for c, d in res["data"].items() if all(d["now"][k] is None for k in ("rev", "op", "net"))]
     st.caption(f"{when} · 연결 기준 · 단위: {unit} · 전년比는 두 해 모두 공시된 회사끼리 비교")
@@ -3378,6 +3392,46 @@ def render_industry():
         file_name=f"업종합산_{safe_filename(res['label'])}_{res['year']}_{res['period']}.csv",
         mime="text/csv",
     )
+    render_industry_caps(res)
+
+
+def render_industry_caps(res):
+    """업종 합산 아래: 같은 회사들의 시가총액 (KRX)."""
+    if not KRX_KEY:
+        krx_hint()
+        return
+    try:
+        items, day = industry_caps(res["corps"])
+    except KrxError as e:
+        krx_error_box(e)
+        return
+    st.markdown("##### 시가총액")
+    listed = [i for i in items if i["cap"]]
+    if not listed:
+        st.info("KRX에서 시가총액을 찾은 회사가 없어요.")
+        return
+    total = sum(i["cap"] for i in listed)
+    rows = [{"회사": i["회사"], "시장": i["market"] or "-", "종가": f"{i['close']:,.0f}원" if i["close"] else "-",
+             "전일比": pct_text(i["rate"], 2), "시가총액": won_text(i["cap"]) if i["cap"] else "-",
+             "비중": f"{i['cap'] / total * 100:.1f}%" if i["cap"] else "-"}
+            for i in sorted(items, key=lambda i: -(i["cap"] or 0))]
+    rows.append({"회사": f"합계 ({len(listed)}개사)", "시장": "", "종가": "", "전일比": "", "시가총액": won_text(total), "비중": "100%"})
+    table = pd.DataFrame(rows)
+    st.caption(f"KRX {day:%Y.%m.%d} 종가 기준 · 보통주+우선주 · 비상장사는 빠져요" if day else "KRX 시세 기준")
+    st.dataframe(table.style.map(price_style, subset=["전일比"]).apply(total_row_style, axis=1), hide_index=True,
+                 height=(len(table) + 1) * 35 + 3)
+    sentence = (f"{res['label']} {len(listed)}개사의 시가총액 합계는 {won_text(total)}으로, 가장 큰 {listed_top(items)[0]}이(가) "
+                f"{listed_top(items)[1]:.0f}%를 차지한다.")
+    st.caption("기사 문장 초안")
+    st.code(sentence, language=None, wrap_lines=True)
+
+
+def listed_top(items):
+    """-> (가장 큰 회사 이름, 비중 %)"""
+    listed = [i for i in items if i["cap"]]
+    total = sum(i["cap"] for i in listed)
+    top = max(listed, key=lambda i: i["cap"])
+    return top["회사"], top["cap"] / total * 100
 
 
 def render_major_numbers(r):
@@ -3618,6 +3672,11 @@ def render_disclosures():
         return
 
     table = disclosure_table(shown)
+    saved = render_reaction(shown, "list")
+    if saved:
+        render_reaction_table(table, shown, saved)
+        render_ai_summary(shown, "list", all_rows=res["rows"])
+        return
     table.insert(0, "new", ["NEW" if str(r.get("rcept_dt", "")) >= NEW_SINCE else "" for r in shown])  # 어제·오늘 올라온 공시
     st.dataframe(
         table.style.map(lambda v: f"color: {NEGATIVE_COLOR}; font-weight: 800" if v == "NEW" else "", subset=["new"]),
@@ -4093,12 +4152,19 @@ def render_dividend():
                         else:
                             data = collect_div(corps, int(year), PAY_REPORTS[report])
                         decisions = collect_tsk_decisions(corps, TSK_PERIODS[tsk_label])
+                        px, px_err = None, None
+                        if KRX_KEY:
+                            try:
+                                px = dividend_prices(corps, years_used if trend else [int(year)], PAY_REPORTS[report])
+                            except KrxError as e:
+                                px_err = str(e)
                     except DartApiError as e:
                         st.error(str(e))
                     else:
                         st.session_state["dividend"] = {
                             "data": data, "year": int(year), "report": report, "trend": trend, "corps": corps,
-                            "years": years_used if trend else [int(year)], "decisions": decisions, "tsk_label": tsk_label}
+                            "years": years_used if trend else [int(year)], "decisions": decisions, "tsk_label": tsk_label,
+                            "px": px, "px_err": px_err}
 
     res = st.session_state.get("dividend")
     if not res:
@@ -4108,12 +4174,13 @@ def render_dividend():
     if res.get("trend"):
         render_div_trend(res, half)
     else:
-        div, tsk = div_tables(res["data"])
+        div, tsk = div_tables(res["data"], res.get("px"), res["year"])
         st.markdown("##### 배당")
         if div.empty:
             st.info(f"{label}에 배당 공시가 없어요. 연도나 보고서를 바꿔보세요.")
         else:
             st.caption(f"{label} · 배당성향은 연결 기준 · 주당 배당금·시가배당률은 보통주{half}")
+            render_yield_note(res)
             st.dataframe(div.style.map(change_style, subset=["총액 전년比"]), hide_index=True,
                          height=(len(div) + 1) * 35 + 3)
         st.markdown("##### 자사주 (보통주, 주)")
@@ -4129,15 +4196,28 @@ def render_dividend():
     render_tsk_decisions(res)
 
 
+def render_yield_note(res):
+    """배당수익률 칸 설명 (KRX 시세로 직접 계산한 값)."""
+    if not KRX_KEY:
+        krx_hint()
+    elif res.get("px_err"):
+        krx_error_box(res["px_err"])
+    elif res.get("px"):
+        day = res["px"][2]
+        st.caption("배당수익률은 KRX 종가로 직접 계산한 값이에요 (주당 배당금 ÷ 기준일 종가). 기말 = 보고서 기준일(사업보고서 12/31, 반기 6/30)의 마지막 거래일"
+                   + (f" · 현재가는 {day:%Y.%m.%d} 종가" if day else "") + " · 회사가 공시한 '시가배당률'은 계산 기준이 달라 차이가 날 수 있어요")
+
+
 def render_div_trend(res, half):
     """배당·자사주 최근 5년 추이."""
-    table, dps = div_trend_table(res["data"], res["corps"], res["years"])
+    table, dps = div_trend_table(res["data"], res["corps"], res["years"], res.get("px"))
     st.markdown("##### 배당·자사주 5년 추이")
     if table.empty:
         st.info(f"{res['years'][0]}~{res['years'][-1]}년 {res['report'].split(' ')[0]}에 배당·자사주 공시가 없어요. 연도나 보고서를 바꿔보세요.")
         return
     st.caption(f"{res['years'][0]}~{res['years'][-1]}년 {res['report'].split(' ')[0]} · 오래된 해가 위 · 배당성향은 연결 기준 · "
                f"주당 배당금·시가배당률은 보통주{half} · 자사주는 보통주(주)")
+    render_yield_note(res)
     st.dataframe(table.style.map(change_style, subset=["총액 전년比", "자사주 취득", "자사주 소각"]), hide_index=True,
                  column_config={"원문": LINK_COLUMN}, height=min(len(table) + 1, 21) * 35 + 3)
     lines = []
@@ -4240,11 +4320,15 @@ def render_feed():
     if not shown:
         st.info("조건에 맞는 공시가 없습니다.")
         return
-    st.dataframe(
-        feed_table(shown),
-        hide_index=True,
-        column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
-    )
+    saved = render_reaction(shown, "feed")
+    if saved:
+        render_reaction_table(feed_table(shown), shown, saved)
+    else:
+        st.dataframe(
+            feed_table(shown),
+            hide_index=True,
+            column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
+        )
     render_ai_summary(shown, "feed", all_rows=res["rows"])
     render_news_picks(shown, res["id"])
 
@@ -4469,8 +4553,13 @@ def cb_filter(groups, view, query):
     return out
 
 
-def cb_rank_table(groups, unit):
+def cb_rank_table(groups, unit, caps=None):
+    """caps = chaebol_caps 결과(없으면 시총 칸 생략)"""
     rows = []
+    order = {}
+    if caps:
+        ranked = sorted((r for r, v in caps["groups"].items() if v["cap"]), key=lambda r: -caps["groups"][r]["cap"])
+        order = {r: i + 1 for i, r in enumerate(ranked)}
     for g in groups:
         grow = cb_pct(g["asset"], g["asset_prev"])
         dn = g["n"] - g["n_prev"] if g.get("n_prev") is not None else None
@@ -4479,6 +4568,8 @@ def cb_rank_table(groups, unit):
             "공정자산": cb_money(g["asset"], unit),
             "계열회사": f"{g['n']:,}" + (f" ({dn:+d})" if dn else ""),
             "자산 증감": "-" if grow is None else f"{grow:+.1f}%",
+            **({"상장사 시총": fmt_amount(caps["groups"][int(g["rank"])]["cap"], unit) if caps["groups"].get(int(g["rank"]), {}).get("cap") else "-",
+                "시총 순위": str(order.get(int(g["rank"]), "-"))} if caps else {}),
             "동일인": g["owner"], "구분": cb_kind(g),
         })
     return pd.DataFrame(rows)
@@ -4570,7 +4661,29 @@ def render_ownership(g, data):
     st.caption("2026.5.1. 지정일 기준 · 발행주식총수 기준 · 단위 %. 음영은 지주회사 등, ★은 상장회사, 마름모(◇)는 총수일가 지분 20% 이상 회사.")
 
 
-def render_chaebol_detail(g, unit, data):
+def render_chaebol_caps(g, unit, caps):
+    """그룹 상세: 상장 계열사 시가총액."""
+    info = (caps or {}).get("groups", {}).get(int(g["rank"]))
+    st.markdown("##### 상장 계열사 시가총액")
+    if not info or not info["firms"]:
+        st.info("KRX에서 시세를 찾은 상장 계열사가 없어요.")
+        return
+    total = info["cap"]
+    rows = [{"회사": n, "종목코드": c, "종가": f"{px:,.0f}원" if px else "-", "전일比": pct_text(rt, 2),
+             "시가총액": fmt_amount(cap, unit) if cap else "-", "비중": f"{cap / total * 100:.1f}%" if cap and total else "-"}
+            for n, c, px, rt, cap in info["firms"]]
+    rows.append({"회사": f"합계 ({len(info['firms'])}개사)", "종목코드": "", "종가": "", "전일比": "",
+                 "시가총액": fmt_amount(total, unit), "비중": "100%"})
+    table = pd.DataFrame(rows)
+    asset = g.get("asset")
+    ratio = f" · 공정자산총액({cb_money(asset, unit)}{unit})의 {total / (asset * 1e9) * 100:.0f}%" if asset else ""
+    st.caption(f"KRX {caps['day']:%Y.%m.%d} 종가 기준 · 단위: {unit} · 보통주+우선주 · 계열회사 명단의 이름을 DART 상장사 이름과 맞춰 찾은 것이라 "
+               f"이름이 다른 회사는 빠질 수 있어요{ratio}")
+    st.dataframe(table.style.map(price_style, subset=["전일比"]).apply(total_row_style, axis=1), hide_index=True,
+                 height=min(len(table) + 1, 14) * 35 + 3)
+
+
+def render_chaebol_detail(g, unit, data, caps=None):
     st.markdown(f"#### {g['name']} · 동일인 {g['owner']}")
     prev = f"전년 {int(g['rank_prev'])}위" if g.get("rank_prev") else "올해 신규 지정"
     move = {"▲": "상승", "▼": "하락"}.get(cb_move(g["change"])[:1], "")
@@ -4596,6 +4709,8 @@ def render_chaebol_detail(g, unit, data):
                "공정자산총액은 지정 기준으로 따로 산정한 값이라 여기 자산총액과 다를 수 있어요")
     fin_table = cb_fin_table(g, unit)
     st.dataframe(fin_table, hide_index=True, height=(len(fin_table) + 1) * 35 + 3)
+    if caps:
+        render_chaebol_caps(g, unit, caps)
 
     render_ownership(g, data)
 
@@ -4657,11 +4772,20 @@ def render_chaebol():
     view = c1.radio("보기", CHAEBOL_VIEWS, horizontal=True, key="cb_view")
     unit = c2.radio("단위", list(UNITS), index=list(UNITS).index("조원"), horizontal=True, key="cb_unit")  # 재계는 금액이 커서 조원이 기본
     query = st.text_input("그룹명·동일인 검색", key="cb_query", placeholder="예: 삼성, SK, 이재용")
+    caps = None
+    if KRX_KEY:
+        try:
+            info = chaebol_caps(str(TODAY))
+            caps = {"groups": info["groups"], "day": info["day"]} if info else None
+        except KrxError as e:
+            krx_error_box(e)
+    else:
+        krx_hint()
     shown = cb_filter(groups, view, query)
     if not shown:
         st.info("조건에 맞는 기업집단이 없어요. 검색어나 보기를 바꿔보세요.")
     else:
-        table = cb_rank_table(shown, unit)
+        table = cb_rank_table(shown, unit, caps)
         st.caption(f"{len(shown)}개 집단 · 공정자산 단위: {unit} · 변동은 전년 대비 순위 · 계열회사 괄호는 전년 대비 증감")
         st.dataframe(
             table.style.map(cb_style, subset=["변동", "자산 증감"]), hide_index=True,
@@ -4681,8 +4805,498 @@ def render_chaebol():
     choice = st.selectbox("기업집단 선택", list(labels), index=None, key="cb_group",
                           placeholder="그룹을 고르면 재무·지분구조도·계열회사를 모아 보여줘요")
     if choice:
-        render_chaebol_detail(labels[choice], unit, data)
+        render_chaebol_detail(labels[choice], unit, data, caps)
     st.caption("자료: 공정거래위원회 · 계열회사 수·재무·경영성과는 보도자료 별첨2~6 기준")
+
+
+# ------------------------------------------------------------
+# KRX 시세 (KRX Open API) - 공시 반응·시가총액·배당수익률
+# ------------------------------------------------------------
+# KRX는 '하루치 전 종목'을 한 번에 돌려주는 방식이라, 회사가 몇 곳이든 날짜 수만큼만 호출한다.
+# 시장(코스피·코스닥)마다 이용 신청이 따로라서, 승인되지 않은 시장은 건너뛰고 되는 시장만 쓴다.
+KRX_KEY = load_secret("KRX_API_KEY")
+KRX_BASE = "https://data-dbg.krx.co.kr/svc/apis"
+KRX_MARKETS = {"코스피": "sto/stk_bydd_trd", "코스닥": "sto/ksq_bydd_trd"}  # 코넥스(sto/knx_bydd_trd)는 호출을 아끼려고 뺐다
+KRX_PAST_TTL = 30 * 24 * 3600  # 이미 지난 날의 시세는 바뀌지 않는다
+KRX_RECENT_TTL = 3600  # 어제·오늘 시세는 아직 올라오기 전일 수 있어 짧게
+KRX_MAX_DAYS = 160  # 저장해 두는 날짜 수 (메모리 보호)
+KRX_REACT_SPAN = 100  # 공시 반응을 한 번에 보는 기간(일)
+KRX_LOOKBACK = 12  # 휴장일이면 이만큼(일) 앞까지 거슬러 올라가 가장 가까운 거래일을 찾는다
+
+
+class KrxError(Exception):
+    """KRX 키 문제·승인 안 됨·서버 오류 등 사용자에게 알려야 하는 조회 실패."""
+
+
+KrxRow = namedtuple("KrxRow", "name market close chg rate vol val cap shares")
+
+
+@st.cache_resource
+def _krx_store():
+    return {"days": {}, "lock": threading.Lock(), "auth": {"mode": "header"}, "status": {}}
+
+
+def krx_num(v):
+    """'1,234' / '-1.5' / '-' -> 숫자. 못 읽으면 None."""
+    try:
+        return float(str(v).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def krx_code6(row):
+    """KRX 줄 -> 6자리 종목코드. ISU_CD가 12자리 표준코드(KR7005930003)면 가운데 6자리를 쓴다."""
+    for key in ("ISU_SRT_CD", "ISU_CD"):
+        s = re.sub(r"\s+", "", str(row.get(key) or ""))
+        if len(s) == 12 and s[:2].isalpha():
+            return s[3:9]
+        if len(s) == 6:
+            return s
+    return None
+
+
+def krx_parse(rows, market):
+    """KRX 응답 줄들 -> {종목코드: KrxRow}. 필드가 비어 있는 줄은 그대로 None으로 둔다."""
+    out = {}
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        code = krx_code6(r)
+        if not code:
+            continue
+        out[code] = KrxRow(
+            str(r.get("ISU_NM") or r.get("ISU_ABBRV") or "").strip(), market,
+            krx_num(r.get("TDD_CLSPRC")), krx_num(r.get("CMPPREVDD_PRC")), krx_num(r.get("FLUC_RT")),
+            krx_num(r.get("ACC_TRDVOL")), krx_num(r.get("ACC_TRDVAL")), krx_num(r.get("MKTCAP")),
+            krx_num(r.get("LIST_SHRS")),
+        )
+    return out
+
+
+def krx_request(session, path, day_str):
+    """KRX 한 번 호출. 인증키는 헤더로 먼저 보내고, 거절되면 주소 파라미터로 한 번 더 시도한다."""
+    store = _krx_store()
+    url = f"{KRX_BASE}/{path}"
+    modes = [store["auth"]["mode"], "query" if store["auth"]["mode"] == "header" else "header"]
+    res, last = None, None
+    for i, mode in enumerate(modes):
+        params = {"basDd": day_str}
+        headers = {"AUTH_KEY": KRX_KEY}
+        if mode == "query":
+            params["AUTH_KEY"], headers = KRX_KEY, {}
+        for attempt in range(3):  # 일시적인 네트워크 오류는 두 번까지 다시 시도
+            try:
+                res = session.get(url, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+                break
+            except Exception as e:
+                last = e
+                res = None
+                time.sleep(0.5 * (attempt + 1))
+        if res is None:
+            raise KrxError("KRX 서버 응답이 없거나 늦어지고 있어요. 잠시 후 다시 시도해주세요.") from last
+        if res.status_code in (401, 403) and i == 0:
+            continue  # 다른 방식으로 한 번 더
+        if res.status_code == 200:
+            store["auth"]["mode"] = mode
+        break
+    if res.status_code in (401, 403):
+        raise KrxError("KRX 인증키가 올바르지 않거나, 이 시세 API의 이용 승인이 아직 안 됐어요. "
+                       "KRX Open API에서 '유가증권/코스닥 일별매매정보' 이용 신청 상태를 확인해주세요.")
+    if res.status_code == 429:
+        raise KrxError("KRX API 하루 호출 한도를 넘었어요. 내일 다시 시도해주세요.")
+    if res.status_code != 200:
+        raise KrxError(f"KRX 응답 오류 [{res.status_code}]")
+    try:
+        data = res.json()
+    except Exception as e:
+        raise KrxError("KRX 응답을 읽지 못했어요.") from e
+    if isinstance(data, dict) and str(data.get("respCode", "200")) not in ("200", "") and "OutBlock_1" not in data:
+        raise KrxError(f"KRX 오류: {data.get('respMsg') or data.get('respCode')}")
+    rows = data.get("OutBlock_1") if isinstance(data, dict) else None
+    return rows if isinstance(rows, list) else []
+
+
+def krx_market_day(day, market, session=None):
+    """한 시장의 하루치 시세 {종목코드: KrxRow}. 휴장일이면 빈 dict. 오류는 올려 보내고 저장하지 않는다."""
+    store = _krx_store()
+    key = (day.strftime("%Y%m%d"), market)
+    now = time.time()
+    with store["lock"]:
+        hit = store["days"].get(key)
+    if hit and now - hit[0] < (KRX_PAST_TTL if day < TODAY - timedelta(days=2) else KRX_RECENT_TTL):
+        return hit[1]
+    got = krx_parse(krx_request(session or get_session(), KRX_MARKETS[market], key[0]), market)
+    with store["lock"]:
+        store["days"][key] = (now, got)
+        if len(store["days"]) > KRX_MAX_DAYS * len(KRX_MARKETS):  # 가장 오래 전에 저장한 것부터 비운다
+            for k in sorted(store["days"], key=lambda k: store["days"][k][0])[:len(KRX_MARKETS)]:
+                store["days"].pop(k, None)
+    return got
+
+
+def krx_day(day, markets=None):
+    """하루치 시세 (여러 시장 합침) -> (dict, 실패한 시장 {시장: 오류글}). 모든 시장이 실패하면 KrxError."""
+    markets = markets or list(KRX_MARKETS)
+    merged, failed = {}, {}
+    for m in markets:
+        try:
+            merged.update(krx_market_day(day, m))
+        except KrxError as e:
+            failed[m] = str(e)
+    if failed and len(failed) == len(markets):
+        raise KrxError(next(iter(failed.values())))
+    return merged, failed
+
+
+def krx_days(days, markets=None):
+    """여러 날짜를 동시에 -> ({날짜: dict}, {시장: 오류글}). 실패한 날은 빠진다. 전부 실패하면 KrxError."""
+    days = list(days)
+    out, errors, failed = {}, [], {}
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        futs = {pool.submit(krx_day, d, markets): d for d in days}
+        for f in as_completed(futs):
+            try:
+                rows, bad = f.result()
+                out[futs[f]] = rows
+                failed.update(bad)
+            except KrxError as e:
+                errors.append(str(e))
+    if days and not out and errors:
+        raise KrxError(errors[0])
+    return out, failed
+
+
+def krx_on_or_before(target, markets=None):
+    """target 날짜 또는 그 이전 가장 가까운 거래일 -> (날짜, dict). 못 찾으면 (None, {})."""
+    day = min(target, TODAY)
+    for _ in range(KRX_LOOKBACK):
+        if day.weekday() < 5:
+            rows, _ = krx_day(day, markets)
+            if rows:
+                return day, rows
+        day -= timedelta(days=1)
+    return None, {}
+
+
+def krx_latest(markets=None):
+    """가장 최근 거래일 시세. 시세는 다음 날 아침에 올라오므로 보통 어제나 그 전 거래일."""
+    return krx_on_or_before(TODAY, markets)
+
+
+# 우선주 이름: 삼성전자우 / 현대차2우B / 대한항공우(전환)
+KRX_PREF = re.compile(r"^(?P<base>.+?)(?P<s>\d?우[A-C]?(?:\(전환\))?)$")
+
+
+def krx_caps(rows):
+    """{보통주 종목코드: 시가총액(보통주+우선주, 원)}. 우선주는 '보통주 이름 + 우' 꼴인 것만 더한다."""
+    by_name = {}
+    for code, r in rows.items():
+        if r.name and not KRX_PREF.match(r.name):
+            by_name.setdefault(r.name, code)
+    caps = {c: r.cap for c, r in rows.items() if r.cap is not None and not KRX_PREF.match(r.name)}
+    for code, r in rows.items():
+        m = KRX_PREF.match(r.name or "")
+        if m and r.cap is not None and m.group("base") in by_name:
+            base = by_name[m.group("base")]
+            caps[base] = caps.get(base, 0) + r.cap
+    return caps
+
+
+def stock_code_of(corp_code):
+    """DART 고유번호 -> 6자리 종목코드 (비상장이면 None)."""
+    idx = get_name_index()
+    hit = idx[idx["corp_code"] == corp_code]
+    if hit.empty:
+        return None
+    code = str(hit.iloc[0]["stock_code"]).strip()
+    return code if len(code) == 6 else None
+
+
+def price_style(cell):
+    """주가 등락 칸: 한국 증시 관행대로 오르면 빨강, 내리면 파랑."""
+    t = str(cell)
+    if t.startswith("+"):
+        return f"font-weight: bold; color: {NEGATIVE_COLOR}"
+    if t.startswith("-") and t != "-":
+        return f"font-weight: bold; color: {POSITIVE_COLOR}"
+    return ""
+
+
+def pct_text(v, digits=1):
+    return "-" if v is None else f"{v:+.{digits}f}%"
+
+
+def krx_hint():
+    """KRX 키가 없을 때 각 화면에 붙이는 안내."""
+    st.caption("주가·시가총액을 함께 보려면 Streamlit Secrets에 KRX_API_KEY를 추가해주세요.")
+
+
+def krx_error_box(e):
+    st.warning(f"주가 정보를 가져오지 못했어요. {e}")
+
+
+# --- 1) 공시 전후 주가 반응 ---
+def weekdays_between(first, last):
+    d, out = first, []
+    while d <= last:
+        if d.weekday() < 5:
+            out.append(d)
+        d += timedelta(days=1)
+    return out
+
+
+def price_reaction(rows):
+    """공시 줄들(rcept_dt, stock_code 포함) -> ({rcept_no: 반응 dict}, 안내글 목록).
+
+    반응: 직전 5일(공시 전날까지 5거래일 등락), 공시일 등락, 다음날 등락, 5거래일 누적(공시 전날 종가 대비).
+    DART는 접수 시각을 주지 않아서 장 마감 뒤 공시는 '다음날' 칸에 반응이 나타난다.
+    """
+    notes = []
+    dated = [r for r in rows if str(r.get("rcept_dt", "")).isdigit() and len(str(r.get("rcept_dt"))) == 8]
+    if not dated:
+        return {}, notes
+    newest = max(date(int(r["rcept_dt"][:4]), int(r["rcept_dt"][4:6]), int(r["rcept_dt"][6:])) for r in dated)
+    limit = newest - timedelta(days=KRX_REACT_SPAN)
+    use = [r for r in dated if r["rcept_dt"] >= limit.strftime("%Y%m%d") and r["rcept_dt"] >= "20100104"]
+    if len(use) < len(rows):
+        notes.append(f"주가 반응은 가장 최근 공시일부터 {KRX_REACT_SPAN}일 이내(2010년 이후) 공시만 계산했어요.")
+    if not use:
+        return {}, notes
+    first = min(date(int(r["rcept_dt"][:4]), int(r["rcept_dt"][4:6]), int(r["rcept_dt"][6:])) for r in use)
+    span = weekdays_between(first - timedelta(days=12), min(newest + timedelta(days=10), TODAY))
+    by_day, failed = krx_days(span)
+    for m in failed:
+        notes.append(f"{m} 시세는 가져오지 못해 그 시장 종목은 비워뒀어요. ({failed[m]})")
+    trading = sorted(d for d, rows_ in by_day.items() if rows_)  # 시세가 있는 날 = 거래일
+    out = {}
+    for r in use:
+        code = str(r.get("stock_code") or "").strip()
+        if len(code) != 6:
+            continue
+        d = date(int(r["rcept_dt"][:4]), int(r["rcept_dt"][4:6]), int(r["rcept_dt"][6:]))
+        after = [t for t in trading if t >= d]
+        if not after:
+            continue
+        i0 = trading.index(after[0])
+        row0 = by_day[trading[i0]].get(code)
+        if row0 is None:
+            continue
+        react = {"same_day": trading[i0] == d}
+        react["day0"] = row0.rate if trading[i0] == d else None
+        if i0 + 1 < len(trading):
+            nxt = by_day[trading[i0 + 1]].get(code)
+            react["day1"] = nxt.rate if nxt else None
+        prev_close = row0.close - row0.chg if row0.close is not None and row0.chg is not None else None
+        if i0 + 5 < len(trading) and prev_close:
+            end = by_day[trading[i0 + 5]].get(code)
+            react["day5"] = (end.close / prev_close - 1) * 100 if end and end.close else None
+        if i0 >= 6 and prev_close:  # 공시 전날 종가 vs 그 5거래일 전 종가
+            back = by_day[trading[i0 - 6]].get(code)
+            before = by_day[trading[i0 - 1]].get(code)
+            if back and back.close and before and before.close:
+                react["pre5"] = (before.close / back.close - 1) * 100
+        out[r["rcept_no"]] = react
+    return out, notes
+
+
+def reaction_columns(table, rows, react):
+    """공시 표에 주가 반응 칸을 붙인다 (table과 rows는 같은 순서)."""
+    cols = {"공시 전 5일": "pre5", "공시일": "day0", "다음 거래일": "day1", "5거래일 누적": "day5"}
+    t = table.copy()
+    for label, key in cols.items():
+        t[label] = [pct_text((react.get(r.get("rcept_no")) or {}).get(key)) for r in rows]
+    # 원문 링크 칸은 맨 오른쪽에 두는 것이 읽기 편하다
+    if "원문" in t.columns:
+        t = t[[c for c in t.columns if c != "원문"] + ["원문"]]
+    return t
+
+
+def render_reaction(shown, key):
+    """공시 표 아래의 '주가 반응 보기' 버튼. 누르면 표에 주가 칸을 붙여 다시 보여준다. -> 반응 표 또는 None"""
+    if not KRX_KEY:
+        return None
+    if st.button("공시 전후 주가 반응 보기", key=f"react_btn_{key}",
+                 help="공시일 전후 등락률을 KRX 시세로 계산해 표에 붙여요. 처음엔 몇 초 걸려요."):
+        with st.spinner("KRX 시세를 불러오는 중입니다..."):
+            try:
+                react, notes = price_reaction(shown)
+            except KrxError as e:
+                st.session_state[f"react_{key}"] = {"error": str(e)}
+            else:
+                st.session_state[f"react_{key}"] = {"react": react, "notes": notes, "n": len(shown),
+                                                    "ids": [r.get("rcept_no") for r in shown]}
+    saved = st.session_state.get(f"react_{key}")
+    if not saved:
+        return None
+    if saved.get("error"):
+        krx_error_box(saved["error"])
+        return None
+    if saved["ids"] != [r.get("rcept_no") for r in shown]:
+        st.caption("검색·보기를 바꿔서 위 표와 달라졌어요. '공시 전후 주가 반응 보기'를 다시 눌러주세요.")
+        return None
+    return saved
+
+
+def render_reaction_table(table, shown, saved):
+    t = reaction_columns(table, shown, saved["react"])
+    got = sum(1 for r in shown if r.get("rcept_no") in saved["react"])
+    st.markdown("##### 공시 전후 주가 반응")
+    st.caption(f"KRX 종가 기준 등락률 · 계산된 공시 {got:,}/{len(shown):,}건 · 공시 전 5일 = 공시 전날까지 5거래일 등락 · "
+               "5거래일 누적 = 공시 전날 종가 대비 · 접수 시각은 알 수 없어, 장 마감 뒤 나온 공시의 반응은 '다음 거래일'에 나타나요 · "
+               "시세는 다음 날 아침에 올라와 최근 공시는 비어 있을 수 있어요")
+    for n in saved["notes"]:
+        st.caption(n)
+    st.dataframe(
+        t.style.map(price_style, subset=["공시 전 5일", "공시일", "다음 거래일", "5거래일 누적"]),
+        hide_index=True,
+        column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
+        height=min(len(t) + 1, 16) * 35 + 3,
+    )
+
+
+# --- 2) 기업 브리핑 시세 ---
+BRIEF_RETURNS = [("1주", 7), ("1개월", 30), ("3개월", 91), ("6개월", 182), ("1년", 365)]
+
+
+def collect_quote(code):
+    """종목 하나의 시세 요약 -> dict. 상장사가 아니거나 시세가 없으면 None."""
+    day, rows = krx_latest()
+    row = rows.get(code)
+    if not row or row.close is None:
+        return None
+    market = [row.market]
+    q = {"day": day, "row": row, "market": row.market, "caps": krx_caps(rows).get(code, row.cap), "ret": {}}
+    targets = [(label, day - timedelta(days=n)) for label, n in BRIEF_RETURNS] + [("연초 이후", date(day.year - 1, 12, 31))]
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        got = list(pool.map(lambda t: krx_on_or_before(t[1], market), targets))
+    for (label, _), (d, past) in zip(targets, got):
+        p = past.get(code)
+        q["ret"][label] = (row.close / p.close - 1) * 100 if p and p.close else None
+    return q
+
+
+def render_quote(q):
+    st.markdown("##### 주가·시가총액")
+    if q is None:
+        st.info("KRX에서 이 종목의 시세를 찾지 못했어요. 비상장사이거나 코넥스 종목일 수 있어요.")
+        return
+    r = q["row"]
+    cards = [
+        ("종가", f"{r.close:,.0f}원", pct_text(r.rate, 2) + " (전일比)" if r.rate is not None else None,
+         None if r.rate is None else ("down" if r.rate > 0 else "up" if r.rate < 0 else "flat")),  # 카드 색은 증시 관행(상승=빨강)에 맞춰 뒤집는다
+        ("시가총액", won_text(q["caps"]) if q["caps"] else "-", "보통주+우선주", "flat"),
+        ("거래대금", won_text(r.val) if r.val else "-", f"{r.vol:,.0f}주" if r.vol else None, "flat"),
+        ("상장주식수", f"{r.shares:,.0f}주" if r.shares else "-", q["market"], "flat"),
+    ]
+    st.markdown(cb_cards(cards), unsafe_allow_html=True)
+    ret = pd.DataFrame([{"기간": k, "수익률": pct_text(v)} for k, v in q["ret"].items()]).set_index("기간").T
+    st.dataframe(ret.style.map(price_style), height=(len(ret) + 1) * 35 + 3)
+    st.caption(f"KRX {q['day']:%Y.%m.%d} 종가 기준 · 기간 수익률은 그 날짜(휴장이면 직전 거래일) 종가와 비교한 값이며 배당·증자는 반영하지 않았어요")
+
+
+# --- 3) 배당수익률 직접 계산 ---
+def base_date(year, reprt_code):
+    """사업연도·보고서 -> 배당 기준일 (사업보고서 12/31, 반기 6/30, 1분기 3/31, 3분기 9/30)."""
+    md = {"11011": (12, 31), "11012": (6, 30), "11013": (3, 31), "11014": (9, 30)}.get(reprt_code, (12, 31))
+    return date(year, *md)
+
+
+def dividend_prices(corps, years, reprt_code):
+    """-> ({(회사, 연도): 기말 종가}, {회사: 최근 종가}, 최근 거래일). 시세를 못 구하면 KrxError."""
+    codes = {name: stock_code_of(cc) for name, cc in corps}
+    wanted = {c for c in codes.values() if c}
+    if not wanted:
+        return {}, {}, None
+    day, latest_rows = krx_latest()
+    cur = {n: latest_rows[c].close for n, c in codes.items() if c in latest_rows and latest_rows[c].close}
+    ends = {}
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        for y, (d, rows) in zip(years, pool.map(lambda y: krx_on_or_before(base_date(y, reprt_code)), years)):
+            for n, c in codes.items():
+                if c and c in rows and rows[c].close:
+                    ends[(n, y)] = rows[c].close
+    return ends, cur, day
+
+
+def yield_text(dps, price):
+    if dps is None or not price:
+        return "-"
+    return f"{dps / price * 100:.2f}%"
+
+
+# --- 4) 시가총액 연결 (업종 합산·재계 순위) ---
+def listed_codes_by_name():
+    """{name_key(DART 회사명): 종목코드} (상장사만)"""
+    idx = get_name_index()
+    listed = idx[idx["stock_code"].str.len() == 6]
+    return dict(zip(listed["key"], listed["stock_code"]))
+
+
+def industry_caps(corps):
+    """업종 합산 회사들 -> (표, 합계 시총, 기준일)."""
+    day, rows = krx_latest()
+    caps = krx_caps(rows)
+    out = []
+    for name, cc in corps:
+        code = stock_code_of(cc)
+        row = rows.get(code) if code else None
+        out.append({"회사": name, "market": row.market if row else None, "close": row.close if row else None,
+                    "rate": row.rate if row else None, "cap": caps.get(code) if row else None})
+    return out, day
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def chaebol_caps(day_str):
+    """기업집단별 상장 계열사 시가총액 -> {"day": 기준일, "groups": {순위: {"cap": 합계(원), "firms": [(회사명, 종목코드, 종가, 등락률, 시총)]}}}"""
+    data = get_chaebol()
+    if not data:
+        return None
+    day, rows = krx_latest()
+    caps = krx_caps(rows)
+    by_name = listed_codes_by_name()
+    out = {}
+    for g in data["groups"]:
+        firms, seen = [], set()
+        for m in g.get("members") or []:
+            code = by_name.get(name_key(m["name"]))
+            if not code or code in seen or code not in rows:
+                continue
+            seen.add(code)
+            r = rows[code]
+            firms.append((rows[code].name or m["name"], code, r.close, r.rate, caps.get(code)))
+        firms.sort(key=lambda f: -(f[4] or 0))
+        out[int(g["rank"])] = {"cap": sum(f[4] or 0 for f in firms), "firms": firms}
+    return {"day": day, "groups": out}
+
+
+# --- 연결 점검 ---
+def render_krx_check():
+    """KRX 연결 상태를 직접 확인하는 작은 도구."""
+    with st.expander("KRX 연결 점검"):
+        if not KRX_KEY:
+            st.write("KRX_API_KEY가 등록되지 않았어요. Streamlit Secrets에 `KRX_API_KEY = \"...\"` 한 줄을 추가해주세요.")
+            return
+        st.caption("시장마다 최근 거래일 시세를 한 번씩 불러와 보고 결과를 보여줘요. 승인된 API만 '정상'으로 나와요.")
+        if st.button("연결 점검하기", key="krx_check_btn"):
+            lines, day = [], last_weekday(TODAY - timedelta(days=1))
+            for m in KRX_MARKETS:
+                for back in range(6):
+                    d = day - timedelta(days=back)
+                    if d.weekday() >= 5:
+                        continue
+                    try:
+                        rows = krx_market_day(d, m)
+                    except KrxError as e:
+                        lines.append({"시장": m, "기준일": f"{d}", "결과": "실패", "내용": str(e)})
+                        break
+                    if rows:
+                        sample = next(iter(rows.items()))
+                        lines.append({"시장": m, "기준일": f"{d}", "결과": "정상", "내용": f"{len(rows):,}종목 · 예: {sample[0]} {sample[1].name} 종가 {sample[1].close}"})
+                        break
+                else:
+                    lines.append({"시장": m, "기준일": "-", "결과": "자료 없음", "내용": "최근 6일 동안 시세가 비어 있어요"})
+            st.dataframe(pd.DataFrame(lines), hide_index=True)
+            st.caption(f"인증키 전달 방식: {_krx_store()['auth']['mode']} · 저장된 시세 {len(_krx_store()['days'])}건")
 
 
 STYLE = """
@@ -5434,7 +6048,7 @@ def brief_ai_prompt(b):
     if b.get("disc") is not None and not b["disc"].empty:
         parts.append("[최근 3개월 주요 공시 제목]\n" + "\n".join(df_lines(b["disc"], ["접수일", "보고서명"])))
     if b.get("div") is not None and not b["div"].empty:
-        parts.append("[배당·자사주 (최근 3개년 사업보고서)]\n" + "\n".join(df_lines(b["div"].drop(columns=["원문"], errors="ignore"))))
+        parts.append("[배당·자사주 (최근 3개년 사업보고서)]\n" + "\n".join(df_lines(b["div"].drop(columns=["원문"] + KRX_DIV_COLS, errors="ignore"))))
     if b.get("tsk"):
         parts.append("[최근 1년 자사주 결정 공시]\n" + "\n".join(f"{r['접수일']} | {r['구분']} | {r['주식 수']} | {r['금액']} | {r['보고서명']}" for r in b["tsk"][:10]))
     if b.get("exctv") and b["exctv"].get("diff") is not None:
@@ -5461,9 +6075,14 @@ def collect_brief(name, code, progress):
         try:
             return fn()
         except Exception as e:  # 한 항목 때문에 전체를 버리지 않는다
-            b["errors"][key] = str(e) if isinstance(e, (DartApiError, AiError, NewsApiError)) else f"불러오지 못했어요 ({type(e).__name__})"
+            b["errors"][key] = str(e) if isinstance(e, (DartApiError, AiError, NewsApiError, KrxError)) else f"불러오지 못했어요 ({type(e).__name__})"
             return None
 
+    if KRX_KEY:
+        stock = stock_code_of(code)
+        b["quote"] = step("시세를 불러오는 중...", "quote", lambda: collect_quote(stock) if stock else None)
+    else:
+        b["quote"] = False  # 키 없음
     b["records"] = step("실적을 불러오는 중...", "fin", lambda: collect_yearly(code, end - BRIEF_YEARS + 1, end, lambda: None))
 
     def disclosures():
@@ -5478,7 +6097,13 @@ def collect_brief(name, code, progress):
     def dividend():
         years = [y for y in range(end - 2, end + 1) if y >= 2015]
         got = collect_div_years(corps, years, "11011")
-        table, dps = div_trend_table(got, corps, years)
+        px = None
+        if KRX_KEY:
+            try:
+                px = dividend_prices(corps, years, "11011")
+            except KrxError as e:
+                b["errors"]["quote_div"] = str(e)
+        table, dps = div_trend_table(got, corps, years, px)
         b["dps"] = dps.get(name, [])
         return table
 
@@ -5514,6 +6139,13 @@ def render_brief_result(b):
     st.markdown(f"#### {b['corp']} 브리핑")
     st.caption(f"{b['asof']:%Y.%m.%d %H:%M} 기준 · 연결 기준 · 항목마다 따로 불러와서 일부가 비어 있을 수 있어요")
     errs = b["errors"]
+
+    if b.get("quote") is False:
+        krx_hint()
+    elif errs.get("quote"):
+        krx_error_box(errs["quote"])
+    else:
+        render_quote(b.get("quote"))
 
     st.markdown(f"##### 실적 (최근 {BRIEF_YEARS}년, 억원)")
     if errs.get("fin"):
@@ -5636,7 +6268,7 @@ def render_brief():
 
                 def progress(label):
                     steps[0] += 1
-                    bar.progress(min(steps[0] / 6, 1.0), text=label)
+                    bar.progress(min(steps[0] / 7, 1.0), text=label)
 
                 try:
                     st.session_state["brief"] = collect_brief(corp, code, progress)
@@ -5675,3 +6307,4 @@ with tab_brief:
     render_brief()
 with tab_claim:
     render_claims()
+render_krx_check()
