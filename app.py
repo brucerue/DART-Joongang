@@ -382,8 +382,28 @@ BS_ITEMS = {
     "capex": (["유형자산의취득", "유형자산취득"],
               ["ifrs-full_PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
                "ifrs-full_PurchaseOfPropertyPlantAndEquipment"], ("CF",)),
+    # --- 더 보기 표용 ---
+    "assets": (["자산총계"], ["ifrs-full_Assets", "ifrs_Assets"], ("BS",)),
+    "cur_assets": (["유동자산"], ["ifrs-full_CurrentAssets", "ifrs_CurrentAssets"], ("BS",)),
+    "cur_liab": (["유동부채"], ["ifrs-full_CurrentLiabilities", "ifrs_CurrentLiabilities"], ("BS",)),
+    "opcf": (["영업활동현금흐름", "영업활동으로인한현금흐름", "영업활동으로인한순현금흐름", "영업활동순현금흐름", "영업활동으로부터의현금흐름"],
+             ["ifrs-full_CashFlowsFromUsedInOperatingActivities", "ifrs_CashFlowsFromUsedInOperatingActivities"], ("CF",)),
+    "dep": (["감가상각비"], [], ("CF",)),
+    "ppe_dep": (["유형자산감가상각비"], [], ("CF",)),
+    "rou": (["사용권자산상각비", "사용권자산감가상각비"], [], ("CF",)),
+    "amort": (["무형자산상각비", "무형자산상각"], [], ("CF",)),
+    "interest": (["이자비용"], ["ifrs-full_InterestExpense", "ifrs_InterestExpense"], ("IS", "CIS")),
+    "int_paid": (["이자의지급", "이자지급", "이자의지급(영업활동)", "이자지급(영업활동)", "이자의지급(재무활동)"], [], ("CF",)),
 }
-BS_NAMES = [n for names, _, _ in BS_ITEMS.values() for n in names]
+# 연간(사업보고서)에서만 믿을 수 있는 항목: 현금흐름표는 분기보고서가 누적 금액이고, 4분기 손익은 '연간 − 3분기 누적'이라 분기 값을 바로 쓸 수 없다
+ANNUAL_ONLY = {"capex", "opcf", "dep", "ppe_dep", "rou", "amort", "int_paid", "interest"}
+ABS_KEYS = {"capex", "dep", "ppe_dep", "rou", "amort", "int_paid", "interest"}  # 괄호 음수로 적혀도 크기로 쓴다
+# 차입금: 재무상태표의 이 계정들을 더한다 (같은 이름은 한 번만). 리스부채는 뺀다.
+BORROW_NAMES = [
+    "단기차입금", "유동성장기부채", "유동성장기차입금", "유동성사채", "유동성전환사채", "단기사채", "차입금", "유동성차입금",
+    "장기차입금", "비유동차입금", "사채", "장기사채", "전환사채", "신주인수권부사채", "교환사채",
+]
+BS_NAMES = [n for names, _, _ in BS_ITEMS.values() for n in names] + BORROW_NAMES
 BS_IDS = [i for _, ids, _ in BS_ITEMS.values() for i in ids]
 LOSS_ONLY_NAMES = ["영업손실", "당기순손실", "분기순손실", "반기순손실"]  # 이 이름이면 값이 양수여도 손실로 처리
 
@@ -414,7 +434,7 @@ def get_session():
 
 # 저장해 두는 데이터의 모양이 바뀌면(예: 순이익 추가) 이 숫자를 올린다.
 # 그래야 앱을 고친 직후에도 예전 형식으로 저장된 결과(순이익 없음)를 다시 쓰지 않는다.
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 
 
 @st.cache_resource
@@ -689,15 +709,34 @@ def pick(df, names, column="thstrm_amount", ids=None, sj=("IS", "CIS")):
     return value
 
 
+def borrow_total(df):
+    """차입금 합계: 재무상태표의 BORROW_NAMES 계정을 더한다. 하나도 못 찾으면 None (0으로 보지 않음)."""
+    if df is None or "account_nm" not in df.columns or "thstrm_amount" not in df.columns:
+        return None
+    rows = df[account_names(df).isin(BORROW_NAMES)]
+    if "sj_div" in rows.columns:
+        rows = rows[rows["sj_div"] == "BS"]
+    seen, total = set(), None
+    for _, row in rows.iterrows():
+        name = re.sub(r"\s+", "", str(row["account_nm"]))
+        v = to_int(row["thstrm_amount"])
+        if name in seen or v is None:
+            continue
+        seen.add(name)
+        total = (total or 0) + abs(v)
+    return total
+
+
 def bs_values(df, with_capex=False):
-    """재무상태 항목 (기말 잔액). CAPEX는 연간(사업보고서)만: 분기보고서 현금흐름표는 누적 금액이라 분기 값이 아니다."""
+    """재무상태 항목 (기말 잔액). with_capex=True는 연간(사업보고서): 현금흐름·이자·감가상각 항목은 연간만 쓴다."""
     out = {}
     for key, (names, ids, sj) in BS_ITEMS.items():
-        if key == "capex" and not with_capex:
+        if key in ANNUAL_ONLY and not with_capex:
             out[key] = None
             continue
         v = pick(df, names, ids=ids, sj=sj)
-        out[key] = abs(v) if key == "capex" and v is not None else v  # 취득액은 (괄호) 음수로 적힌 경우가 많다
+        out[key] = abs(v) if key in ABS_KEYS and v is not None else v  # 취득액·이자 등은 (괄호) 음수로 적힌 경우가 많다
+    out["borrow"] = borrow_total(df)
     return out
 
 
@@ -906,25 +945,109 @@ def debt_ratio(bs):
     return liab / equity * 100
 
 
+def bs_metrics(r, yearly):
+    """기간 하나의 재무상태 지표(원 단위 숫자·비율). 계산할 수 없으면 None. 연간 전용 지표는 분기별에서 None."""
+    bs = r.get("bs") or {}
+    liab, equity, cash, borrow = bs.get("liab"), bs.get("equity"), bs.get("cash"), bs.get("borrow")
+    m = {"debt_ratio": debt_ratio(bs), "borrow": borrow}
+    nd = borrow - cash if borrow is not None and cash is not None else None  # 마이너스 = 순현금
+    m["net_debt"] = nd
+    m["nd_ratio"] = None if nd is None or equity is None else ("자본잠식" if equity <= 0 else nd / equity * 100)
+    ca, cl = bs.get("cur_assets"), bs.get("cur_liab")
+    m["cur_ratio"] = ca / cl * 100 if ca is not None and cl else None
+    opcf, capex = bs.get("opcf"), bs.get("capex")
+    m["opcf"] = opcf
+    m["fcf"] = opcf - capex if yearly and opcf is not None and capex is not None else None
+    interest = next((v for v in (bs.get("interest"), bs.get("int_paid")) if v), None)  # 이자비용, 없으면 현금흐름표의 이자 지급액
+    op, net = r.get("op"), r.get("net")
+    m["int_cov"] = op / interest if yearly and op is not None and interest else None
+    dep = bs.get("dep")
+    if dep is None and (bs.get("ppe_dep") is not None or bs.get("rou") is not None):
+        dep = (bs.get("ppe_dep") or 0) + (bs.get("rou") or 0)
+    m["ebitda"] = op + dep + (bs.get("amort") or 0) if yearly and op is not None and dep is not None else None
+    m["roe"] = net / equity * 100 if yearly and net is not None and equity is not None and equity > 0 else None
+    m["assets"], m["liab"], m["equity"] = bs.get("assets"), liab, equity
+    return m
+
+
+def fmt_pct(v):
+    """비율(%) 표시. 문자(자본잠식)는 그대로, 없으면 '-'."""
+    if isinstance(v, str):
+        return v
+    return "-" if v is None else f"{v:,.1f}%"
+
+
+def fmt_times(v):
+    return "-" if v is None else f"{v:,.1f}배"
+
+
+def _num(v, nd=1):
+    """다운로드용 숫자: 문자(자본잠식)는 그대로, 없으면 None."""
+    return v if isinstance(v, str) or v is None else round(v, nd)
+
+
+BS_KEYS = ("liab", "equity", "cash", "inv", "capex", "assets", "opcf", "borrow")
+
+
 def build_bs_table(records, period, for_export=False, unit=DEFAULT_UNIT):
-    """재무상태 표: 기간, 부채비율, 현금성자산, 재고자산, (연도별) CAPEX. 값이 하나도 없으면 빈 표."""
+    """재무상태 기본 표: 기간, 부채비율, 현금성자산, 재고자산, (연도별) CAPEX, 순차입금, (연도별) 잉여현금흐름.
+    for_export=True면 더 보기 표의 지표까지 모두 담은 다운로드용 표. 값이 하나도 없으면 빈 표."""
     yearly = period != "분기별"
     rows = []
     for r in sorted_records(records):
         bs = r.get("bs") or {}
-        ratio = debt_ratio(bs)
+        if not any(bs.get(k) is not None for k in BS_KEYS):
+            continue
+        m = bs_metrics(r, yearly)
         if for_export:
-            row = {"기간": r["label"], "부채비율(%)": round(ratio, 1) if isinstance(ratio, float) else ratio,
+            row = {"기간": r["label"], "부채비율(%)": _num(m["debt_ratio"]),
                    f"현금성자산({unit})": num_amount(bs.get("cash"), unit), f"재고자산({unit})": num_amount(bs.get("inv"), unit)}
             if yearly:
                 row[f"CAPEX({unit})"] = num_amount(bs.get("capex"), unit)
+            row[f"순차입금({unit})"] = num_amount(m["net_debt"], unit)
+            if yearly:
+                row[f"잉여현금흐름({unit})"] = num_amount(m["fcf"], unit)
+            row["순차입금비율(%)"] = _num(m["nd_ratio"])
+            row["유동비율(%)"] = _num(m["cur_ratio"])
+            if yearly:
+                row["이자보상배율(배)"] = _num(m["int_cov"])
+                row[f"영업활동현금흐름({unit})"] = num_amount(m["opcf"], unit)
+                row[f"EBITDA({unit})"] = num_amount(m["ebitda"], unit)
+                row["ROE(%)"] = _num(m["roe"])
+            row[f"자산총계({unit})"] = num_amount(m["assets"], unit)
+            row[f"부채총계({unit})"] = num_amount(m["liab"], unit)
+            row[f"자본총계({unit})"] = num_amount(m["equity"], unit)
         else:
-            row = {"기간": r["label"], "부채비율": f"{ratio:,.1f}%" if isinstance(ratio, float) else (ratio or "-"),
+            row = {"기간": r["label"], "부채비율": fmt_pct(m["debt_ratio"]),
                    "현금성자산": fmt_amount(bs.get("cash"), unit), "재고자산": fmt_amount(bs.get("inv"), unit)}
             if yearly:
                 row["CAPEX"] = fmt_amount(bs.get("capex"), unit)
-        if any(bs.get(k) is not None for k in ("liab", "equity", "cash", "inv", "capex")):
-            rows.append(row)
+            row["순차입금"] = fmt_amount(m["net_debt"], unit)
+            if yearly:
+                row["잉여현금흐름"] = fmt_amount(m["fcf"], unit)
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def build_bs_more_table(records, period, unit=DEFAULT_UNIT):
+    """재무상태 '더 보기' 표: 순차입금비율, 유동비율, (연도별) 이자보상배율·영업활동현금흐름·EBITDA·ROE, 자산·부채·자본 금액."""
+    yearly = period != "분기별"
+    rows = []
+    for r in sorted_records(records):
+        bs = r.get("bs") or {}
+        if not any(bs.get(k) is not None for k in BS_KEYS):
+            continue
+        m = bs_metrics(r, yearly)
+        row = {"기간": r["label"], "순차입금비율": fmt_pct(m["nd_ratio"]), "유동비율": fmt_pct(m["cur_ratio"])}
+        if yearly:
+            row["이자보상배율"] = fmt_times(m["int_cov"])
+            row["영업활동현금흐름"] = fmt_amount(m["opcf"], unit)
+            row["EBITDA"] = fmt_amount(m["ebitda"], unit)
+            row["ROE"] = fmt_pct(m["roe"])
+        row["자산총계"] = fmt_amount(m["assets"], unit)
+        row["부채총계"] = fmt_amount(m["liab"], unit)
+        row["자본총계"] = fmt_amount(m["equity"], unit)
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
@@ -2421,6 +2544,21 @@ def fin_facts(records, period):
     erosion = [l for l, v in ratios if v == "자본잠식"]
     if erosion:
         facts.append(f"자본잠식(자본총계 0 이하) 기간: {', '.join(erosion)}")
+    yearly = period != "분기별"
+    ms = [(r["label"], bs_metrics(r, yearly)) for r in recs]
+    nd = [(l, m["net_debt"]) for l, m in ms if m["net_debt"] is not None]
+    if len(nd) >= 2:
+        facts.append(f"순차입금(마이너스는 순현금): {nd[0][0]} {fmt_amount(nd[0][1], '억원')}억원 → {nd[-1][0]} {fmt_amount(nd[-1][1], '억원')}억원")
+    if yearly:
+        neg_fcf = [l for l, m in ms if m["fcf"] is not None and m["fcf"] < 0]
+        if neg_fcf:
+            facts.append(f"잉여현금흐름(영업활동현금흐름−CAPEX)이 마이너스인 해: {', '.join(neg_fcf)}")
+        low_cov = [f"{l}({m['int_cov']:.1f}배)" for l, m in ms if m["int_cov"] is not None and m["int_cov"] < 1]
+        if low_cov:
+            facts.append(f"이자보상배율 1배 미만(영업이익이 이자비용보다 적음): {', '.join(low_cov)}")
+    low_cur = [f"{l}({m['cur_ratio']:.0f}%)" for l, m in ms if m["cur_ratio"] is not None and m["cur_ratio"] < 100]
+    if low_cur:
+        facts.append(f"유동비율 100% 미만: {', '.join(low_cur)}")
     for key, name in (("cash", "현금성자산"), ("inv", "재고자산")):
         vals = [(r["label"], (r.get("bs") or {}).get(key)) for r in recs]
         vals = [(l, v) for l, v in vals if v is not None]
@@ -2431,23 +2569,28 @@ def fin_facts(records, period):
 
 def fin_ai_text(corp, records, period):
     """AI에 보낼 자료: 기간별 표(억원) + 미리 계산한 사실."""
-    head = ["기간", "매출액", "영업이익", "영업이익률", "순이익", "부채총계", "자본총계", "부채비율", "현금성자산", "재고자산"]
+    head = ["기간", "매출액", "영업이익", "영업이익률", "순이익", "자산총계", "부채총계", "자본총계", "부채비율", "현금성자산", "재고자산", "순차입금", "순차입금비율", "유동비율"]
     yearly = period != "분기별"
     if yearly:
-        head.append("CAPEX")
+        head += ["CAPEX", "영업활동현금흐름", "잉여현금흐름", "EBITDA", "이자보상배율", "ROE"]
     lines = [" | ".join(head)]
     for r in sorted_records(records):
         bs = r.get("bs") or {}
         ratio = debt_ratio(bs)
         margin = f"{r['op'] / r['rev'] * 100:.1f}%" if r.get("op") is not None and r.get("rev") else "-"
+        m = bs_metrics(r, yearly)
         row = [r["label"], fmt_amount(r.get("rev"), "억원"), fmt_amount(r.get("op"), "억원"), margin, fmt_amount(r.get("net"), "억원"),
-               fmt_amount(bs.get("liab"), "억원"), fmt_amount(bs.get("equity"), "억원"),
+               fmt_amount(bs.get("assets"), "억원"), fmt_amount(bs.get("liab"), "억원"), fmt_amount(bs.get("equity"), "억원"),
                f"{ratio:.1f}%" if isinstance(ratio, float) else (ratio or "-"),
-               fmt_amount(bs.get("cash"), "억원"), fmt_amount(bs.get("inv"), "억원")]
+               fmt_amount(bs.get("cash"), "억원"), fmt_amount(bs.get("inv"), "억원"),
+               fmt_amount(m["net_debt"], "억원"), fmt_pct(m["nd_ratio"]), fmt_pct(m["cur_ratio"])]
         if yearly:
-            row.append(fmt_amount(bs.get("capex"), "억원"))
+            row += [fmt_amount(bs.get("capex"), "억원"), fmt_amount(m["opcf"], "억원"), fmt_amount(m["fcf"], "억원"),
+                    fmt_amount(m["ebitda"], "억원"), fmt_times(m["int_cov"]), fmt_pct(m["roe"])]
         lines.append(" | ".join(row))
-    notes = ["연결재무제표 기준. 금액 단위는 억원(1조원 = 10,000억원). '-'는 자료 없음."]
+    notes = ["연결재무제표 기준. 금액 단위는 억원(1조원 = 10,000억원). '-'는 자료 없음(은행·보험·증권사는 일부 지표가 해당 없음).",
+             "순차입금 = 차입금 − 현금성자산 (마이너스면 순현금)."
+             + (" 잉여현금흐름 = 영업활동현금흐름 − CAPEX. EBITDA = 영업이익 + 감가상각비 + 무형자산상각비. 이자보상배율 = 영업이익 ÷ 이자비용." if yearly else "")]
     if not yearly:
         notes.append("분기별 자료: 4분기 값은 사업보고서 연간 값에서 3분기 누적을 뺀 계산값. 재무상태는 각 분기 말 잔액. 계절성이 있으니 직전 분기보다 전년 같은 분기와 비교할 것.")
     return (f"기업: {corp}\n조회 단위: {period}\n" + "\n".join(notes) + "\n\n[기간별 자료]\n" + "\n".join(lines)
@@ -2458,7 +2601,7 @@ AI_FIN_SYSTEM = (
     "너는 중앙일보 산업부 기자를 돕는 기업 실적 분석 보조자다. 사용자가 준 [기간별 자료]와 [미리 계산한 사실]만 근거로 쓴다. "
     "자료에 없는 숫자·사실·원인·전망·시장 반응을 절대 만들지 않는다. 숫자는 자료 표기 그대로(단위 포함) 옮기고 새로 계산하지 않는다. "
     "실적이 왜 변했는지 원인은 자료에 없으므로 단정하지 말고, 추정이면 '~했을 가능성', '확인 필요'처럼 표시한다. "
-    "산업부 기자의 시각으로 쓴다: 흑자·적자 흐름과 전환 시점, 이익률(수익성) 변화, 부채비율·현금·재고 등 재무 건전성, 투자(CAPEX) 부담을 짚고 "
+    "산업부 기자의 시각으로 쓴다: 흑자·적자 흐름과 전환 시점, 이익률(수익성) 변화, 부채비율·순차입금·유동비율·이자보상배율 등 재무 건전성, 영업현금흐름과 잉여현금흐름(이익은 나는데 현금이 도는지), 투자(CAPEX) 부담을 짚고 "
     "무엇이 기사 포인트인지 가려낸다. 한국어, 짧고 명확한 기사체로 쓴다."
 )
 
@@ -2585,13 +2728,28 @@ def render_financials():
     bs_table = build_bs_table(result["records"], result["period"], unit=unit)
     if not bs_table.empty:
         st.markdown("##### 재무상태")
-        capex_note = " · CAPEX = 유형자산 취득액(연간, 현금흐름표)" if result["period"] != "분기별" else ""
-        st.caption(f"기말 기준 · 단위: {unit} · 부채비율 = 부채총계 ÷ 자본총계{capex_note}")
+        yearly = result["period"] != "분기별"
+        capex_note = " · CAPEX = 유형자산 취득액(연간, 현금흐름표) · 잉여현금흐름 = 영업활동현금흐름 − CAPEX" if yearly else ""
+        st.caption(f"기말 기준 · 단위: {unit} · 부채비율 = 부채총계 ÷ 자본총계 · 순차입금 = 차입금 − 현금성자산 (마이너스는 현금이 빚보다 많은 순현금){capex_note}")
         st.dataframe(
             bs_table, hide_index=True,
             column_config={"기간": st.column_config.TextColumn("기간", width=95)},
             height=(len(bs_table) + 1) * 35 + 3,
         )
+        if st.toggle("더 보기", key="fin_bs_more"):
+            more = build_bs_more_table(result["records"], result["period"], unit=unit)
+            st.dataframe(
+                more, hide_index=True,
+                column_config={"기간": st.column_config.TextColumn("기간", width=95)},
+                height=(len(more) + 1) * 35 + 3,
+            )
+            only_year = "" if yearly else " 현금흐름·이자·EBITDA·ROE는 연도별 조회에서만 나와요."
+            st.caption(
+                "순차입금비율 = 순차입금 ÷ 자본총계 · 유동비율 = 유동자산 ÷ 유동부채 · 이자보상배율 = 영업이익 ÷ 이자비용(없으면 현금흐름표의 이자 지급액) · "
+                "EBITDA = 영업이익 + 감가상각비 + 무형자산상각비 · ROE = 순이익 ÷ 기말 자본총계. "
+                "차입금은 재무상태표의 단기차입금·유동성장기부채·사채·장기차입금 등을 더한 값이에요. "
+                "은행·보험·증권사는 계정 구조가 달라 '-'로 나올 수 있어요." + only_year
+            )
 
     render_fin_ai(result)
 
