@@ -304,7 +304,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.17"  # 화면 아래 크레딧의 updated 날짜. 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.18"  # 화면 아래 크레딧의 updated 날짜. 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -2290,13 +2290,13 @@ def treasury_summary(jo):
     return {k: sum(to_int(r.get(c)) or 0 for r in pick_rows) for k, c in keys.items()}
 
 
-def collect_div(corps, year, reprt_code):
-    """여러 회사의 배당·자사주 현황 (동시에 조회)."""
+def collect_div_years(corps, years, reprt_code):
+    """여러 회사·여러 해의 배당·자사주 현황 (동시에 조회). -> {(회사, 연도): {"div", "tsk", "rcept_no"}}"""
     session, store = get_session(), get_cache_store()
     apis = {"div": "alotMatter", "tsk": "tesstkAcqsDspsSttus"}
 
     def one(job):
-        name, code, kind = job
+        name, code, year, kind = job
         key = ("divtsk", kind, code, year, reprt_code)
         cached = cache_lookup(store, key, CACHE_TTL)
         if cached is not _MISSING:
@@ -2306,13 +2306,168 @@ def collect_div(corps, year, reprt_code):
         cache_save(store, key, jo)
         return jo
 
-    jobs = [(name, code, kind) for name, code in corps for kind in apis]
+    jobs = [(name, code, y, kind) for name, code in corps for y in years for kind in apis]
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         results = list(pool.map(one, jobs))
-    got = {(j[0], j[2]): r for j, r in zip(jobs, results)}
-    return {name: {"div": dividend_summary(got.get((name, "div"))), "tsk": treasury_summary(got.get((name, "tsk"))),
-                   "rcept_no": next((str(r.get("rcept_no")) for r in dart_rows(got.get((name, "div")), ["rcept_no"])), None)}
-            for name, _ in corps}
+    got = {(j[0], j[2], j[3]): r for j, r in zip(jobs, results)}
+    return {(name, y): {"div": dividend_summary(got.get((name, y, "div"))), "tsk": treasury_summary(got.get((name, y, "tsk"))),
+                        "rcept_no": next((str(r.get("rcept_no")) for r in dart_rows(got.get((name, y, "div")), ["rcept_no"])), None)}
+            for name, _ in corps for y in years}
+
+
+def collect_div(corps, year, reprt_code):
+    """여러 회사의 배당·자사주 현황 (동시에 조회)."""
+    got = collect_div_years(corps, [year], reprt_code)
+    return {name: got[(name, year)] for name, _ in corps}
+
+
+DIV_MODES = ["기업 비교", "연도별 추이 (5년)"]
+DIV_TREND_YEARS = 5
+
+
+def div_trend_table(got, corps, years):
+    """연도별 추이 표 (오래된 해가 위). -> (표, {회사: 주당 배당금 [(연도, 원)]})"""
+    rows, dps = [], {}
+    for name, _ in corps:
+        for y in sorted(years):
+            d = got.get((name, y))
+            if not d:
+                continue
+            now, prev, t = d["div"]["now"], d["div"]["prev"], d["tsk"]
+            if not any(v is not None for v in now.values()) and not t:
+                continue
+            dps.setdefault(name, []).append((y, now["dps"]))
+            rows.append({
+                "회사": name, "연도": str(y),
+                "배당금 총액": won_text(now["total"]) if now["total"] else ("0원" if now["total"] == 0 else "-"),
+                "총액 전년比": fmt_change(pct_change(now["total"], prev["total"])) if now["total"] and prev["total"] else "-",
+                "배당성향": f"{now['payout']:.1f}%" if now["payout"] is not None else "-",
+                "주당 배당금": f"{now['dps']:,.0f}원" if now["dps"] is not None else "-",
+                "시가배당률": f"{now['yield']:.2f}%" if now["yield"] is not None else "-",
+                "자사주 취득": (f"{t['acq']:+,}" if t["acq"] else "0") if t else "-",
+                "자사주 소각": (f"{-t['burn']:+,}" if t["burn"] else "0") if t else "-",
+                "기말 보유": f"{t['end']:,}" if t else "-",
+                "원문": DART_VIEW_URL.format(d["rcept_no"]) if d.get("rcept_no") else None,
+            })
+    return pd.DataFrame(rows), dps
+
+
+def dps_streak(series):
+    """주당 배당금 흐름 -> (연속 햇수, '증가'|'동결'|'감소'). 비교할 해가 둘 미만이면 None."""
+    vals = [v for _, v in sorted(series) if v is not None]
+    if len(vals) < 2:
+        return None
+    sign = lambda a, b: (a > b) - (a < b)
+    last = sign(vals[-1], vals[-2])
+    n = 1
+    for i in range(len(vals) - 2, 0, -1):
+        if sign(vals[i], vals[i - 1]) != last:
+            break
+        n += 1
+    return n, {1: "증가", 0: "동결", -1: "감소"}[last]
+
+
+# --- 자사주 결정 공시 (취득·처분·소각·신탁계약) ---
+TSK_PERIODS = {"최근 1년": 1, "최근 2년": 2, "최근 3년": 3}
+TSK_WORDS = ("자기주식", "자사주", "주식소각")  # 보고서명(공백 제거)에 하나라도 있으면 자사주 공시
+TSK_DECISION_APIS = ("tsstkAqDecsn", "tsstkDpDecsn", "tsstkAqTrctrCnsDecsn", "tsstkAqTrctrCcDecsn")  # 주요사항보고서 상세
+TSK_KINDS = ["취득 결정", "소각 결정", "처분 결정", "신탁계약 체결", "신탁계약 해지", "취득 결과", "처분 결과", "기타"]
+
+
+def tsk_title(name):
+    """보고서명에서 [기재정정] 같은 표시와 공백·괄호를 지운 비교용 글자."""
+    return re.sub(r"\[[^\]]*\]|[\s()（）]", "", str(name or ""))
+
+
+def tsk_kind(name):
+    t = tsk_title(name)
+    if "소각" in t:
+        return "소각 결정"
+    if "신탁" in t:
+        return "신탁계약 해지" if "해지" in t else "신탁계약 체결"
+    if "취득결과" in t:
+        return "취득 결과"
+    if "처분결과" in t:
+        return "처분 결과"
+    if "처분" in t:
+        return "처분 결정"
+    if "취득" in t:
+        return "취득 결정"
+    return "기타"
+
+
+def tsk_extras(row):
+    """결정 공시 상세 응답 한 줄 -> {"shares", "amount", "period"}. 필드 이름을 느슨하게 찾아서 못 찾으면 비워 둔다."""
+    shares = amount = start = end = None
+    for k, v in row.items():
+        k = str(k).lower()
+        if k.endswith("pln_stk_ostk"):
+            shares = to_int(v)
+        elif k.endswith("prc_ostk") or k.endswith("ctr_prc"):
+            amount = to_int(v)
+        elif k.endswith("_bgd") and "hd" not in k:
+            start = str(v).strip()
+        elif k.endswith("_edd") and "hd" not in k:
+            end = str(v).strip()
+    period = " ~ ".join(x for x in (start, end) if x and x != "-")
+    return {"shares": shares, "amount": amount, "period": period}
+
+
+def collect_tsk_decisions(corps, years):
+    """최근 N년 자사주 관련 결정 공시. -> (행 목록(최신순), 1,000건에 걸렸는지)"""
+    session, store = get_session(), get_cache_store()
+    end = TODAY
+    start = end - timedelta(days=365 * years)
+    bgn, fin = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+
+    def detail(job):
+        code, api = job
+        key = ("tskdec", api, code, bgn, fin)
+        cached = cache_lookup(store, key, LIST_TTL)
+        if cached is not _MISSING:
+            return cached
+        try:
+            jo = call_dart(session, f"https://opendart.fss.or.kr/api/{api}.json",
+                           {"crtfc_key": API_KEY, "corp_code": code, "bgn_de": bgn, "end_de": fin})
+        except DartApiError:
+            return None  # 금액·기간은 덤이라 실패해도 공시 목록은 보여준다
+        cache_save(store, key, jo)
+        return jo
+
+    jobs = [(code, api) for _, code in corps for api in TSK_DECISION_APIS]
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        details = list(pool.map(detail, jobs))
+    extras = {}
+    for jo in details:
+        for r in (jo or {}).get("list") or []:
+            extras[str(r.get("rcept_no"))] = tsk_extras(r)
+
+    rows, truncated = [], False
+    for name, code in corps:
+        picked = {}
+        for ty in ("B", "I"):  # 주요사항보고, 거래소공시
+            found, _, cut = collect_disclosures(code, start, end, ty)
+            truncated = truncated or cut
+            for r in found:
+                title = str(r.get("report_nm", "")).strip()
+                if not any(w in tsk_title(title) for w in TSK_WORDS):
+                    continue
+                kind = tsk_kind(title)
+                key = (r.get("rcept_dt"), kind, "정정" in title)  # 같은 날 같은 결정이 두 곳에 올라오면 하나만
+                old = picked.get(key)
+                if old is None or ("주요사항보고서" in title and "주요사항보고서" not in old["보고서명"]):
+                    ex = extras.get(str(r.get("rcept_no")), {})
+                    dt = str(r.get("rcept_dt", ""))
+                    picked[key] = {
+                        "접수일": f"{dt[:4]}-{dt[4:6]}-{dt[6:]}", "회사": name, "구분": kind,
+                        "주식 수": f"{ex['shares']:,}주" if ex.get("shares") else "-",
+                        "금액": won_text(ex["amount"]) if ex.get("amount") else "-",
+                        "예정 기간": ex.get("period") or "-", "보고서명": title,
+                        "원문": DART_VIEW_URL.format(r.get("rcept_no")),
+                    }
+        rows.extend(picked.values())
+    rows.sort(key=lambda x: (x["접수일"], x["회사"]), reverse=True)
+    return rows, truncated
 
 
 def div_tables(data):
@@ -3892,6 +4047,11 @@ def render_dividend():
         c1, c2 = st.columns(2)
         year = c1.selectbox("사업연도", years, index=years.index(default_pay_year()), key="div_year")
         report = c2.radio("보고서", list(PAY_REPORTS), horizontal=True, key="div_report")
+        c3, c4 = st.columns(2)
+        mode = c3.radio("보기", DIV_MODES, horizontal=True, key="div_mode",
+                        help="연도별 추이는 고른 사업연도를 끝으로 최근 5년을 한 표에 보여줘요.")
+        tsk_label = c4.selectbox("자사주 결정 공시 기간", list(TSK_PERIODS), key="div_tsk_period",
+                                 help="자기주식 취득·처분·소각·신탁계약 결정 공시를 이 기간만큼 찾아요.")
         submitted = st.form_submit_button("배당·자사주 조회") or st.session_state.pop("div_run", False)
 
     if submitted:
@@ -3923,35 +4083,100 @@ def render_dividend():
             if corps:
                 with st.spinner("배당·자사주 공시를 불러오는 중입니다..."):
                     try:
-                        data = collect_div(corps, int(year), PAY_REPORTS[report])
+                        trend = mode == DIV_MODES[1]
+                        if trend:
+                            years_used = [y for y in range(int(year) - DIV_TREND_YEARS + 1, int(year) + 1) if y >= 2015]
+                            data = collect_div_years(corps, years_used, PAY_REPORTS[report])
+                        else:
+                            data = collect_div(corps, int(year), PAY_REPORTS[report])
+                        decisions = collect_tsk_decisions(corps, TSK_PERIODS[tsk_label])
                     except DartApiError as e:
                         st.error(str(e))
                     else:
-                        st.session_state["dividend"] = {"data": data, "year": int(year), "report": report}
+                        st.session_state["dividend"] = {
+                            "data": data, "year": int(year), "report": report, "trend": trend, "corps": corps,
+                            "years": years_used if trend else [int(year)], "decisions": decisions, "tsk_label": tsk_label}
 
     res = st.session_state.get("dividend")
     if not res:
         return
-    div, tsk = div_tables(res["data"])
     label = f"{res['year']}년 {res['report'].split(' ')[0]}"
-    st.markdown("##### 배당")
-    if div.empty:
-        st.info(f"{label}에 배당 공시가 없어요. 연도나 보고서를 바꿔보세요.")
+    half = " · 반기보고서는 중간배당 기준" if res["report"].startswith("반기") else ""
+    if res.get("trend"):
+        render_div_trend(res, half)
     else:
-        half = " · 반기보고서는 중간배당 기준" if res["report"].startswith("반기") else ""
-        st.caption(f"{label} · 배당성향은 연결 기준 · 주당 배당금·시가배당률은 보통주{half}")
-        st.dataframe(div.style.map(change_style, subset=["총액 전년比"]), hide_index=True,
-                     height=(len(div) + 1) * 35 + 3)
-    st.markdown("##### 자사주 (보통주, 주)")
-    if tsk.empty:
-        st.info(f"{label}에 자기주식 현황 공시가 없어요.")
-    else:
-        st.caption("기초 보유 → 취득 · 처분 · 소각 → 기말 보유 · 해당 보고서 기간 동안의 변동")
-        st.dataframe(tsk.style.map(change_style, subset=["취득", "처분", "소각"]), hide_index=True,
-                     height=(len(tsk) + 1) * 35 + 3)
-    links = [f"[{c} 원문]({DART_VIEW_URL.format(d['rcept_no'])})" for c, d in res["data"].items() if d.get("rcept_no")]
-    if links:
-        st.markdown(" · ".join(links))
+        div, tsk = div_tables(res["data"])
+        st.markdown("##### 배당")
+        if div.empty:
+            st.info(f"{label}에 배당 공시가 없어요. 연도나 보고서를 바꿔보세요.")
+        else:
+            st.caption(f"{label} · 배당성향은 연결 기준 · 주당 배당금·시가배당률은 보통주{half}")
+            st.dataframe(div.style.map(change_style, subset=["총액 전년比"]), hide_index=True,
+                         height=(len(div) + 1) * 35 + 3)
+        st.markdown("##### 자사주 (보통주, 주)")
+        if tsk.empty:
+            st.info(f"{label}에 자기주식 현황 공시가 없어요.")
+        else:
+            st.caption("기초 보유 → 취득 · 처분 · 소각 → 기말 보유 · 해당 보고서 기간 동안의 변동")
+            st.dataframe(tsk.style.map(change_style, subset=["취득", "처분", "소각"]), hide_index=True,
+                         height=(len(tsk) + 1) * 35 + 3)
+        links = [f"[{c} 원문]({DART_VIEW_URL.format(d['rcept_no'])})" for c, d in res["data"].items() if d.get("rcept_no")]
+        if links:
+            st.markdown(" · ".join(links))
+    render_tsk_decisions(res)
+
+
+def render_div_trend(res, half):
+    """배당·자사주 최근 5년 추이."""
+    table, dps = div_trend_table(res["data"], res["corps"], res["years"])
+    st.markdown("##### 배당·자사주 5년 추이")
+    if table.empty:
+        st.info(f"{res['years'][0]}~{res['years'][-1]}년 {res['report'].split(' ')[0]}에 배당·자사주 공시가 없어요. 연도나 보고서를 바꿔보세요.")
+        return
+    st.caption(f"{res['years'][0]}~{res['years'][-1]}년 {res['report'].split(' ')[0]} · 오래된 해가 위 · 배당성향은 연결 기준 · "
+               f"주당 배당금·시가배당률은 보통주{half} · 자사주는 보통주(주)")
+    st.dataframe(table.style.map(change_style, subset=["총액 전년比", "자사주 취득", "자사주 소각"]), hide_index=True,
+                 column_config={"원문": LINK_COLUMN}, height=min(len(table) + 1, 21) * 35 + 3)
+    lines = []
+    for name, series in dps.items():
+        s = dps_streak(series)
+        if s:
+            n, word = s
+            lines.append(f"{name}: 주당 배당금 " + (f"직전 해보다 {word}" if n == 1 else f"{n}년 연속 {word}"))
+    if lines:
+        st.caption(" · ".join(lines))
+    st.download_button("추이 CSV 다운로드", table.drop(columns=["원문"]).to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"배당자사주추이_{'_'.join(n for n, _ in res['corps'])}_{res['years'][-1]}.csv",
+                       mime="text/csv", key="div_trend_csv")
+
+
+def render_tsk_decisions(res):
+    """자기주식 취득·처분·소각·신탁계약 결정 공시 목록."""
+    rows, truncated = res["decisions"]
+    st.markdown(f"##### 자사주 결정 공시 ({res['tsk_label']})")
+    if not rows:
+        st.info(f"{res['tsk_label']} 동안 자기주식 취득·처분·소각 결정 공시가 없어요.")
+        return
+    counts = []
+    for name, _ in res["corps"]:
+        mine = [r for r in rows if r["회사"] == name]
+        parts = [f"{k} {sum(1 for r in mine if r['구분'] == k)}건" for k in TSK_KINDS if any(r["구분"] == k for r in mine)]
+        counts.append(f"{name}: " + (" · ".join(parts) if parts else "없음"))
+    st.caption("  \n".join(counts))
+    if truncated:
+        st.warning("공시가 매우 많아 최신 1,000건까지만 확인했어요. 기간을 줄여보세요.")
+    kinds = [k for k in TSK_KINDS if any(r["구분"] == k for r in rows)]
+    pick = st.multiselect("구분", kinds, default=kinds)
+    shown = pd.DataFrame([r for r in rows if r["구분"] in pick])
+    if shown.empty:
+        st.info("고른 구분에 해당하는 공시가 없어요.")
+        return
+    st.caption("주식 수·금액·예정 기간은 결정 공시에 적힌 계획치예요. 실제 취득·처분 결과는 '결과' 공시나 정기보고서로 확인하세요. "
+               "표시되지 않은 칸은 원문을 보세요.")
+    st.dataframe(shown, hide_index=True, column_config={"원문": LINK_COLUMN}, height=min(len(shown) + 1, 16) * 35 + 3)
+    st.download_button("결정 공시 CSV 다운로드", shown.drop(columns=["원문"]).to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"자사주결정공시_{'_'.join(n for n, _ in res['corps'])}.csv",
+                       mime="text/csv", key="div_tsk_csv")
 
 
 def render_feed():
@@ -4853,7 +5078,7 @@ def render_report_ai():
 PERIODIC_VIEWS = ["AI 분석", "배당·자사주", "임직원", "주주·지분"]
 # 정기보고서 탭은 고른 화면의 입력칸만 그린다. 안 그린 화면의 입력값은 Streamlit이 지우므로, 화면을 오가도 남도록 미리 일반 값으로 옮겨 둔다.
 PERIODIC_KEEP = [f"rts_{k}" for k in ("corp", "year", "report", "mode")] + [
-    "rai_corp", "rai_pick", "rai_item", "pay_exctv", "pay_exctv_basis", "pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report"]
+    "rai_corp", "rai_pick", "rai_item", "pay_exctv", "pay_exctv_basis", "pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report", "div_mode", "div_tsk_period"]
 
 
 def render_periodic():
