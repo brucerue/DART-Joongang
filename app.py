@@ -2729,8 +2729,11 @@ def render_financials():
     if not bs_table.empty:
         st.markdown("##### 재무상태")
         yearly = result["period"] != "분기별"
-        capex_note = " · CAPEX = 유형자산 취득액(연간, 현금흐름표) · 잉여현금흐름 = 영업활동현금흐름 − CAPEX" if yearly else ""
-        st.caption(f"기말 기준 · 단위: {unit} · 부채비율 = 부채총계 ÷ 자본총계 · 순차입금 = 차입금 − 현금성자산 (마이너스는 현금이 빚보다 많은 순현금){capex_note}")
+        capex_note = "  \n**CAPEX** = 유형자산 취득액(연간, 현금흐름표)  \n**잉여현금흐름** = 영업활동현금흐름 − CAPEX" if yearly else ""
+        st.caption(
+            f"기말 기준 · 단위: {unit}",
+            help="**부채비율** = 부채총계 ÷ 자본총계  \n**순차입금** = 차입금 − 현금성자산 (마이너스는 현금이 빚보다 많은 순현금)" + capex_note,
+        )
         st.dataframe(
             bs_table, hide_index=True,
             column_config={"기간": st.column_config.TextColumn("기간", width=95)},
