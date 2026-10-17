@@ -1507,12 +1507,8 @@ def doc_text_from_zip(data):
     return "\n\n".join(parts)
 
 
-def fetch_document_text(session, store, rcept_no):
-    """접수번호 -> 공시 원문 글자 (하루 저장). 원문이 없거나 DART 오류면 AiError."""
-    key = ("doc", rcept_no)
-    cached = cache_lookup(store, key, 24 * 3600)
-    if cached is not _MISSING and cached:
-        return cached
+def download_document(session, rcept_no):
+    """접수번호 -> DART 원본파일 zip 바이트. 원문이 없거나 DART 오류면 AiError."""
     try:
         res = session.get(DART_DOC_URL, params={"crtfc_key": API_KEY, "rcept_no": rcept_no}, timeout=REQUEST_TIMEOUT)
     except Exception as e:
@@ -1527,7 +1523,16 @@ def fetch_document_text(session, store, rcept_no):
         if code == "020":
             raise AiError("DART API 하루 호출 한도를 초과했습니다. 잠시 후 또는 내일 다시 시도해주세요.")
         raise AiError(f"DART 원문을 받지 못했어요. [{code}]")
-    text = doc_text_from_zip(data)
+    return data
+
+
+def fetch_document_text(session, store, rcept_no):
+    """접수번호 -> 공시 원문 글자 (하루 저장). 원문이 없거나 DART 오류면 AiError."""
+    key = ("doc", rcept_no)
+    cached = cache_lookup(store, key, 24 * 3600)
+    if cached is not _MISSING and cached:
+        return cached
+    text = doc_text_from_zip(download_document(session, rcept_no))
     if not text:
         raise AiError("원문에서 글자를 찾지 못했어요. 원문 링크로 확인해주세요.")
     cache_save(store, key, text)
@@ -1690,6 +1695,347 @@ def ai_cached(key, make):
     value = make()
     cache_save(store, full, value)
     return value
+
+
+# ------------------------------------------------------------
+# 정기보고서(사업·반기·분기) AI 분석
+#  - 보고서 전체를 보내지 않고, 분석 항목마다 필요한 목차(II. 사업의 내용 등)만 잘라서 보낸다.
+# ------------------------------------------------------------
+REPORT_UNI_ROMAN = {"Ⅰ": "I", "Ⅱ": "II", "Ⅲ": "III", "Ⅳ": "IV", "Ⅴ": "V", "Ⅵ": "VI", "Ⅶ": "VII", "Ⅷ": "VIII", "Ⅸ": "IX", "Ⅹ": "X", "Ⅺ": "XI", "Ⅻ": "XII"}
+# 정기보고서 대분류 (I~XII). 로마자 번호가 아니라 제목 글자로 찾는다 (재무제표 항목 'I. 매출액'과 헷갈리지 않게)
+REPORT_MAIN_SECTIONS = [
+    ("co", r"회사의\s*개요"), ("biz", r"사업의\s*내용"), ("fin", r"재무에\s*관한\s*사항"), ("mdna", r"이사의\s*경영진단"),
+    ("audit", r"(?:회계)?감사인의\s*감사의견"), ("board", r"이사회\s*등\s*회사의\s*기관"), ("holder", r"주주에\s*관한\s*사항"),
+    ("staff", r"임원\s*및\s*직원"), ("affil", r"계열회사\s*등에\s*관한"), ("related", r"대주주\s*등과의\s*거래"),
+    ("etc", r"그\s*밖에\s*투자자\s*보호"), ("detail", r"상세표"),
+]
+REPORT_SUB_SECTIONS = {
+    "biz": [("overview", r"사업의\s*개요"), ("products", r"주요\s*제품\s*및\s*서비스"), ("plant", r"원재료\s*및\s*생산설비"),
+            ("sales", r"매출\s*및\s*수주상황"), ("risk", r"위험관리\s*및\s*파생거래"), ("rnd", r"주요계약\s*및\s*연구개발활동"),
+            ("etc", r"기타\s*참고사항"), ("fin_ops", r"영업의\s*현황"), ("fin_deriv", r"파생상품거래\s*현황"),
+            ("fin_equip", r"영업설비"), ("fin_health", r"재무건전성")],
+    "audit": [("ext", r"외부감사에\s*관한\s*사항"), ("internal", r"내부통제에\s*관한\s*사항")],
+    "etc": [("progress", r"공시내용\s*진행\s*및\s*변경사항"), ("contingent", r"우발부채\s*등에\s*관한\s*사항"),
+            ("sanction", r"제재\s*등과\s*관련된\s*사항"), ("after", r"작성기준일\s*이후\s*발생한\s*주요사항")],
+    "detail": [("consol", r"연결대상\s*종속회사\s*현황"), ("affil", r"계열회사\s*현황"), ("invest", r"타법인출자\s*현황"), ("rnd", r"연구개발실적")],
+}
+
+
+def _is_heading_line(s):
+    """제목 줄 후보: 짧고, 목차의 점선(…..)이 없는 줄."""
+    return 0 < len(s) <= 80 and "…" not in s and "....." not in s
+
+
+def split_main_sections(text):
+    """정기보고서 글 -> {대분류 키: 그 부분 글}. 같은 제목이 목차에도 나오면, 뒤에 글이 가장 길게 이어지는 쪽(본문)을 쓴다."""
+    for k, v in REPORT_UNI_ROMAN.items():
+        text = text.replace(k, v)
+    lines = text.replace("\x0c", "\n").split("\n")
+    cands = []
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not _is_heading_line(s):
+            continue
+        m = re.match(r"^[IVX]+\s*\.\s*(.+)$", s)
+        if not m:
+            continue
+        for key, pat in REPORT_MAIN_SECTIONS:
+            if re.match(pat, m.group(1)):
+                cands.append((i, key))
+                break
+    if not cands:
+        return {}
+    nxt = {i: (cands[j + 1][0] if j + 1 < len(cands) else len(lines)) for j, (i, _) in enumerate(cands)}
+    best = {}
+    for i, key in cands:
+        span = nxt[i] - i
+        if key not in best or span > best[key][1]:
+            best[key] = (i, span)
+    starts = sorted((i, key) for key, (i, _) in best.items())
+    out = {}
+    for j, (i, key) in enumerate(starts):
+        end = starts[j + 1][0] if j + 1 < len(starts) else len(lines)
+        out[key] = "\n".join(lines[i + 1:end]).strip()
+    return out
+
+
+def report_subsections(main_text, main_key):
+    """대분류 안의 '1. 제목' 소제목별 글. 같은 제목이 여러 개(예: 제조업·금융업)면 이어 붙인다."""
+    specs = REPORT_SUB_SECTIONS.get(main_key, [])
+    lines = main_text.split("\n")
+    heads = []
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not _is_heading_line(s):
+            continue
+        m = re.match(r"^\d{1,2}\s*\.\s*(?:\([^)]{1,12}\))?\s*(.+)$", s)
+        if not m:
+            continue
+        for key, pat in specs:
+            if re.match(pat, m.group(1)):
+                heads.append((i, key))
+                break
+    out = {}
+    for j, (i, key) in enumerate(heads):
+        end = heads[j + 1][0] if j + 1 < len(heads) else len(lines)
+        out[key] = (out.get(key, "") + "\n" + "\n".join(lines[i + 1:end])).strip()
+    return out
+
+
+def report_fin_note(fin_text, name_pat):
+    """재무 주석 한 항목 ('16. 우발부채와 약정사항 (연결)'). 연결재무제표 주석을 먼저 찾는다."""
+    lines = fin_text.split("\n")
+    found = []
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if not _is_heading_line(s):
+            continue
+        m = re.match(r"^(\d{1,2})\s*\.\s*(?:" + name_pat + r").*$", s)
+        if m:
+            found.append((i, int(m.group(1)), "(연결)" in s))
+    if not found:
+        return ""
+    found.sort(key=lambda x: (not x[2], x[0]))
+    i, n, _ = found[0]
+    end = len(lines)
+    for k in range(i + 1, len(lines)):
+        s = lines[k].strip()
+        if _is_heading_line(s) and re.match(rf"^{n + 1}\s*\.\s*\S", s):
+            end = k
+            break
+    return "\n".join(lines[i + 1:end]).strip()
+
+
+# (블록 이름: 글 자르는 최대 글자 수) - 한 블록이 아주 길어도 이만큼만 저장한다
+REPORT_BLOCK_CAPS = {
+    "mdna": 45000, "holder": 30000, "related": 20000, "affil": 45000, "detail_invest": 20000, "detail_rnd": 20000,
+    "note_contingent": 12000, "note_related": 25000, "note_segment": 15000,
+}
+REPORT_NOTES = {  # 재무 주석에서 따로 뽑는 항목: 블록 이름 -> 주석 제목 정규식
+    "note_contingent": r"우발부채", "note_related": r"특수관계자", "note_segment": r"(?:영업)?부문(?:별)?\s*(?:보고|정보)|영업부문",
+}
+
+
+def extract_report_blocks(text):
+    """정기보고서 글 -> {블록 이름: 글}. 분석에 쓰는 부분만 골라 둔다 (저장 용량을 줄이려고 블록마다 길이 제한)."""
+    main = text.split("\n\n")[0]  # doc_text_from_zip: 본문 파일이 맨 앞 (뒤는 첨부 문서)
+    sec = split_main_sections(main) or split_main_sections(text)
+    if not sec:
+        raise AiError("이 보고서에서 '사업의 내용', '재무에 관한 사항' 같은 목차를 찾지 못했어요. 정기보고서(사업·반기·분기)가 맞는지 확인하거나 원문으로 보세요.")
+    blocks = {}
+
+    def put(key, value, cap=30000):
+        if value and value.strip():
+            blocks[key] = value.strip()[:cap]
+
+    for main_key, prefix in (("biz", "biz"), ("audit", "audit"), ("etc", "etc"), ("detail", "detail")):
+        for sub_key, value in report_subsections(sec.get(main_key, ""), main_key).items():
+            if f"{prefix}_{sub_key}" not in REPORT_BLOCK_LABELS:  # 분석에 안 쓰는 부분은 저장하지 않는다
+                continue
+            put(f"{prefix}_{sub_key}", value, REPORT_BLOCK_CAPS.get(f"{prefix}_{sub_key}", 30000))
+    for key in ("mdna", "holder", "related", "affil"):
+        put(key, sec.get(key), REPORT_BLOCK_CAPS[key])
+    for key, pat in REPORT_NOTES.items():
+        put(key, report_fin_note(sec.get("fin", ""), pat), REPORT_BLOCK_CAPS[key])
+    return blocks
+
+
+def periodic_blocks(rcept_no):
+    """접수번호 -> 분석용 블록 (일주일 저장). 원문을 받아 자르는 데 몇 초 걸린다."""
+    session, store = get_session(), get_cache_store()
+    key = ("rblocks", rcept_no)
+    cached = cache_lookup(store, key, AI_TTL)
+    if cached is not _MISSING and cached:
+        return cached
+    text = doc_text_from_zip(download_document(session, rcept_no))
+    if not text:
+        raise AiError("원문에서 글자를 찾지 못했어요. 원문 링크로 확인해주세요.")
+    blocks = extract_report_blocks(text)
+    cache_save(store, key, blocks)
+    return blocks
+
+
+# 블록 이름 -> 화면·프롬프트에 쓰는 이름 (AI가 근거 위치를 적을 때도 이 이름을 쓴다)
+REPORT_BLOCK_LABELS = {
+    "mdna": "IV. 이사의 경영진단 및 분석의견", "biz_overview": "II-1. 사업의 개요", "biz_products": "II-2. 주요 제품 및 서비스",
+    "biz_plant": "II-3. 원재료 및 생산설비", "biz_sales": "II-4. 매출 및 수주상황", "biz_risk": "II-5. 위험관리 및 파생거래",
+    "biz_rnd": "II-6. 주요계약 및 연구개발활동", "biz_fin_ops": "II(금융업). 영업의 현황", "biz_fin_equip": "II(금융업). 영업설비",
+    "audit_ext": "V-1. 외부감사에 관한 사항", "audit_internal": "V-2. 내부통제에 관한 사항",
+    "etc_contingent": "XI-2. 우발부채 등에 관한 사항", "etc_sanction": "XI-3. 제재 등과 관련된 사항", "etc_after": "XI-4. 작성기준일 이후 발생한 주요사항",
+    "holder": "VII. 주주에 관한 사항", "related": "X. 대주주 등과의 거래내용", "affil": "IX. 계열회사 등에 관한 사항",
+    "detail_invest": "XII-3. 타법인출자 현황(상세)", "detail_rnd": "XII-4. 연구개발실적(상세)",
+    "note_contingent": "재무 주석 > 우발부채와 약정사항", "note_related": "재무 주석 > 특수관계자와의 거래", "note_segment": "재무 주석 > 부문(영업부문) 정보",
+}
+MAX_REPORT_CHARS = 75_000  # 한 번에 AI에 보내는 발췌 최대 글자 수 (분석 항목의 블록을 합친 길이)
+
+REPORT_COMMON_FORMAT = (
+    "아래 형식으로 써라. 발췌에 없는 항목은 건너뛰고, 있는데 '해당사항 없음'이면 그대로 적는다.\n"
+    "**한 줄 요약**: 이 항목에서 기사로 가장 중요한 한 문장\n"
+    "**핵심 포인트**: 3~6개 항목(- 로 시작). 숫자는 단위·기간과 함께 원문 그대로. 각 항목 끝에 근거 위치를 [ ] 안에 적는다 (예: [II-4. 매출 및 수주상황])\n"
+    "**기사로 쓴다면 확인할 것**: 2~3개 항목(- 로 시작). 발췌만으로는 알 수 없는 배경·원인 중 취재로 확인할 질문"
+)
+
+# 분석 항목: key, 이름, 설명, 읽을 블록 [(블록 이름)], 지시문
+PERIODIC_ANALYSES = [
+    dict(key="mdna", label="경영진단 요약 (실적 변동 원인·전망)", blocks=["mdna"], needs_prev=False,
+         help="회사가 직접 설명하는 실적 변동 원인, 사업부문별 설명, 자금조달, 향후 전망·위험 요인",
+         task="이사의 경영진단 및 분석의견에서 ① 이번 기간 실적(매출·영업이익 등)이 변한 이유로 회사가 든 요인 ② 사업부문별 설명 "
+              "③ 유동성·자금조달(차입·사채·투자 재원) ④ 향후 전망·계획·위험 요인을 정리해라. 회사의 설명은 '회사는 ~라고 설명' 식으로 회사의 주장임을 드러낸다."),
+    dict(key="sales", label="매출 구성·주요 고객", blocks=["biz_products", "biz_sales", "note_segment", "biz_fin_ops"], needs_prev=False,
+         help="제품·지역별 매출과 비중, 판매경로, 주요 매출처, 수주상황, 사업부문별 매출·이익",
+         task="매출 구성을 정리해라: 제품·서비스별/지역별 매출과 비중, 매출 유형, 판매경로(직판·대리점·수출), 주요 매출처(특정 고객 매출 비중), 수주 잔고·수주상황, "
+              "사업부문별 매출·이익 비중. 비중이 큰 항목과 한쪽(고객·지역·제품)으로 쏠린 정도를 짚고, 전기·전년 대비 숫자가 표에 있으면 함께 적는다."),
+    dict(key="risk", label="위험 신호 점검 (감사의견·소송·제재)", blocks=["audit_ext", "audit_internal", "etc_contingent", "etc_sanction", "etc_after", "note_contingent"], needs_prev=False,
+         help="감사의견, 강조사항·핵심감사사항, 내부회계, 소송·우발채무·채무보증, 제재, 보고기간 이후 중요사항",
+         task="위험 신호를 점검해라. 항목마다 '있음/없음/확인 불가'와 내용을 적는다: 감사의견 종류(적정·한정·부적정·의견거절), 강조사항·기타사항, 핵심감사사항(KAM) 제목, "
+              "계속기업 불확실성 언급, 내부회계관리제도 검토·감사 의견, 감사 보수·감사시간 변화, 소송(원고·피고·금액), 채무보증·담보·우발부채(금액), 제재 현황(행정·사법·과태료), "
+              "작성기준일 이후 중요사항. 위험하다는 평가는 하지 말고 발췌에 적힌 사실만 쓴다."),
+    dict(key="plant", label="생산능력·가동률·설비투자", blocks=["biz_plant", "biz_fin_equip"], needs_prev=False,
+         help="제품별 생산능력·생산실적·가동률, 주요 생산설비, 진행·계획 중인 시설투자, 원재료 조달",
+         task="생산능력·생산실적·가동률(제품별·사업장별, 기간별 숫자), 주요 생산설비(사업장·면적), 시설투자(진행 중·계획 중 금액, 목적, 예상 완료 시기), "
+              "주요 원재료 매입 구조와 가격 변동을 정리해라. 기간별 표가 있으면 숫자를 시간순으로 적는다."),
+    dict(key="diff", label="직전 보고서 대비 달라진 점", blocks=["biz_overview", "biz_products", "biz_plant", "biz_sales", "biz_risk", "audit_ext", "etc_contingent", "etc_sanction"],
+         needs_prev=True, help="같은 기간 직전 보고서와 비교해 새로 생기거나 사라진 문장 (사업·위험·소송·제재 항목 중심)",
+         task="아래는 직전 보고서와 이번 보고서를 항목별로 비교해 기계적으로 뽑은 '새로 생긴 문장'과 '없어진 문장'이다 (숫자만 바뀐 줄은 제외됨). "
+              "이 중 의미 있는 변화를 골라라: 신규 사업·제품·투자 계획, 중단·철수, 위험 요인 문구의 변화, 소송·제재의 신규 발생이나 종결, 감사 관련 변화. "
+              "단순 표현 다듬기와 날짜·숫자 갱신은 무시한다. 변화마다 '직전 → 이번' 형태로 쓴다."),
+    dict(key="rnd", label="연구개발 (비용·조직·과제)", blocks=["biz_rnd", "detail_rnd"], needs_prev=False,
+         help="연구개발비 규모와 매출 대비 비율, 연구 조직·인력, 주요 연구 과제·실적, 경영상 주요 계약",
+         task="연구개발비용(금액, 매출 대비 비율, 비용·자산 처리), 연구개발 조직·인력, 주요 연구개발 실적·과제(제품·기술명, 시기), 경영상 주요 계약(상대방·기간·내용)을 정리해라. "
+              "연구개발비 추이 표가 있으면 기간별 숫자를 적는다."),
+    dict(key="affil", label="계열회사·타법인 출자 변동", blocks=["affil", "detail_invest"], needs_prev=False,
+         help="계열회사 수(상장·비상장) 증감, 신규 편입·제외, 타법인 출자 취득·처분, 지분율·장부가",
+         task="계열회사 수(상장·비상장) 증감, 신규 편입·제외된 회사(이름), 주요 타법인 출자의 변동(취득·처분·평가, 지분율, 장부가액), 임원 겸직 현황 중 눈에 띄는 것을 정리해라. "
+              "M&A·지분 거래의 단서가 되는 것을 우선한다."),
+    dict(key="related", label="특수관계자·대주주 거래", blocks=["related", "note_related"], needs_prev=False,
+         help="특수관계자·대주주와의 거래 상대방·유형·금액, 채권·채무 잔액, 계열회사와의 내부거래",
+         task="특수관계자·대주주와의 거래를 거래액이 큰 순으로 정리해라: 상대방, 거래 유형(매출·매입·자금대여·지급보증 등), 금액, 채권·채무 잔액, 계열회사와의 내부거래 규모. "
+              "지원성 거래나 일감 몰아주기를 의심할 만한 단서는 '확인 필요'로만 표시하고 단정하지 않는다."),
+    dict(key="holder", label="최대주주·지분 변동", blocks=["holder"], needs_prev=False,
+         help="최대주주·특수관계인 지분율, 5% 이상 주주, 소액주주, 최대주주 변경, 주가·거래실적",
+         task="최대주주 및 특수관계인 지분(주식 수·지분율, 기초 대비 변동), 5% 이상 주주(국민연금 등), 소액주주 현황(주주 수·지분율), 최대주주 변경 이력, "
+              "주가·거래량 요약, 자기주식 취득·처분이 있으면 함께 정리해라."),
+]
+PERIODIC_ANALYSIS_BY_KEY = {a["key"]: a for a in PERIODIC_ANALYSES}
+
+AI_PERIODIC_SYSTEM = (
+    "너는 중앙일보 산업부 기자를 돕는 정기보고서(사업·반기·분기보고서) 분석 보조자다. 사용자가 준 [발췌]에 적힌 내용만 근거로 쓴다. "
+    "발췌에 없는 숫자·사실·원인·평가·전망을 절대 만들지 않는다. 숫자는 단위와 기간까지 원문 표기 그대로 옮기고 새로 계산하지 않는다. "
+    "표는 칸을 ' | '로 구분해 줄로 나열한 것이다. 발췌에서 확인되지 않으면 '보고서에 없음'이라고 쓴다. "
+    "회사가 쓴 설명은 회사의 주장으로 구분해서 쓴다. 한국어, 짧고 명확한 기사체로 쓴다."
+)
+
+
+def report_period_of(name):
+    """보고서명 '사업보고서 (2025.12)' -> (연, 월) 또는 None."""
+    m = re.search(r"\((\d{4})\.(\d{2})\)", str(name or ""))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def find_prev_periodic(rows, cur):
+    """같은 종류 보고서(사업·반기·분기)의 1년 전 같은 기간 보고서. 없으면 None. 정정본이 여럿이면 가장 늦게 낸 것."""
+    kind = re.sub(r"\s*\(\d{4}\.\d{2}\)\s*$", "", strip_correction(cur.get("report_nm"))).strip()
+    per = report_period_of(cur.get("report_nm"))
+    if not per:
+        return None
+    want = (per[0] - 1, per[1])
+    cands = [r for r in rows if report_period_of(r.get("report_nm")) == want
+             and re.sub(r"\s*\(\d{4}\.\d{2}\)\s*$", "", strip_correction(r.get("report_nm"))).strip() == kind]
+    return max(cands, key=lambda r: str(r.get("rcept_no", ""))) if cands else None
+
+
+def _prose_lines(text):
+    """글에서 문장 줄만 (한글이 6자 이상). 숫자는 #으로 바꿔 비교용 키를 함께 돌려준다."""
+    out = []
+    for raw in text.split("\n"):
+        line = re.sub(r"\s+", " ", raw).strip()
+        if len(line) >= 15 and len(re.findall(r"[가-힣]", line)) >= 6:
+            out.append((line, re.sub(r"[\d,.]+", "#", line)))
+    return out
+
+
+def diff_report_text(prev_text, cur_text, cap=12000):
+    """두 글의 문장 줄을 비교해 (새로 생긴 줄, 없어진 줄). 숫자만 다른 줄은 같은 줄로 본다."""
+    a, b = _prose_lines(prev_text), _prose_lines(cur_text)
+    sm = difflib.SequenceMatcher(None, [k for _, k in a], [k for _, k in b], autojunk=False)
+    added, removed = [], []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag in ("replace", "delete"):
+            removed += [line for line, _ in a[i1:i2]]
+        if tag in ("replace", "insert"):
+            added += [line for line, _ in b[j1:j2]]
+    def clip(lines):
+        out, n = [], 0
+        for line in lines:
+            n += len(line) + 1
+            if n > cap:
+                out.append("(이하 생략)")
+                break
+            out.append(line)
+        return out
+    return clip(added), clip(removed)
+
+
+def periodic_input(blocks, spec, prev_blocks=None):
+    """분석 항목에 보낼 발췌. -> (발췌 글, 읽은 블록 이름들, 못 찾은 블록 이름들, 길어서 잘렸는지)"""
+    read, missing, parts, truncated, total = [], [], [], False, 0
+    if spec["key"] == "diff":
+        for key in spec["blocks"]:
+            cur, prev = blocks.get(key), (prev_blocks or {}).get(key)
+            if not cur or not prev:
+                missing.append(REPORT_BLOCK_LABELS[key])
+                continue
+            added, removed = diff_report_text(prev, cur)
+            read.append(REPORT_BLOCK_LABELS[key])
+            if not added and not removed:
+                continue
+            parts.append(f"[{REPORT_BLOCK_LABELS[key]}]\n<새로 생긴 문장>\n" + ("\n".join(added) or "(없음)")
+                         + "\n<없어진 문장>\n" + ("\n".join(removed) or "(없음)"))
+        text = "\n\n".join(parts)
+        return text[:MAX_REPORT_CHARS], read, missing, len(text) > MAX_REPORT_CHARS
+    for key in spec["blocks"]:
+        value = blocks.get(key)
+        if not value:
+            missing.append(REPORT_BLOCK_LABELS[key])
+            continue
+        room = MAX_REPORT_CHARS - total
+        if room <= 0:
+            truncated = True
+            continue
+        if len(value) > room:
+            value, truncated = value[:room], True
+        total += len(value)
+        read.append(REPORT_BLOCK_LABELS[key])
+        parts.append(f"[{REPORT_BLOCK_LABELS[key]}]\n{value}")
+    return "\n\n".join(parts), read, missing, truncated
+
+
+def periodic_analysis(corp, row, item_key, prev_row=None):
+    """정기보고서 하나에 분석 항목 하나. -> dict(text, model, read, missing, chars, truncated, empty)
+    발췌가 거의 없으면(해당사항 없음 등) AI를 부르지 않고 empty=True와 발췌 글을 돌려준다."""
+    spec = PERIODIC_ANALYSIS_BY_KEY[item_key]
+    rno = str(row["rcept_no"]).strip()
+    blocks = periodic_blocks(rno)
+    prev_blocks = periodic_blocks(str(prev_row["rcept_no"]).strip()) if spec["needs_prev"] and prev_row else None
+    body, read, missing, truncated = periodic_input(blocks, spec, prev_blocks)
+    info = dict(read=read, missing=missing, chars=len(body), truncated=truncated, text="", model=None, empty=False, excerpt=body)
+    useful = re.sub(r"\[[^\]]*\]|\s+", "", body)
+    if spec["needs_prev"] and read and not body.strip():
+        info.update(empty=True, text="직전 보고서와 비교했을 때 문장이 바뀐 곳이 없어요. (숫자만 달라진 줄은 비교에서 뺐어요.)")
+        return info
+    if len(useful) < (20 if spec["needs_prev"] else 60):  # 비교는 바뀐 문장 하나만 있어도 의미가 있다
+        info["empty"] = True
+        return info
+    title = f"{corp} {strip_correction(row.get('report_nm'))}"
+    head = f"기업: {corp}\n보고서: {str(row.get('report_nm', '')).strip()} (접수번호 {rno})\n분석 항목: {spec['label']}\n"
+    if prev_row:
+        head += f"비교 대상(직전 보고서): {str(prev_row.get('report_nm', '')).strip()}\n"
+    prompt = f"{head}\n{spec['task']}\n\n{REPORT_COMMON_FORMAT}\n\n[발췌]\n{body}"
+    prev_no = str(prev_row["rcept_no"]).strip() if prev_row else ""
+    text, used = ai_cached(("rep", rno, item_key, prev_no), lambda: ai_generate(prompt, system=AI_PERIODIC_SYSTEM))
+    info.update(text=text, model=used, title=title)
+    return info
+
 
 
 def parse_json(text):
@@ -3933,9 +4279,102 @@ if not API_KEY:
     )
     st.stop()
 
-PERIODIC_VIEWS = ["배당·자사주", "보수·직원"]
+REPORT_KINDS = ("사업보고서", "반기보고서", "분기보고서")
+
+
+def periodic_reports(corp_code):
+    """기업의 최근 약 4년 사업·반기·분기보고서 (최신순)."""
+    start = TODAY.replace(year=TODAY.year - 4)
+    rows, _, _ = collect_disclosures(corp_code, start, TODAY, "A")
+    out = [r for r in rows if any(k in strip_correction(r.get("report_nm")) for k in REPORT_KINDS) and str(r.get("rcept_no", "")).strip()]
+    return sorted(out, key=lambda r: (str(r.get("rcept_dt", "")), str(r.get("rcept_no", ""))), reverse=True)
+
+
+def render_report_ai():
+    """정기보고서 > AI 분석: 보고서 하나와 분석 항목 하나를 골라, 그 부분만 읽고 분석."""
+    if not AI_PROVIDER:
+        st.info("AI 분석을 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude)를 추가해주세요. (무료 Gemini를 쓰려면 GEMINI_API_KEY를 추가해주세요.)")
+        return
+    with st.form("rai_search"):
+        corp_text = st.text_input("기업명", key="rai_corp", placeholder="예: 삼성전자")
+        found = st.form_submit_button("보고서 찾기")
+    if found:
+        st.session_state.pop("rai_rows", None)
+        st.session_state.pop("rai_pick", None)
+        corp = canonical_corp(corp_text)
+        if not corp:
+            st.error("기업명을 입력해주세요.")
+        else:
+            code = lookup_corp_code(corp, "rai")
+            if code:
+                with st.spinner("정기보고서 목록을 불러오는 중입니다..."):
+                    try:
+                        rows = periodic_reports(code)
+                    except DartApiError as e:
+                        st.error(str(e))
+                    else:
+                        if rows:
+                            st.session_state["rai_rows"] = {"corp": corp, "rows": rows}
+                        else:
+                            st.warning("최근 4년 안의 사업·반기·분기보고서를 찾지 못했어요.")
+    data = st.session_state.get("rai_rows")
+    if not data:
+        return
+    corp, rows = data["corp"], data["rows"]
+
+    def label(r):
+        d = str(r.get("rcept_dt", ""))
+        d = f"{d[:4]}.{d[4:6]}.{d[6:8]}" if len(d) == 8 else d
+        return f"{d} {str(r.get('report_nm', '')).strip()}"
+
+    ridx = st.selectbox("보고서", range(len(rows)), format_func=lambda i: label(rows[i]), key="rai_pick")
+    aidx = st.selectbox("분석 항목", range(len(PERIODIC_ANALYSES)), format_func=lambda i: PERIODIC_ANALYSES[i]["label"], key="rai_item")
+    spec = PERIODIC_ANALYSES[aidx]
+    st.caption(spec["help"])
+    row = rows[ridx]
+    prev = find_prev_periodic(rows, row) if spec["needs_prev"] else None
+    if spec["needs_prev"]:
+        st.caption(f"비교 대상: {label(prev)}" if prev else "비교할 직전(1년 전 같은 기간) 보고서가 목록에 없어요.")
+    rno = str(row["rcept_no"]).strip()
+    state_key = (rno, spec["key"])
+    if st.button("분석하기", key="rai_go", type="primary"):
+        if spec["needs_prev"] and not prev:
+            st.error("직전 보고서를 찾지 못해 비교할 수 없어요.")
+        else:
+            with st.spinner("보고서에서 해당 부분을 찾아 분석하는 중입니다... (처음 받는 보고서는 20~40초 걸려요)"):
+                try:
+                    res = periodic_analysis(corp, row, spec["key"], prev)
+                except (AiError, DartApiError) as e:
+                    st.error(str(e))
+                else:
+                    st.session_state["rai_result"] = {"key": state_key, "res": res}
+    saved = st.session_state.get("rai_result")
+    if not saved or saved["key"] != state_key:
+        return
+    res = saved["res"]
+    if res["empty"] and not res["text"]:
+        st.warning("이 보고서에서는 해당 항목의 내용이 거의 없어요. (분기·반기보고서는 '해당사항 없음'으로 생략되는 항목이 많아요.)")
+        if res["excerpt"].strip():
+            st.text(res["excerpt"][:1500])
+    else:
+        st.markdown(res["text"])
+    notes = []
+    if res["model"]:
+        notes.append(f"AI 분석({res['model']}) · 숫자는 반드시 원문으로 확인하세요")
+    if res["read"]:
+        notes.append("읽은 부분: " + ", ".join(res["read"]))
+    if res["missing"]:
+        notes.append("보고서에서 못 찾은 부분: " + ", ".join(res["missing"]))
+    if res["truncated"]:
+        notes.append(f"길어서 앞부분 {MAX_REPORT_CHARS:,}자까지만 읽었어요")
+    if notes:
+        st.caption(" · ".join(notes))
+    st.markdown(f"[DART 원문 보기]({DART_VIEW_URL.format(rno)})")
+
+
+PERIODIC_VIEWS = ["배당·자사주", "보수·직원", "AI 분석"]
 # 정기보고서 탭은 고른 화면의 입력칸만 그린다. 안 그린 화면의 입력값은 Streamlit이 지우므로, 화면을 오가도 남도록 미리 일반 값으로 옮겨 둔다.
-PERIODIC_KEEP = ["pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report"]
+PERIODIC_KEEP = ["rai_corp", "rai_pick", "rai_item", "pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report"]
 
 
 def render_periodic():
@@ -3946,8 +4385,10 @@ def render_periodic():
     view = st.radio("보기", PERIODIC_VIEWS, horizontal=True, key="periodic_view", label_visibility="collapsed")
     if view == "배당·자사주":
         render_dividend()
-    else:
+    elif view == "보수·직원":
         render_pay()
+    else:
+        render_report_ai()
 
 
 TAB_NAMES = ["재무 조회", "업종 합산", "재계 순위", "단독 뉴스", "오늘의 공시", "공시 목록", "정기보고서"]  # 4개씩 2줄
