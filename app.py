@@ -2345,7 +2345,7 @@ def render_fin_charts(records, unit):
         st.caption("그릴 수 있는 금액이 없어요.")
         return
     periods = [r["label"] for r in sorted_records(records)]
-    st.caption(f"단위: {unit} · 마이너스(적자)는 0선 아래로 내려가요")
+    st.caption(f"단위: {unit}")
     st.vega_lite_chart(df, chart_spec(periods, unit), use_container_width=True)
 
 
@@ -2551,7 +2551,7 @@ def render_financials():
         },
         height=(len(table) + 1) * 35 + 3,
     )
-    if st.toggle("막대 그래프 보기", key="fin_chart_on"):
+    if st.toggle("그래프", key="fin_chart_on"):
         render_fin_charts(result["records"], unit)
 
     bs_table = build_bs_table(result["records"], result["period"], unit=unit)
