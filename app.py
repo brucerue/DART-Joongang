@@ -11,6 +11,7 @@ DART 매출액 / 영업이익 조회 (Streamlit)
 [실행]   streamlit run app.py
 """
 
+import base64
 import difflib
 import hashlib
 import html
@@ -301,7 +302,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.16"  # 화면 아래 크레딧의 updated 날짜. 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.17"  # 화면 아래 크레딧의 updated 날짜. 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3352,6 +3353,306 @@ def render_news():
     st.caption("지금 주소를 북마크(또는 홈 화면에 추가)하면 다음에 열 때 같은 기업으로 바로 조회돼요.")
 
 
+# ------------------------------------------------------------
+# 재계 순위 (공정위 공시대상기업집단 지정 자료. 엑셀을 chaebol_2026.json으로 바꿔 둔 정적 자료)
+# ------------------------------------------------------------
+CHAEBOL_FILE = "chaebol_2026.json"  # make_chaebol_data.py로 공정위 별첨 엑셀 5개를 합쳐 만든 파일 (앱과 같은 폴더)
+CHAEBOL_OWN_DPI = 170  # 지분구조도 그림 선명도 (A4 가로 한 쪽 = 약 1,990px)
+CHAEBOL_SOURCE = "공정거래위원회 2026.4.29. 보도자료(5.1. 지정 기준)"
+# 보도자료 본문에서 가져온 설명 (숫자는 표에서 계산하고, 여기에는 사유 같은 글만 둔다). 새 자료로 바꿀 때 함께 고쳐주세요.
+CHAEBOL_NOTES = [
+    "신규 지정: 한국콜마·오리온(K-뷰티·K-푸드 해외 매출 증가), 토스(증권업 활황), 웅진(상조회사 프리드라이프 인수), "
+    "희성(귀금속 재고 증가), 일진글로벌(환율 상승에 따른 해외 매출 확대) 등. 지난해 지정이던 영원은 자산 5조 원 미만이 돼 제외.",
+    "상호출자제한 상향: 교보생명보험(에스비아이저축은행 인수), 다우키움(증권업 활황). 이랜드는 공시대상으로 하향.",
+    "순위 상승: 한화 7→5위, 한국항공우주산업 62→53위, 엘아이지 69→63위(방위산업 수요), 태광 59→48위(애경산업 인수), "
+    "소노인터내셔널 64→52위(티웨이항공 인수), DB 40→37위, 대신 76→69위(증권업).",
+    "동일인: 중흥건설은 故 정창선 사망으로 장남 정원주로 변경, 쿠팡은 법인에서 김범석으로 변경 지정, 두나무는 법인 동일인 유지.",
+]
+CHAEBOL_VIEWS = ["전체", "상호출자제한", "신규 지정"]
+
+
+@st.cache_resource
+def get_chaebol():
+    """chaebol_2026.json을 읽어 돌려준다. 파일이 없으면 None."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), CHAEBOL_FILE)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def cb_money(v, unit):
+    """십억 원 -> 억원/조원 글자. 값이 없으면 '-'."""
+    return "-" if v is None else fmt_amount(v * 1e9, unit)
+
+
+def cb_move(change):
+    """'2↑' -> '▲2', '1↓' -> '▼1', '0' -> '-', '신규' -> 'NEW'."""
+    c = str(change or "").strip()
+    if c.endswith("↑"):
+        return f"▲{c[:-1]}"
+    if c.endswith("↓"):
+        return f"▼{c[:-1]}"
+    return "NEW" if c == "신규" else "-"
+
+
+def cb_pct(cur, prev):
+    return pct_change(cur, prev)
+
+
+def cb_cards(items):
+    """작은 숫자 카드 줄. items = [(이름, 값, 증감 글자 또는 None, 'up'|'down'|'flat'|None), ...] (모바일에서도 2칸씩 나란히)"""
+    cards = []
+    for label, value, delta, tone in items:
+        if delta and not tone:
+            tone = "up" if delta.startswith("+") else ("down" if delta.startswith("-") else "flat")
+        d = f'<div class="d {tone or "flat"}">{html.escape(delta)}</div>' if delta else ""
+        cards.append(f'<div class="cb-card"><div class="l">{html.escape(label)}</div><div class="v">{html.escape(value)}</div>{d}</div>')
+    return f'<div class="cb-stats n{len(items)}">{"".join(cards)}</div>'
+
+
+def cb_kind(g):
+    return "상호출자제한" if g.get("limited") else "공시대상"
+
+
+def cb_style(cell):
+    t = str(cell)
+    if t.startswith("▲") or t.startswith("+"):
+        return f"font-weight: bold; color: {POSITIVE_COLOR}"
+    if t.startswith("▼") or (t.startswith("-") and t != "-"):
+        return f"font-weight: bold; color: {NEGATIVE_COLOR}"
+    if t == "NEW":
+        return "font-weight: bold; color: #e03131"
+    return ""
+
+
+def cb_filter(groups, view, query):
+    """보기(전체·상호출자제한·신규 지정)와 검색어(그룹명·동일인)로 걸러낸다."""
+    out = [g for g in groups
+           if view == "전체" or (view == "상호출자제한" and g["limited"]) or (view == "신규 지정" and g["is_new"])]
+    q = name_key(query or "")
+    if q:
+        out = [g for g in out if q in name_key(g["name"]) or q in name_key(g["owner"])]
+    return out
+
+
+def cb_rank_table(groups, unit):
+    rows = []
+    for g in groups:
+        grow = cb_pct(g["asset"], g["asset_prev"])
+        dn = g["n"] - g["n_prev"] if g.get("n_prev") is not None else None
+        rows.append({
+            "순위": g["rank"], "변동": cb_move(g["change"]), "기업집단": g["name"],
+            "공정자산": cb_money(g["asset"], unit),
+            "계열회사": f"{g['n']:,}" + (f" ({dn:+d})" if dn else ""),
+            "자산 증감": "-" if grow is None else f"{grow:+.1f}%",
+            "동일인": g["owner"], "구분": cb_kind(g),
+        })
+    return pd.DataFrame(rows)
+
+
+def cb_fin_table(g, unit):
+    """재무·경영성과 표: 비금융·보험회사 / 전체회사."""
+    def debt_ratio_text(f):
+        if not f or not f.get("equity") or f.get("debt") is None:
+            return "-"
+        return f"{f['debt'] / f['equity'] * 100:,.1f}%"
+
+    fin, perf = g.get("fin") or {}, g.get("perf") or {}
+    rows = []
+    for label, key in (("자산총액", "asset"), ("자본총액", "equity"), ("부채총액", "debt")):
+        rows.append({"항목": label, "비금융·보험회사": cb_money((fin.get("nf") or {}).get(key), unit),
+                     "전체회사": cb_money((fin.get("all") or {}).get(key), unit)})
+    rows.append({"항목": "부채비율", "비금융·보험회사": debt_ratio_text(fin.get("nf")), "전체회사": debt_ratio_text(fin.get("all"))})
+    rows.append({"항목": "매출액", "비금융·보험회사": cb_money((perf.get("nf") or {}).get("rev"), unit),
+                 "전체회사": cb_money((perf.get("all") or {}).get("rev"), unit)})
+    rows.append({"항목": "당기순이익", "비금융·보험회사": cb_money((perf.get("nf") or {}).get("ni"), unit),
+                 "전체회사": cb_money((perf.get("all") or {}).get("ni"), unit)})
+    return pd.DataFrame(rows)
+
+
+def cb_pdf_path(data):
+    """소유지분도 PDF 경로 (app.py와 같은 폴더). 자료에 이름이 없거나 파일이 없으면 None."""
+    name = data.get("ownership_pdf")
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name) if name else None
+    return path if path and os.path.exists(path) else None
+
+
+def _pdf_lib():
+    try:
+        import pymupdf
+        return pymupdf
+    except ImportError:
+        import fitz  # 옛 이름
+        return fitz
+
+
+@st.cache_data(show_spinner=False, max_entries=30)
+def cb_render_page(pdf_path, page_no, dpi=CHAEBOL_OWN_DPI):
+    """PDF 한 쪽을 그림(PNG)으로. -> PNG 바이트. 한 번 그린 쪽은 저장해 둔다."""
+    doc = _pdf_lib().open(pdf_path)
+    try:
+        return doc[page_no - 1].get_pixmap(dpi=dpi).tobytes("png")
+    finally:
+        doc.close()
+
+
+@st.cache_data(show_spinner=False, max_entries=30)
+def cb_page_pdf(pdf_path, page_no):
+    """원본 PDF에서 한 쪽만 떼어낸 PDF (휴대폰 PDF 뷰어에서 확대해 보기용)."""
+    lib = _pdf_lib()
+    src, out = lib.open(pdf_path), lib.open()
+    try:
+        out.insert_pdf(src, from_page=page_no - 1, to_page=page_no - 1)
+        return out.tobytes(deflate=True, garbage=3)
+    finally:
+        out.close()
+        src.close()
+
+
+def render_ownership(g, data):
+    """그룹 상세의 '지분구조도': 소유지분도 PDF에서 그 그룹의 쪽을 그려 보여준다."""
+    st.markdown("##### 지분구조도")
+    path, page = cb_pdf_path(data), g.get("own_page")
+    if not path or not page:
+        st.info(f"지분구조도 PDF({data.get('ownership_pdf') or 'chaebol_ownership_2026.pdf'})를 app.py와 같은 폴더에 올리면 "
+                "여기에 그룹별 지분구조도가 나타나요.")
+        return
+    try:
+        png = cb_render_page(path, int(page))
+        one_page = cb_page_pdf(path, int(page))
+    except Exception as e:  # PDF 도구(pymupdf)가 없거나 PDF가 깨진 경우에도 앱 전체는 그대로
+        st.warning(f"지분구조도를 그리지 못했어요. requirements.txt에 pymupdf가 들어 있는지 확인해주세요. ({type(e).__name__})")
+        return
+    big = st.checkbox("크게 보기 (옆으로 밀어서 보기)", key=f"cb_big_{g['rank']}",
+                      help="휴대폰에서 글씨가 작을 때 켜세요. 그림을 크게 펼치고 옆으로 밀어서 볼 수 있어요.")
+    if big:
+        b64 = base64.b64encode(png).decode()
+        st.markdown(f'<div class="cb-own-scroll"><img src="data:image/png;base64,{b64}" alt="{html.escape(g["name"])} 지분구조도"></div>',
+                    unsafe_allow_html=True)
+    else:
+        st.image(png, caption=f"{g['name']} 소유지분도 · {CHAEBOL_SOURCE.split('(')[0].strip()} · 그림을 누르면 전체 화면")
+    st.download_button("이 그룹 지분구조도 PDF 받기", one_page, file_name=f"{g['name']}_소유지분도_{data['year']}.pdf",
+                       mime="application/pdf", key=f"cb_pdf_{g['rank']}")
+    st.caption("2026.5.1. 지정일 기준 · 발행주식총수 기준 · 단위 %. 음영은 지주회사 등, ★은 상장회사, 마름모(◇)는 총수일가 지분 20% 이상 회사.")
+
+
+def render_chaebol_detail(g, unit, data):
+    st.markdown(f"#### {g['name']} · 동일인 {g['owner']}")
+    prev = f"전년 {int(g['rank_prev'])}위" if g.get("rank_prev") else "올해 신규 지정"
+    move = {"▲": "상승", "▼": "하락"}.get(cb_move(g["change"])[:1], "")
+    move_text = f" ({cb_move(g['change'])[1:]}계단 {move})" if move else ""
+    tags = [f"공정자산 {int(g['rank'])}위 · {prev}{move_text}", f"{cb_kind(g)}기업집단"]
+    if g["is_new"]:
+        tags.append("2026년 신규 지정")
+    st.caption(" · ".join(tags))
+
+    grow = cb_pct(g["asset"], g["asset_prev"])
+    dn = g["n"] - g["n_prev"] if g.get("n_prev") is not None else None
+    perf = (g.get("perf") or {}).get("all") or {}
+    st.markdown(cb_cards([
+        ("공정자산총액", f"{cb_money(g['asset'], unit)}{unit}",
+         None if grow is None else f"{grow:+.1f}% (전년 {cb_money(g['asset_prev'], unit)}{unit})", None),
+        ("계열회사", f"{g['n']:,}곳", None if dn is None else f"{dn:+d}곳 (전년 {g['n_prev']:,})", None),
+        ("매출액(전체회사)", f"{cb_money(perf.get('rev'), unit)}{unit}", None, None),
+        ("당기순이익(전체회사)", f"{cb_money(perf.get('ni'), unit)}{unit}", None, None),
+    ]), unsafe_allow_html=True)
+
+    st.markdown("##### 재무·경영성과")
+    st.caption(f"단위: {unit} · 비금융·보험회사 = 금융·보험 계열사를 뺀 합계, 전체회사 = 모든 계열사 합계 · "
+               "공정자산총액은 지정 기준으로 따로 산정한 값이라 여기 자산총액과 다를 수 있어요")
+    fin_table = cb_fin_table(g, unit)
+    st.dataframe(fin_table, hide_index=True, height=(len(fin_table) + 1) * 35 + 3)
+
+    render_ownership(g, data)
+
+    moves = g.get("moves") or []
+    n_inc = sum(1 for m in moves if m["kind"] == "증가")
+    n_dec = sum(1 for m in moves if m["kind"] == "감소")
+    with st.expander(f"계열회사 변동 · 2025년 {g['n_prev'] if g.get('n_prev') is not None else '-'}곳 → 2026년 {g['n']}곳 (증가 {n_inc}, 감소 {n_dec})"):
+        if not moves:
+            st.write("지난 1년간 계열회사 변동이 없어요." if g.get("n_prev") is not None else "올해 처음 지정돼 비교할 전년 자료가 없어요.")
+        else:
+            reasons = {}
+            for m in moves:
+                reasons[(m["kind"], m["reason"])] = reasons.get((m["kind"], m["reason"]), 0) + 1
+            st.caption(" · ".join(f"{k} {r} {n}곳" for (k, r), n in reasons.items()))
+            st.dataframe(pd.DataFrame(moves).rename(columns={"kind": "구분", "reason": "사유", "name": "회사명"}),
+                         hide_index=True, height=min(len(moves) + 1, 12) * 35 + 3)
+
+    members = g.get("members") or []
+    n_nf = sum(1 for m in members if m["type"] == "비금융")
+    with st.expander(f"계열회사 명단 · {len(members):,}곳 (비금융 {n_nf}, 금융·보험 {len(members) - n_nf})"):
+        pick_type = st.radio("구분", ["전체", "비금융", "금융·보험"], horizontal=True, key=f"cb_type_{g['rank']}")
+        shown_members = [m for m in members if pick_type == "전체" or m["type"] == pick_type]
+        table = pd.DataFrame(shown_members).rename(columns={"name": "회사명", "type": "구분", "no": "법인등록번호"})
+        st.dataframe(table, hide_index=True, height=min(len(table) + 1, 12) * 35 + 3)
+        st.download_button("명단 CSV 다운로드", pd.DataFrame(members).rename(columns={"name": "회사명", "type": "구분", "no": "법인등록번호"})
+                           .to_csv(index=False).encode("utf-8-sig"),
+                           file_name=f"{g['name']}_계열회사_{CHAEBOL_YEAR}.csv", mime="text/csv", key=f"cb_csv_{g['rank']}")
+
+
+CHAEBOL_YEAR = 2026
+
+
+def render_chaebol():
+    """탭: 재계 순위 - 공정위가 지정한 공시대상기업집단의 순위·동일인·재무·계열회사·지분구조도를 한곳에 정리 (정적 자료)."""
+    data = get_chaebol()
+    if not data:
+        st.info(f"{CHAEBOL_FILE} 파일이 없어요. make_chaebol_data.py로 공정위 별첨 엑셀을 합쳐 만든 파일을 app.py와 같은 폴더에 올려주세요.")
+        return
+    groups, excluded = data["groups"], data.get("excluded", [])
+    n_groups, n_firms = len(groups), sum(g["n"] for g in groups)
+    prev_groups = sum(1 for g in groups if g.get("n_prev") is not None) + len(excluded)
+    prev_firms = sum(g.get("n_prev") or 0 for g in groups) + sum(e.get("n_prev") or 0 for e in excluded)
+    limited = [g for g in groups if g["limited"]]
+    st.caption(f"{data['year']}년 공시대상기업집단 · 출처: {CHAEBOL_SOURCE} · 실시간 자료가 아니라 공정위 발표 시점의 정리본이에요")
+
+    st.markdown(cb_cards([
+        ("공시대상기업집단", f"{n_groups}개", f"{n_groups - prev_groups:+d}개", None),
+        ("소속회사", f"{n_firms:,}곳", f"{n_firms - prev_firms:+,}곳", None),
+        ("상호출자제한", f"{len(limited)}개", None, None),
+        ("신규 지정", f"{sum(1 for g in groups if g['is_new'])}개", f"제외 {len(excluded)}개" if excluded else None, "flat"),
+    ]), unsafe_allow_html=True)
+    with st.expander("올해 지정 요약 (보도자료)"):
+        for note in CHAEBOL_NOTES:
+            st.markdown(f"- {note}")
+        st.caption("상호출자제한 = 공정자산 12조 원 이상(음영 표시 집단), 공시대상 = 5조 원 이상. 설명은 보도자료 본문을 옮긴 것이에요.")
+
+    st.markdown("##### 순위표")
+    c1, c2 = st.columns([3, 2])
+    view = c1.radio("보기", CHAEBOL_VIEWS, horizontal=True, key="cb_view")
+    unit = c2.radio("단위", list(UNITS), index=list(UNITS).index("조원"), horizontal=True, key="cb_unit")  # 재계는 금액이 커서 조원이 기본
+    query = st.text_input("그룹명·동일인 검색", key="cb_query", placeholder="예: 삼성, SK, 이재용")
+    shown = cb_filter(groups, view, query)
+    if not shown:
+        st.info("조건에 맞는 기업집단이 없어요. 검색어나 보기를 바꿔보세요.")
+    else:
+        table = cb_rank_table(shown, unit)
+        st.caption(f"{len(shown)}개 집단 · 공정자산 단위: {unit} · 변동은 전년 대비 순위 · 계열회사 괄호는 전년 대비 증감")
+        st.dataframe(
+            table.style.map(cb_style, subset=["변동", "자산 증감"]), hide_index=True,
+            column_config={"순위": st.column_config.NumberColumn("순위", width=52),
+                           "변동": st.column_config.TextColumn("변동", width=55),
+                           "기업집단": st.column_config.TextColumn("기업집단", width=110),
+                           "공정자산": st.column_config.TextColumn("공정자산", width=85),
+                           "계열회사": st.column_config.TextColumn("계열회사", width=85),
+                           "자산 증감": st.column_config.TextColumn("자산 증감", width=85)},
+            height=min(len(table) + 1, 16) * 35 + 3,
+        )
+        st.download_button("순위표 CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
+                           file_name=f"재계순위_{data['year']}.csv", mime="text/csv", key="cb_csv_all")
+
+    st.markdown("##### 그룹 자세히 보기")
+    labels = {f"{int(g['rank'])}위 {g['name']} ({g['owner']})": g for g in groups}
+    choice = st.selectbox("기업집단 선택", list(labels), index=None, key="cb_group",
+                          placeholder="그룹을 고르면 재무·지분구조도·계열회사를 모아 보여줘요")
+    if choice:
+        render_chaebol_detail(labels[choice], unit, data)
+    st.caption("자료: 공정거래위원회 · 계열회사 수·재무·경영성과는 보도자료 별첨2~6 기준")
+
+
 STYLE = """
 <style>
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
@@ -3374,9 +3675,9 @@ footer { visibility: hidden; }
 h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !important; padding-bottom: 0.2rem; }
 [data-testid="stCaptionContainer"] { color: #7a8699; }
 
-/* 탭: 한 줄에 4개씩 바둑판으로 (옆으로 밀지 않아도 모두 보이게) */
+/* 탭: 바둑판으로 (옆으로 밀지 않아도 모두 보이게). 컴퓨터는 한 줄 5개, 휴대폰은 한 줄 3개(탭 9개 = 3×3) */
 [data-testid="stTabs"] [role="tablist"] {
-    display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.35rem;
+    display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.35rem;
     overflow: visible !important; width: 100% !important; border-bottom: none !important; margin-bottom: 0.6rem;
 }
 [data-testid="stTab"] {
@@ -3390,6 +3691,7 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 [data-testid="stTab"] > div:not([data-testid]) { display: none; }  /* 기본 밑줄 표시는 숨김 */
 [data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after { display: none !important; }
 [data-testid="stTabs"] [role="tablist"] { box-shadow: none !important; background: none !important; }
+@media (max-width: 640px) { [data-testid="stTabs"] [role="tablist"] { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 400px) { [data-testid="stTab"] p { font-size: 0.8rem; } }  /* 작은 휴대폰에서도 글자가 칸 안에 */
 [data-testid="stTabs"] [role="tablist"] ~ button, [data-testid="stTabs"] button[aria-label*="croll"] { display: none !important; }
 
@@ -3430,6 +3732,18 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
     background: #ffffff;
 }
 
+/* 재계 순위: 숫자 카드 (모바일은 2칸씩, 컴퓨터는 한 줄) */
+.cb-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; margin: 0.4rem 0 0.9rem; }
+@media (min-width: 700px) { .cb-stats.n4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } .cb-stats.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.cb-card { background: #ffffff; border: 1px solid #e3e8ef; border-radius: 12px; padding: 0.6rem 0.8rem; }
+.cb-card .l { color: #7a8699; font-size: 0.78rem; }
+.cb-card .v { color: #0b2545; font-weight: 800; font-size: 1.25rem; line-height: 1.35; letter-spacing: -0.02em; word-break: keep-all; }
+.cb-card .d { font-size: 0.78rem; font-weight: 600; }
+.cb-card .d.up { color: #1c7ed6; } .cb-card .d.down { color: #e03131; } .cb-card .d.flat { color: #7a8699; }
+
+.cb-own-scroll { overflow-x: auto; border: 1px solid #e3e8ef; border-radius: 12px; background: #ffffff; }
+.cb-own-scroll img { width: 1400px; max-width: none; display: block; }
+
 /* 뉴스 목록 */
 .news-item { background: #ffffff; border: 1px solid #e3e8ef; border-radius: 12px; padding: 0.8rem 1rem; margin-bottom: 0.55rem; }
 .news-item > a { font-weight: 600; color: #0b2545; text-decoration: none; line-height: 1.5; }
@@ -3462,14 +3776,14 @@ if not API_KEY:
     )
     st.stop()
 
-TAB_NAMES = ["재무 조회", "업종 합산", "공시 목록", "보수·직원", "배당·자사주", "AI 분석", "오늘의 공시", "단독 뉴스"]
+TAB_NAMES = ["재무 조회", "업종 합산", "공시 목록", "보수·직원", "배당·자사주", "AI 분석", "오늘의 공시", "단독 뉴스", "재계 순위"]
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_fin, tab_ind, tab_list, tab_pay, tab_div, tab_aia, tab_feed, tab_news = tabs
+tab_fin, tab_ind, tab_list, tab_pay, tab_div, tab_aia, tab_feed, tab_news, tab_chaebol = tabs
 with tab_fin:
     render_financials()
 with tab_ind:
@@ -3486,3 +3800,5 @@ with tab_feed:
     render_feed()
 with tab_news:
     render_news()
+with tab_chaebol:
+    render_chaebol()
