@@ -3933,14 +3933,31 @@ if not API_KEY:
     )
     st.stop()
 
-TAB_NAMES = ["재무 조회", "업종 합산", "재계 순위", "단독 뉴스", "오늘의 공시", "공시 목록", "배당·자사주", "보수·직원"]  # 4개씩 2줄
+PERIODIC_VIEWS = ["배당·자사주", "보수·직원"]
+# 정기보고서 탭은 고른 화면의 입력칸만 그린다. 안 그린 화면의 입력값은 Streamlit이 지우므로, 화면을 오가도 남도록 미리 일반 값으로 옮겨 둔다.
+PERIODIC_KEEP = ["pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report"]
+
+
+def render_periodic():
+    """탭: 정기보고서 - 사업·반기·분기보고서에 실린 데이터 (배당·자사주 / 보수·직원)."""
+    for key in PERIODIC_KEEP:
+        if key in st.session_state:
+            st.session_state[key] = st.session_state[key]
+    view = st.radio("보기", PERIODIC_VIEWS, horizontal=True, key="periodic_view", label_visibility="collapsed")
+    if view == "배당·자사주":
+        render_dividend()
+    else:
+        render_pay()
+
+
+TAB_NAMES = ["재무 조회", "업종 합산", "재계 순위", "단독 뉴스", "오늘의 공시", "공시 목록", "정기보고서"]  # 4개씩 2줄
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_fin, tab_ind, tab_chaebol, tab_news, tab_feed, tab_list, tab_div, tab_pay = tabs
+tab_fin, tab_ind, tab_chaebol, tab_news, tab_feed, tab_list, tab_periodic = tabs
 with tab_fin:
     render_financials()
 with tab_ind:
@@ -3953,7 +3970,5 @@ with tab_feed:
     render_feed()
 with tab_list:
     render_disclosures()
-with tab_div:
-    render_dividend()
-with tab_pay:
-    render_pay()
+with tab_periodic:
+    render_periodic()
