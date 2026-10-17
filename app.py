@@ -306,6 +306,7 @@ LAST_UPDATED = "2026.10.17"  # 화면 아래 크레딧의 updated 날짜. 앱을
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
+NEW_SINCE = (TODAY - timedelta(days=1)).strftime("%Y%m%d")  # NEW 표시 기준: 어제부터
 
 # 표에서 눈에 띄게 보여줄 금액 열의 글자색 (밝은 테마·어두운 테마 모두에서 읽히는 중간 톤)
 POSITIVE_COLOR = "#1c7ed6"  # 매출액·영업이익: 파랑
@@ -1999,8 +2000,8 @@ def cluster_news(items):
 
 
 def is_new(item, now):
-    """오늘(한국 시간) 올라온 기사인지."""
-    return item["dt"].astimezone(KST).date() == now.astimezone(KST).date()
+    """어제·오늘(한국 시간) 올라온 기사인지."""
+    return item["dt"].astimezone(KST).date() >= now.astimezone(KST).date() - timedelta(days=1)
 
 
 def news_html(clusters, now=None):
@@ -2286,6 +2287,169 @@ def lookup_corp_code(corp, prefix):
     return corp_code
 
 
+# ------------------------------------------------------------
+# 막대 그래프 · 재무 AI 분석 (재무 조회 탭)
+# ------------------------------------------------------------
+CHART_ITEMS = [("rev", "매출액"), ("op", "영업이익"), ("net", "순이익")]
+
+
+def chart_frames(records, unit=DEFAULT_UNIT):
+    """실적 표를 막대 그래프용 표로. -> {항목 이름: 표(기간 × [플러스, 마이너스])}. 전부 비어 있는 항목은 뺀다.
+    플러스·마이너스를 열로 나눠 두면 마이너스 막대만 빨갛게 그릴 수 있다 (한 기간엔 둘 중 하나만 값이 있어 겹치지 않음)."""
+    out = {}
+    recs = sorted_records(records)
+    for key, name in CHART_ITEMS:
+        vals = [num_amount(r.get(key), unit) for r in recs]
+        if all(v is None for v in vals):
+            continue
+        df = pd.DataFrame(
+            {"플러스": [v if v is not None and v >= 0 else 0 for v in vals],
+             "마이너스": [v if v is not None and v < 0 else 0 for v in vals]},
+            index=[r["label"] for r in recs],
+        )
+        out[name] = df
+    return out
+
+
+def render_fin_charts(records, unit):
+    """실적 표 아래 막대 그래프: 금액만 (전년비·전분기비는 뺌). 기간 순서는 표와 같다."""
+    frames = chart_frames(records, unit)
+    if not frames:
+        st.caption("그릴 수 있는 금액이 없어요.")
+        return
+    st.caption(f"단위: {unit} · 파랑 = 플러스, 빨강 = 마이너스(적자)")
+    for name, df in frames.items():
+        st.markdown(f"**{name}**")
+        st.bar_chart(df, color=[POSITIVE_COLOR, NEGATIVE_COLOR], height=220)
+
+
+def sign_streak(records, key):
+    """맨 끝(가장 최근)부터 같은 부호가 몇 번 이어졌는지. -> (흑자/적자, 연속 횟수, 직전과 다른 부호가 처음 나온 기간 or None)."""
+    seq = [(r["label"], r.get(key)) for r in sorted_records(records) if r.get(key) is not None]
+    if not seq:
+        return None
+    sign = seq[-1][1] >= 0
+    n = 0
+    for label, v in reversed(seq):
+        if (v >= 0) != sign:
+            break
+        n += 1
+    prev_label = seq[-1 - n][0] if n < len(seq) else None
+    return ("흑자" if sign else "적자", n, prev_label)
+
+
+def fin_facts(records, period):
+    """AI가 계산을 틀리지 않도록 미리 계산해 두는 사실 목록."""
+    unit_word = "분기" if period == "분기별" else "년"
+    recs = sorted_records(records)
+    facts = []
+    for key, name in (("op", "영업이익"), ("net", "순이익")):
+        st_ = sign_streak(records, key)
+        if st_:
+            sign, n, prev = st_
+            line = f"{name}: 가장 최근 기간({recs[-1]['label']}) 기준 {n}{unit_word} 연속 {sign}"
+            if prev is not None:
+                line += f" (직전 {prev}은(는) {'적자' if sign == '흑자' else '흑자'})"
+            else:
+                line += " (조회 기간 내내 같은 부호)"
+            facts.append(line)
+    for key, name in CHART_ITEMS:
+        vals = [(r["label"], r.get(key)) for r in recs if r.get(key) is not None]
+        if len(vals) >= 2:
+            hi, lo = max(vals, key=lambda x: x[1]), min(vals, key=lambda x: x[1])
+            facts.append(f"{name}: 최고 {hi[0]}({fmt_amount(hi[1], '억원')}억원), 최저 {lo[0]}({fmt_amount(lo[1], '억원')}억원), "
+                         f"처음 {vals[0][0]} → 마지막 {vals[-1][0]}: {fmt_amount(vals[0][1], '억원')} → {fmt_amount(vals[-1][1], '억원')}억원")
+    ratios = [(r["label"], debt_ratio(r.get("bs") or {})) for r in recs]
+    nums = [(l, v) for l, v in ratios if isinstance(v, float)]
+    if len(nums) >= 2:
+        hi = max(nums, key=lambda x: x[1])
+        facts.append(f"부채비율: 처음 {nums[0][0]} {nums[0][1]:.1f}% → 마지막 {nums[-1][0]} {nums[-1][1]:.1f}%, 최고 {hi[0]} {hi[1]:.1f}%")
+    erosion = [l for l, v in ratios if v == "자본잠식"]
+    if erosion:
+        facts.append(f"자본잠식(자본총계 0 이하) 기간: {', '.join(erosion)}")
+    for key, name in (("cash", "현금성자산"), ("inv", "재고자산")):
+        vals = [(r["label"], (r.get("bs") or {}).get(key)) for r in recs]
+        vals = [(l, v) for l, v in vals if v is not None]
+        if len(vals) >= 2:
+            facts.append(f"{name}: {vals[0][0]} {fmt_amount(vals[0][1], '억원')}억원 → {vals[-1][0]} {fmt_amount(vals[-1][1], '억원')}억원")
+    return facts
+
+
+def fin_ai_text(corp, records, period):
+    """AI에 보낼 자료: 기간별 표(억원) + 미리 계산한 사실."""
+    head = ["기간", "매출액", "영업이익", "영업이익률", "순이익", "부채총계", "자본총계", "부채비율", "현금성자산", "재고자산"]
+    yearly = period != "분기별"
+    if yearly:
+        head.append("CAPEX")
+    lines = [" | ".join(head)]
+    for r in sorted_records(records):
+        bs = r.get("bs") or {}
+        ratio = debt_ratio(bs)
+        margin = f"{r['op'] / r['rev'] * 100:.1f}%" if r.get("op") is not None and r.get("rev") else "-"
+        row = [r["label"], fmt_amount(r.get("rev"), "억원"), fmt_amount(r.get("op"), "억원"), margin, fmt_amount(r.get("net"), "억원"),
+               fmt_amount(bs.get("liab"), "억원"), fmt_amount(bs.get("equity"), "억원"),
+               f"{ratio:.1f}%" if isinstance(ratio, float) else (ratio or "-"),
+               fmt_amount(bs.get("cash"), "억원"), fmt_amount(bs.get("inv"), "억원")]
+        if yearly:
+            row.append(fmt_amount(bs.get("capex"), "억원"))
+        lines.append(" | ".join(row))
+    notes = ["연결재무제표 기준. 금액 단위는 억원(1조원 = 10,000억원). '-'는 자료 없음."]
+    if not yearly:
+        notes.append("분기별 자료: 4분기 값은 사업보고서 연간 값에서 3분기 누적을 뺀 계산값. 재무상태는 각 분기 말 잔액. 계절성이 있으니 직전 분기보다 전년 같은 분기와 비교할 것.")
+    return (f"기업: {corp}\n조회 단위: {period}\n" + "\n".join(notes) + "\n\n[기간별 자료]\n" + "\n".join(lines)
+            + "\n\n[미리 계산한 사실 — 이 숫자를 그대로 쓸 것]\n" + "\n".join(f"- {f}" for f in fin_facts(records, period)))
+
+
+AI_FIN_SYSTEM = (
+    "너는 중앙일보 산업부 기자를 돕는 기업 실적 분석 보조자다. 사용자가 준 [기간별 자료]와 [미리 계산한 사실]만 근거로 쓴다. "
+    "자료에 없는 숫자·사실·원인·전망·시장 반응을 절대 만들지 않는다. 숫자는 자료 표기 그대로(단위 포함) 옮기고 새로 계산하지 않는다. "
+    "실적이 왜 변했는지 원인은 자료에 없으므로 단정하지 말고, 추정이면 '~했을 가능성', '확인 필요'처럼 표시한다. "
+    "산업부 기자의 시각으로 쓴다: 흑자·적자 흐름과 전환 시점, 이익률(수익성) 변화, 부채비율·현금·재고 등 재무 건전성, 투자(CAPEX) 부담을 짚고 "
+    "무엇이 기사 포인트인지 가려낸다. 한국어, 짧고 명확한 기사체로 쓴다."
+)
+
+
+def fin_ai_prompt(corp, records, period):
+    return (
+        fin_ai_text(corp, records, period)
+        + "\n\n위 자료를 종합해 아래 형식으로 써라. 자료가 부족한 항목은 건너뛴다.\n"
+        "**한 줄 요약**: 이 기업 실적·재무의 가장 큰 특징 한 문장\n"
+        "**핵심 포인트**: 3~5개 항목(- 로 시작). 흑자/적자 지속·전환 시점, 매출·이익 추세, 이익률, 부채비율·현금·재고·CAPEX 변화 중 의미 있는 것\n"
+        "**기사로 쓴다면 확인할 것**: 2~3개 항목(- 로 시작). 자료만으로 알 수 없는 원인·배경 중 취재로 확인할 질문"
+    )
+
+
+def fin_ai_analysis(corp, records, period):
+    """실적·재무상태 AI 분석 (같은 자료는 일주일 저장). -> (글, 쓴 모델)"""
+    prompt = fin_ai_prompt(corp, records, period)
+    sig = hashlib.sha1(prompt.encode("utf-8")).hexdigest()
+    return ai_cached(("fin", sig), lambda: ai_generate(prompt, system=AI_FIN_SYSTEM)), sig
+
+
+def render_fin_ai(result):
+    """재무 조회 결과 아래 'AI 분석' 상자."""
+    st.markdown("##### AI 분석")
+    if not AI_PROVIDER:
+        st.caption("AI 분석을 쓰려면 Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
+        return
+    prompt_sig = hashlib.sha1(fin_ai_prompt(result["corp"], result["records"], result["period"]).encode("utf-8")).hexdigest()
+    go = st.button("조회한 실적·재무상태 AI 분석", key="fin_ai_go", type="primary")
+    if go:
+        with st.spinner("실적과 재무상태를 종합하는 중입니다... (10~30초)"):
+            try:
+                (text, used), _ = fin_ai_analysis(result["corp"], result["records"], result["period"])
+            except AiError as e:
+                st.error(str(e))
+            else:
+                st.session_state["fin_ai"] = {"sig": prompt_sig, "text": text, "model": used}
+    saved = st.session_state.get("fin_ai")
+    if saved and saved["sig"] == prompt_sig:
+        st.markdown(saved["text"])
+        st.caption(f"AI 분석({saved['model']}) · 위 표의 숫자만 근거로 한 해석이에요. 원인·배경은 취재로 확인하세요")
+    else:
+        st.caption("누르면 위 표(실적·재무상태)를 종합해 흑자·적자 흐름, 수익성, 재무 건전성의 핵심 포인트를 정리해 줘요.")
+
+
 def render_financials():
     """탭 1: 매출액·영업이익 조회"""
     this_year = TODAY.year
@@ -2310,6 +2474,7 @@ def render_financials():
             start, end = int(start), int(end)
             quarterly = period == "분기별"
             st.session_state.pop("result", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+            st.session_state.pop("fin_ai", None)
 
             corp = canonical_corp(corp)  # 대소문자 무시 (sk하이닉스 -> SK하이닉스)
             corp_code = lookup_corp_code(corp, "fin")
@@ -2360,6 +2525,8 @@ def render_financials():
         },
         height=(len(table) + 1) * 35 + 3,
     )
+    if st.toggle("막대 그래프 보기", key="fin_chart_on"):
+        render_fin_charts(result["records"], unit)
 
     bs_table = build_bs_table(result["records"], result["period"], unit=unit)
     if not bs_table.empty:
@@ -2371,6 +2538,8 @@ def render_financials():
             column_config={"기간": st.column_config.TextColumn("기간", width=95)},
             height=(len(bs_table) + 1) * 35 + 3,
         )
+
+    render_fin_ai(result)
 
     export = build_table(result["records"], result["period"], for_export=True, unit=unit)
     bs_export = build_bs_table(result["records"], result["period"], for_export=True, unit=unit)
@@ -2531,7 +2700,7 @@ def render_ai_summary(rows, prefix, all_rows=None):
             d = f"{d[4:6]}.{d[6:8]}" if len(d) == 8 else d
             corp = f"{r.get('corp_name', '')} · " if r.get("corp_name") else ""
             mark = "[숫자표] " if major_report_spec(r.get("report_nm", "")) else ""
-            new = "[NEW] " if str(r.get("rcept_dt", "")) == TODAY.strftime("%Y%m%d") else ""
+            new = "[NEW] " if str(r.get("rcept_dt", "")) >= NEW_SINCE else ""
             return f"{new}{mark}{d} {corp}{str(r.get('report_nm', '')).strip()}"
 
         idx = st.selectbox(
@@ -2727,9 +2896,8 @@ def render_disclosures():
         st.info("검색어와 일치하는 공시가 없습니다.")
         return
 
-    today_str = TODAY.strftime("%Y%m%d")
     table = disclosure_table(shown)
-    table.insert(0, "new", ["NEW" if str(r.get("rcept_dt", "")) == today_str else "" for r in shown])  # 오늘 올라온 공시
+    table.insert(0, "new", ["NEW" if str(r.get("rcept_dt", "")) >= NEW_SINCE else "" for r in shown])  # 어제·오늘 올라온 공시
     st.dataframe(
         table.style.map(lambda v: f"color: {NEGATIVE_COLOR}; font-weight: 800" if v == "NEW" else "", subset=["new"]),
         hide_index=True,
@@ -3012,7 +3180,7 @@ def render_news():
             )
         else:
             sector = st.radio("섹터", list(NEWS_SECTORS), horizontal=True, key="news_sector")
-        period = st.radio("기간", list(NEWS_PERIODS), index=1, horizontal=True, key="news_period")
+        period = st.radio("기간", list(NEWS_PERIODS), index=0, horizontal=True, key="news_period")
         in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key="news_title")
         submitted = st.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False)
 
@@ -3106,7 +3274,7 @@ def render_news():
     notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(clusters):,}건"]
     fresh = sum(is_new(c["rep"], now) for c in clusters)
     if fresh:
-        notes.append(f"NEW {fresh}건 (오늘)")
+        notes.append(f"NEW {fresh}건 (어제·오늘)")
     if res.get("mode") == "섹터":
         notes.append(f"검색어 {len(res['names'])}개: {', '.join(res['names'])}")
     else:
