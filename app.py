@@ -1491,7 +1491,7 @@ def call_claude(session, prompt, system=None, json_mode=False):
     """Claude 호출. 서버가 붐비면(429·500·502·503·529) 잠깐 쉬었다 두 번 더 시도한다."""
     if json_mode:  # Claude는 JSON 모드가 따로 없으니 말로 요청한다 (앞뒤에 붙은 ```json 표시는 parse_json이 걷어냄)
         prompt += "\n\n설명 없이 JSON만 출력해라."
-    body = {"model": ANTHROPIC_MODEL, "max_tokens": 4000, "temperature": 0.2, "system": system or AI_SYSTEM,
+    body = {"model": ANTHROPIC_MODEL, "max_tokens": 4000, "system": system or AI_SYSTEM,
             "messages": [{"role": "user", "content": prompt}]}
     headers = {"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"}
     res = None
