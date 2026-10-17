@@ -3595,46 +3595,83 @@ def render_pay():
     render_exctv(res, label)
 
 
-def parse_unregistered_execs(text):
-    """사업·반기·분기보고서 원문 글 -> 미등기임원 현황 표의 행들 (API 임원 현황과 같은 필드 이름).
-    API(exctvSttus)에는 미등기임원이 빠지는 경우가 많아 원문의 '미등기임원 현황' 표를 직접 읽는다."""
-    lines = text.replace("\x0c", "\n").split("\n")
-    starts = [i for i, l in enumerate(lines)
-              if re.search(r"미등기\s*임원\s*현황", l) and "변동" not in l and len(l.strip()) <= 40 and "….." not in l]
+def _xml_parts(data):
+    """DART 원본파일 zip -> 읽을 수 있는 xml 글들 (본문이 먼저)."""
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as e:
+        raise AiError("DART 원문 파일을 열 수 없어요. 잠시 후 다시 시도해주세요.") from e
+    out = []
+    for name in sorted(zf.namelist(), key=lambda n: (not n.endswith(".xml"), len(n), n)):
+        raw = zf.read(name)
+        for enc in ("utf-8", "cp949"):
+            try:
+                out.append(raw.decode(enc))
+                break
+            except UnicodeDecodeError:
+                continue
+    return out
+
+
+def _cell_text(html_cell):
+    t = html.unescape(re.sub(r"<[^>]+>", " ", html_cell))
+    return re.sub(r"\s+", " ", t.replace("\xa0", " ")).strip()
+
+
+def parse_unregistered_execs(xml):
+    """보고서 원문(xml)의 '미등기임원 현황' 표 -> 행들 (API 임원 현황과 같은 필드 이름).
+    API(exctvSttus)에는 미등기임원이 안 담겨서 원문 표를 직접 읽는다. 표의 칸(TD) 구조로 읽기 때문에
+    칸 안에 줄바꿈이 있어도 된다."""
+    trs = [(m.start(), [_cell_text(c) for c in re.findall(r"(?is)<T[DHEU][^>]*>(.*?)</T[DHEU]>", m.group(1))])
+           for m in re.finditer(r"(?is)<TR[^>]*>(.*?)</TR>", xml)]
+    norm = lambda c: re.sub(r"\s+", "", c)
+
+    def is_data(cells):
+        cells = [c for c in cells]
+        return len(cells) >= 6 and cells[1] in ("남", "여")
+
+    def is_header(cells):
+        j = "".join(norm(c) for c in cells)
+        return "성명" in j and "담당업무" in j
+
+    picked = []  # [(헤더 칸들 또는 None, 데이터 칸들)]
+    anchors = [m.start() for m in re.finditer(r"미등기\s*임원\s*현황", xml)]
+    ends = [m.start() for m in re.finditer(r"미등기\s*임원의\s*변동", xml)]
+    for h in anchors:  # 1) '미등기임원 현황' 제목 바로 다음의 표
+        stop = next((e for e in ends if e > h), len(xml))
+        header, rows = None, []
+        for pos, cells in trs:
+            if pos <= h or pos >= stop:
+                continue
+            if is_data(cells):
+                rows.append(cells)
+            elif header is None and not rows and is_header(cells):
+                header = cells
+        if len(rows) > len(picked):
+            picked = [(header, r) for r in rows]
+    if not picked:  # 2) 제목을 못 찾으면: '성명·담당업무·재직기간' 머리글(임기 없음)을 가진 표
+        header, rows, active = None, [], False
+        for pos, cells in trs:
+            if is_header(cells):
+                j = "".join(norm(c) for c in cells)
+                active = "재직" in j and "임기" not in j
+                header = cells if active else None
+                continue
+            if active and is_data(cells):
+                rows.append(cells)
+        picked = [(header, r) for r in rows]
+
     cell_keys = [
         (r"성명", "nm"), (r"성별", "sexdstn"), (r"출생", "birth_ym"), (r"직위", "ofcps"), (r"상근", "fte_at"),
         (r"담당업무", "chrg_job"), (r"주요경력", "main_career"), (r"학력", "_edu"),
         (r"최대주주", "mxmm_shrholdr_relate"), (r"재직", "hffc_pd"),
     ]
     default10 = ["nm", "sexdstn", "birth_ym", "ofcps", "fte_at", "chrg_job", "main_career", "_edu", "mxmm_shrholdr_relate", "hffc_pd"]
-    best = []
-    for st_i in starts:
-        header, rows = None, []
-        for l in lines[st_i + 1:st_i + 4000]:
-            s = l.strip()
-            if re.match(r"^[가-하]\s*\.\s*\S", s) and not rows and header is not None and "미등기" not in s:
-                break
-            if rows and (re.match(r"^[가-하]\s*\.\s*\S", s) or re.match(r"^\d{1,2}\s*\.\s*\S", s) or re.match(r"^[IVX]+\s*\.\s*\S", s)):
-                break  # 다음 소제목(마. 미등기임원의 변동 등)이 나오면 끝
-            if " | " not in s:
-                continue
-            cells = [c.strip() for c in re.sub(r"\s*\|\s*$", "", s).split(" | ")]  # 줄 끝의 칸 구분(|)은 떼고 나눈다
-            while cells and cells[-1] == "":
-                cells.pop()
-            if len(cells) >= 6 and cells[1] in ("남", "여"):
-                rows.append(cells)
-            elif not rows and "성명" in s.replace(" ", ""):
-                header = cells
-        if len(rows) > len(best):
-            best = [(header, r) for r in rows]
     out = []
-    for header, cells in best:
+    for header, cells in picked:
         keys = None
         if header and len(header) == len(cells):
-            keys = []
-            for h in header:
-                hn = re.sub(r"\s+", "", h)
-                keys.append(next((k for pat, k in cell_keys if re.search(pat, hn)), "_x"))
+            keys = [next((k for pat, k in cell_keys if re.search(pat, norm(h))), "_x") for h in header]
         if not keys or keys.count("nm") != 1:
             keys = default10[:len(cells)] if len(cells) >= 10 else (default10[:7] + default10[8:])[:len(cells)]
         row = {k: v for k, v in zip(keys, cells) if not k.startswith("_")}
@@ -3644,19 +3681,23 @@ def parse_unregistered_execs(text):
 
 
 def unregistered_execs(rcept_no):
-    """접수번호 -> (미등기임원 행들, 오류 문구 또는 None). 원문을 받아 읽는 데 몇 초 걸려서 결과만 일주일 저장한다."""
+    """접수번호 -> (미등기임원 행들, 안내 문구 또는 None). 원문을 받아 읽는 데 몇 초 걸려서 결과만 일주일 저장한다."""
     session, store = get_session(), get_cache_store()
     key = ("unreg", rcept_no)
     cached = cache_lookup(store, key, AI_TTL)
     if cached is not _MISSING:
-        return cached, None
+        return cached, (None if cached else "원문에서 미등기임원 현황 표를 찾지 못했어요 (보고서에 없거나 표 모양이 달라요)")
     try:
-        text = doc_text_from_zip(download_document(session, rcept_no))
+        parts = _xml_parts(download_document(session, rcept_no))
     except AiError as e:
-        return [], str(e)
-    rows = parse_unregistered_execs(text.split("\n\n")[0]) or parse_unregistered_execs(text)
+        return [], f"원문을 받지 못했어요 ({e})"
+    rows = []
+    for xml in parts:
+        rows = parse_unregistered_execs(xml)
+        if rows:
+            break
     cache_save(store, key, rows)
-    return rows, None
+    return rows, (None if rows else "원문에서 미등기임원 현황 표를 찾지 못했어요 (보고서에 없거나 표 모양이 달라요)")
 
 
 def find_periodic_rcept(corp_code, year, reprt):
@@ -3692,7 +3733,7 @@ def rt_exctv(corps, year, reprt):
     for n, _ in corps:
         rows, err = extra[n]
         if err:
-            notes.append(f"{n}: 미등기임원은 원문을 받지 못해 빠졌어요 ({err})")
+            notes.append(f"{n}: 미등기임원 — {err}")
         have = {person_key(r.get("nm", "")) for r in part[(n, year)]}  # API에 이미 있는 사람은 다시 넣지 않는다
         for r in rows:
             if person_key(r.get("nm", "")) not in have:
@@ -3717,9 +3758,10 @@ def render_exctv(res, label):
     kind = st.radio("구분", kinds, horizontal=True, key="pay_exctv", label_visibility="collapsed")
     col = "등기 여부"
     flag = df[col].astype(str) if col in df.columns else pd.Series([""] * len(df))
-    registered = flag.str.contains("등기") & ~flag.str.contains("미등기")
-    shown = df if kind == "전체" else df[registered if kind == "등기임원" else flag.str.contains("미등기")]
-    st.caption(f"{label} · 전체 {len(df):,}명 (등기 {int(registered.sum()):,}명 · 미등기 {int(flag.str.contains('미등기').sum()):,}명) · 보고서에 적힌 현재 임원")
+    unreg = flag.str.contains("미등기")  # API는 '사내이사'·'사외이사'처럼 적기도 해서, 미등기가 아니면 등기임원으로 본다
+    registered = ~unreg
+    shown = df if kind == "전체" else df[registered if kind == "등기임원" else unreg]
+    st.caption(f"{label} · 전체 {len(df):,}명 (등기 {int(registered.sum()):,}명 · 미등기 {int(unreg.sum()):,}명) · 보고서에 적힌 현재 임원")
     if shown.empty:
         st.info("해당하는 임원이 없어요.")
         return
