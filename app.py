@@ -3681,12 +3681,12 @@ def parse_unregistered_execs(xml):
 
 
 def unregistered_execs(rcept_no):
-    """접수번호 -> (미등기임원 행들, 안내 문구 또는 None). 원문을 받아 읽는 데 몇 초 걸려서 결과만 일주일 저장한다."""
+    """접수번호 -> (미등기임원 행들, 안내 문구 또는 None). 원문을 받아 읽는 데 몇 초 걸려서, 찾은 결과만 일주일 저장한다."""
     session, store = get_session(), get_cache_store()
-    key = ("unreg", rcept_no)
+    key = ("unreg2", rcept_no)  # 못 찾은 결과는 저장하지 않는다 (앞 버전의 빈 결과가 남아 계속 '없음'으로 보이는 일 방지)
     cached = cache_lookup(store, key, AI_TTL)
-    if cached is not _MISSING:
-        return cached, (None if cached else "원문에서 미등기임원 현황 표를 찾지 못했어요 (보고서에 없거나 표 모양이 달라요)")
+    if cached is not _MISSING and cached:
+        return cached, None
     try:
         parts = _xml_parts(download_document(session, rcept_no))
     except AiError as e:
@@ -3696,8 +3696,11 @@ def unregistered_execs(rcept_no):
         rows = parse_unregistered_execs(xml)
         if rows:
             break
-    cache_save(store, key, rows)
-    return rows, (None if rows else "원문에서 미등기임원 현황 표를 찾지 못했어요 (보고서에 없거나 표 모양이 달라요)")
+    if rows:
+        cache_save(store, key, rows)
+        return rows, None
+    diag = f"원문 파일 {len(parts)}개 · '미등기' {sum(x.count('미등기') for x in parts)}회 · 표 행 {sum(len(re.findall(r'(?i)<TR[ >]', x)) for x in parts):,}개"
+    return [], f"원문에서 미등기임원 현황 표를 찾지 못했어요 (보고서에 없거나 표 모양이 달라요) · {diag}"
 
 
 def find_periodic_rcept(corp_code, year, reprt):
