@@ -3494,7 +3494,7 @@ def render_pay():
             help=f"쉼표(,)나 슬래시(/)로 나눠 최대 {MAX_PAY_CORPS}곳까지 한 번에 비교해요.",
         )
         year = st.selectbox("사업연도", years, index=years.index(default_pay_year()), key="pay_year")
-        report = st.radio("보고서", list(PAY_REPORTS_ALL), horizontal=True, key="pay_report")
+        report = st.selectbox("보고서", list(PAY_REPORTS_ALL), key="pay_report")
         submitted = st.form_submit_button("임직원 조회") or st.session_state.pop("pay_run", False)
 
     if submitted:
@@ -3533,7 +3533,8 @@ def render_pay():
                     except DartApiError as e:
                         st.error(str(e))
                     else:
-                        st.session_state["pay"] = {"data": data, "year": int(year), "report": report, "exctv": exctv}
+                        st.session_state["pay"] = {"data": data, "year": int(year), "report": report, "exctv": exctv, "corps": corps}
+                        st.session_state.pop("pay_exctv_diff", None)
 
     res = st.session_state.get("pay")
     if not res:
@@ -3757,7 +3758,7 @@ def render_exctv(res, label):
     if df.empty:
         st.info(f"{label}에서 임원 현황을 찾지 못했어요.")
         return
-    kinds = ["전체", "등기임원", "미등기임원"]
+    kinds = ["등기임원", "미등기임원", "전체"]  # 처음엔 등기임원만 (미등기·전체는 목록이 길다)
     kind = st.radio("구분", kinds, horizontal=True, key="pay_exctv", label_visibility="collapsed")
     col = "등기 여부"
     flag = df[col].astype(str) if col in df.columns else pd.Series([""] * len(df))
@@ -3773,6 +3774,111 @@ def render_exctv(res, label):
         "CSV 다운로드", shown.drop(columns=["원문"]).to_csv(index=False).encode("utf-8-sig"),
         file_name=f"임원현황_{safe_filename(', '.join(res['data']))}_{res['year']}.csv", mime="text/csv", key=f"pay_exctv_dl_{kind}",
     )
+    render_exctv_diff(res, label)
+
+
+PREV_REPORT = {"11011": ("11014", 0), "11014": ("11012", 0), "11012": ("11013", 0), "11013": ("11011", -1)}  # 직전 정기보고서: (보고서 코드, 연도 보정)
+REPORT_NAME = {"11011": "사업보고서", "11012": "반기보고서", "11013": "1분기보고서", "11014": "3분기보고서"}
+DIFF_BASIS = ["1년 전 같은 보고서", "직전 정기보고서"]
+
+
+def exctv_diff(cur, prev):
+    """두 시점의 임원 현황 표 -> 변동 표 (새로 들어온 사람·나간 사람·직위/구분이 바뀐 사람). 회사별로 비교한다."""
+    def kind(v):
+        return "미등기" if "미등기" in str(v) else "등기"
+
+    def keyed(df):
+        use_birth = "출생" in df.columns and (df["출생"].astype(str).str.strip().replace("-", "") != "").any()
+        out = {}
+        for _, r in df.iterrows():
+            k = (r["회사"], person_key(r["성명"]), str(r.get("출생", "")).strip() if use_birth else "")
+            out.setdefault(k, r)
+        return out, use_birth
+
+    a, ub1 = keyed(cur)
+    b, ub2 = keyed(prev)
+    if not (ub1 and ub2):  # 한쪽에 출생 정보가 없으면 이름만으로 비교
+        a = {(k[0], k[1], ""): v for k, v in a.items()}
+        b = {(k[0], k[1], ""): v for k, v in b.items()}
+    rows = []
+
+    def line(change, r, pos_text=None):
+        return {"회사": r["회사"], "변동": change, "성명": r["성명"], "직위": pos_text if pos_text is not None else str(r.get("직위", "-")),
+                "구분": kind(r.get("등기 여부")), "담당 업무": str(r.get("담당 업무", "-"))}
+
+    for k, r in a.items():
+        if k not in b:
+            rows.append(line("새로 포함", r))
+            continue
+        old = b[k]
+        pos_old, pos_new = str(old.get("직위", "-")), str(r.get("직위", "-"))
+        k_old, k_new = kind(old.get("등기 여부")), kind(r.get("등기 여부"))
+        if pos_old == pos_new and k_old == k_new:
+            continue
+        text = f"{pos_old} → {pos_new}" if pos_old != pos_new else pos_new
+        if k_old != k_new:
+            text += f" ({k_old}→{k_new})"
+        rows.append(line("직위·구분 변경", r, text))
+    for k, r in b.items():
+        if k not in a:
+            rows.append(line("목록에서 빠짐", r))
+    order = {"새로 포함": 0, "목록에서 빠짐": 1, "직위·구분 변경": 2}
+    rows.sort(key=lambda x: (x["회사"], order[x["변동"]], x["구분"] != "등기"))
+    return pd.DataFrame(rows, columns=["회사", "변동", "성명", "직위", "구분", "담당 업무"])
+
+
+def render_exctv_diff(res, label):
+    """임원 현황 아래: 이전 정기보고서와 비교해 새로 들어오거나 빠진 임원 찾기."""
+    st.markdown("##### 이전 보고서와 비교")
+    basis = st.radio("비교 기준", DIFF_BASIS, horizontal=True, key="pay_exctv_basis",
+                     help="1년 전 같은 보고서: 한 해 동안의 인사 변동 / 직전 정기보고서: 바로 앞 분기·반기·사업보고서와의 변동")
+    reprt = PAY_REPORTS_ALL[res["report"]]
+    if basis == DIFF_BASIS[0]:
+        prev_reprt, prev_year = reprt, res["year"] - 1
+    else:
+        prev_reprt, delta = PREV_REPORT[reprt]
+        prev_year = res["year"] + delta
+    prev_label = f"{prev_year}년 {REPORT_NAME[prev_reprt]}"
+    st.caption(f"{label} ↔ {prev_label} · 이름(출생연월 있으면 함께)이 같은 사람을 같은 사람으로 봐요")
+    if st.button("비교하기", key="pay_exctv_diff_go"):
+        if prev_year < 2015:
+            st.error("2015년 이전 보고서는 비교할 수 없어요.")
+        else:
+            with st.spinner(f"{prev_label}의 임원 현황을 불러오는 중입니다... (미등기임원은 원문을 읽어서 몇 초 걸려요)"):
+                try:
+                    prev_df, prev_empty, prev_notes = rt_exctv(res["corps"], prev_year, prev_reprt)
+                except DartApiError as e:
+                    st.error(str(e))
+                else:
+                    cur_df = res["exctv"][0]
+                    skip = set(prev_empty) | {c for c in res["data"] if c not in set(cur_df["회사"])}
+                    both = [c for c in res["data"] if c not in skip]
+                    st.session_state["pay_exctv_diff"] = {
+                        "key": (res["year"], res["report"], basis, tuple(res["data"])), "prev_label": prev_label,
+                        "table": exctv_diff(cur_df[cur_df["회사"].isin(both)], prev_df[prev_df["회사"].isin(both)]) if both else pd.DataFrame(),
+                        "skipped": sorted(skip), "notes": prev_notes, "compared": both, "label": label, "id": time.time_ns(),
+                    }
+    out = st.session_state.get("pay_exctv_diff")
+    if not out or out["key"] != (res["year"], res["report"], basis, tuple(res["data"])):
+        return
+    for note in out["notes"]:
+        st.caption("이전 보고서 · " + note)
+    if out["skipped"]:
+        st.warning("임원 현황을 찾지 못해 비교하지 못한 회사: " + ", ".join(out["skipped"]))
+    table = out["table"]
+    if not out["compared"]:
+        return
+    counts = table["변동"].value_counts() if not table.empty else {}
+    st.markdown(f"**{out['label']} ↔ {out['prev_label']}** · 새로 포함 {int(counts.get('새로 포함', 0)):,}명 · "
+                f"목록에서 빠짐 {int(counts.get('목록에서 빠짐', 0)):,}명 · 직위·구분 변경 {int(counts.get('직위·구분 변경', 0)):,}명")
+    if table.empty:
+        st.info("두 보고서의 임원 명단이 같아요. 변동이 없습니다.")
+        return
+    st.caption("'목록에서 빠짐'은 퇴임·퇴직 외에 보고서 작성 방식 차이로 빠졌을 수도 있어요 (미등기임원은 5년 이상 재직하면 재직기간만 생략돼요). 확정 전에 원문으로 확인하세요.")
+    st.dataframe(table, hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
+    st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"임원변동_{safe_filename(', '.join(out['compared']))}_{res['year']}.csv", mime="text/csv",
+                       key=f"pay_exctv_diff_dl_{out['id']}")
 
 
 def render_dividend():
@@ -4747,7 +4853,7 @@ def render_report_ai():
 PERIODIC_VIEWS = ["AI 분석", "배당·자사주", "임직원", "주주·지분"]
 # 정기보고서 탭은 고른 화면의 입력칸만 그린다. 안 그린 화면의 입력값은 Streamlit이 지우므로, 화면을 오가도 남도록 미리 일반 값으로 옮겨 둔다.
 PERIODIC_KEEP = [f"rts_{k}" for k in ("corp", "year", "report", "mode")] + [
-    "rai_corp", "rai_pick", "rai_item", "pay_exctv", "pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report"]
+    "rai_corp", "rai_pick", "rai_item", "pay_exctv", "pay_exctv_basis", "pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report"]
 
 
 def render_periodic():
