@@ -2323,16 +2323,17 @@ def chart_spec(periods, unit):
                     "x": {"field": "기간", "type": "ordinal", "sort": list(periods),
                           "axis": {"title": None, "labelAngle": 0 if len(periods) <= 8 else -45, "labelOverlap": "parent"}},
                     "xOffset": {"field": "항목", "type": "nominal", "sort": names},
-                    "y": {"field": "금액", "type": "quantitative", "axis": {"title": unit, "format": ",.~f"}},
+                    "y": {"field": "금액", "type": "quantitative", "stack": None, "axis": {"title": unit, "format": ",.2~f"}},
                     "color": {
                         "field": "항목", "type": "nominal",
                         "scale": {"domain": names, "range": list(CHART_COLORS.values())},
                         "legend": {"title": None, "orient": "top"},
                     },
-                    "tooltip": [{"field": "기간"}, {"field": "항목"}, {"field": "금액", "format": ",.~f", "title": f"금액({unit})"}],
+                    "tooltip": [{"field": "기간"}, {"field": "항목"}, {"field": "금액", "format": ",.2~f", "title": f"금액({unit})"}],
                 },
             },
-            {"mark": {"type": "rule", "color": "#94a3b8"}, "encoding": {"y": {"datum": 0}}},
+            {"data": {"values": [{"zero": 0}]}, "mark": {"type": "rule", "color": "#94a3b8"},
+             "encoding": {"y": {"field": "zero", "type": "quantitative"}}},
         ],
     }
 
