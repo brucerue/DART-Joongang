@@ -4873,6 +4873,14 @@ def krx_parse(rows, market):
     return out
 
 
+def krx_body(res):
+    """오류 응답 본문을 짧게 (원인 파악용)."""
+    try:
+        return re.sub(r"\s+", " ", str(res.text or ""))[:120] or "본문 없음"
+    except Exception:
+        return "본문 없음"
+
+
 def krx_request(session, path, day_str):
     """KRX 한 번 호출. 인증키는 헤더로 먼저 보내고, 거절되면 주소 파라미터로 한 번 더 시도한다."""
     store = _krx_store()
@@ -4901,11 +4909,12 @@ def krx_request(session, path, day_str):
         break
     if res.status_code in (401, 403):
         raise KrxError("KRX 인증키가 올바르지 않거나, 이 시세 API의 이용 승인이 아직 안 됐어요. "
-                       "KRX Open API에서 '유가증권/코스닥 일별매매정보' 이용 신청 상태를 확인해주세요.")
+                       "KRX Open API에서 '유가증권/코스닥 일별매매정보' 이용 신청 상태를 확인해주세요. "
+                       f"(서버 응답 {res.status_code}: {krx_body(res)} · {path})")
     if res.status_code == 429:
         raise KrxError("KRX API 하루 호출 한도를 넘었어요. 내일 다시 시도해주세요.")
     if res.status_code != 200:
-        raise KrxError(f"KRX 응답 오류 [{res.status_code}]")
+        raise KrxError(f"KRX 응답 오류 [{res.status_code}: {krx_body(res)}] {path}")
     try:
         data = res.json()
     except Exception as e:
@@ -5299,6 +5308,503 @@ def render_krx_check():
             st.caption(f"인증키 전달 방식: {_krx_store()['auth']['mode']} · 저장된 시세 {len(_krx_store()['days'])}건")
 
 
+# ------------------------------------------------------------
+# 해외 기업 실적 (미국 SEC EDGAR 재무 데이터 + 환율 환산)
+# ------------------------------------------------------------
+# 실적: SEC EDGAR 'companyfacts' (회사별 XBRL 재무 항목, 무료·키 없음). 연간(10-K·20-F)과 분기(10-Q)를 읽고,
+#       4분기는 한국 기업과 같은 방식으로 '연간 - 3분기 누적'으로 계산한다. 연 1회만 공시하는 외국 기업(20-F)은 연간만 나온다.
+# 환율: Frankfurter(유럽중앙은행 기준환율) 일별 환율의 기간 평균·기간 말. 대만달러처럼 지원하지 않는 통화는 직접 입력.
+SEC_UA = load_secret("SEC_USER_AGENT") or "JoongangIndustryDesk research app (set the SEC_USER_AGENT secret with a contact)"
+SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+SEC_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{:010d}.json"
+SEC_TIMEOUT = 45  # 회사 하나의 재무 파일이 수 MB라 DART보다 길게
+SEC_TTL = 6 * 3600
+SEC_FORMS = ("10-K", "10-Q", "20-F", "40-F")
+MAX_OVERSEAS = 10
+FX_HOSTS = (("https://api.frankfurter.dev/v1", "base", "symbols"), ("https://api.frankfurter.app", "from", "to"))
+
+# 회사 이름 (입력칸에 한글로 써도 찾는다). 업종 후보는 아래 OVERSEAS_GROUPS.
+OVERSEAS_NAMES = {
+    "NVDA": "엔비디아", "AMD": "AMD", "MU": "마이크론", "INTC": "인텔", "QCOM": "퀄컴", "AVGO": "브로드컴", "TSM": "TSMC", "ASML": "ASML",
+    "AAPL": "애플", "MSFT": "마이크로소프트", "GOOGL": "알파벳", "AMZN": "아마존", "META": "메타", "TSLA": "테슬라",
+    "GM": "GM", "F": "포드", "TM": "도요타",
+    "LMT": "록히드마틴", "RTX": "RTX", "NOC": "노스럽그러먼", "GD": "제너럴다이내믹스", "BA": "보잉",
+    "XOM": "엑슨모빌", "CVX": "셰브런", "COP": "코노코필립스", "MPC": "마라톤페트롤리엄", "VLO": "발레로에너지",
+    "NUE": "뉴코", "STLD": "스틸다이내믹스", "MT": "아르셀로미탈",
+    "VZ": "버라이즌", "T": "AT&T", "TMUS": "T모바일",
+    "LLY": "일라이릴리", "JNJ": "존슨앤드존슨", "PFE": "화이자", "MRK": "머크", "ABBV": "애브비",
+}
+OVERSEAS_GROUPS = {
+    "반도체": ["NVDA", "AMD", "MU", "INTC", "QCOM", "AVGO", "TSM", "ASML"],
+    "빅테크": ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
+    "자동차": ["TSLA", "GM", "F", "TM"],
+    "방산·항공우주": ["LMT", "RTX", "NOC", "GD", "BA"],
+    "에너지·정유": ["XOM", "CVX", "COP", "MPC", "VLO"],
+    "철강": ["NUE", "STLD", "MT"],
+    "통신": ["VZ", "T", "TMUS"],
+    "제약·바이오": ["LLY", "JNJ", "PFE", "MRK", "ABBV"],
+}
+KOREAN_TO_TICKER = {re.sub(r"\s+", "", v).lower(): k for k, v in OVERSEAS_NAMES.items()}
+CURRENCY_NAMES = {"USD": "달러", "EUR": "유로", "JPY": "엔", "GBP": "파운드", "CNY": "위안", "TWD": "대만달러", "CHF": "프랑",
+                  "CAD": "캐나다달러", "HKD": "홍콩달러", "AUD": "호주달러", "KRW": "원"}
+SEC_CONCEPTS = {
+    "us-gaap": {
+        "rev": ["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "RevenueFromContractWithCustomerIncludingAssessedTax",
+                "SalesRevenueNet", "SalesRevenueGoodsNet"],
+        "op": ["OperatingIncomeLoss"],
+        "net": ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"],
+    },
+    "ifrs-full": {
+        "rev": ["Revenue", "RevenueFromContractsWithCustomers"],
+        "op": ["ProfitLossFromOperatingActivities"],
+        "net": ["ProfitLossAttributableToOwnersOfParent", "ProfitLoss"],
+    },
+}
+OVS_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
+
+
+class SecError(Exception):
+    """SEC 접속 차단·서버 오류 등 사용자에게 알려야 하는 조회 실패."""
+
+
+@st.cache_resource
+def _sec_store():
+    return {"lock": threading.Lock(), "tickers": None, "facts": {}, "fx": {}}
+
+
+def sec_get(url):
+    """SEC 한 번 호출 -> JSON(dict). 없으면 None. SEC는 연락처가 담긴 User-Agent를 요구한다."""
+    res, last = None, None
+    for attempt in range(3):
+        try:
+            res = get_session().get(url, headers={"User-Agent": SEC_UA, "Accept": "application/json"}, timeout=SEC_TIMEOUT)
+            break
+        except Exception as e:
+            last, res = e, None
+            time.sleep(0.7 * (attempt + 1))
+    if res is None:
+        raise SecError("SEC 서버 응답이 없거나 늦어요. 잠시 후 다시 시도해주세요.") from last
+    if res.status_code == 404:
+        return None
+    if res.status_code in (403, 429):
+        raise SecError("SEC가 요청을 막았어요. Streamlit Secrets에 SEC_USER_AGENT = \"회사명 담당자이메일\" 형식으로 연락처를 등록한 뒤 "
+                       f"다시 시도해주세요. (SEC는 연락처 없는 요청을 막아요 · 응답 {res.status_code})")
+    if res.status_code != 200:
+        raise SecError(f"SEC 응답 오류 [{res.status_code}]")
+    try:
+        return res.json()
+    except Exception as e:
+        raise SecError("SEC 응답을 읽지 못했어요.") from e
+
+
+def sec_tickers():
+    """[(티커, CIK, 회사명)] 전체 목록 (하루 한 번만 받는다)."""
+    s = _sec_store()
+    with s["lock"]:
+        hit = s["tickers"]
+    if hit and time.time() - hit[0] < 24 * 3600:
+        return hit[1]
+    data = sec_get(SEC_TICKERS_URL)
+    rows = []
+    if isinstance(data, dict):
+        for v in data.values():
+            try:
+                rows.append((str(v["ticker"]).upper(), int(v["cik_str"]), str(v["title"])))
+            except Exception:
+                continue
+    if not rows:
+        raise SecError("SEC 회사 목록을 읽지 못했어요.")
+    with s["lock"]:
+        s["tickers"] = (time.time(), rows)
+    return rows
+
+
+def sec_resolve(text):
+    """입력(티커·영문 회사명·한글 이름) -> ((티커, CIK, 회사명) 또는 None, 비슷한 후보 목록, 이름으로 찾았는지)"""
+    t = text.strip()
+    if not t:
+        return None, [], False
+    rows = sec_tickers()
+    by = {r[0]: r for r in rows}
+    cand = KOREAN_TO_TICKER.get(re.sub(r"\s+", "", t).lower()) or t.upper().replace(".", "-")
+    if cand in by:
+        return by[cand], [], False
+    words = t.lower().split()
+    hits = sorted((r for r in rows if all(w in r[2].lower() for w in words)), key=lambda r: len(r[2]))
+    if hits:
+        return hits[0], hits[1:4], True
+    return None, [], False
+
+
+def sec_unit(units, cur):
+    if cur and cur in units:
+        return cur
+    if "USD" in units:
+        return "USD"
+    keys = [k for k in units if "/" not in k and k.lower() not in ("shares", "pure")]
+    return max(keys, key=lambda k: len(units[k])) if keys else None
+
+
+def sec_parse(data):
+    """companyfacts -> {"name", "cur", "annual": [...], "quarter": [...]} (기간마다 start·end·rev·op·net). 못 읽으면 None."""
+    facts = (data or {}).get("facts") or {}
+    tax = next((t for t in ("us-gaap", "ifrs-full")
+                if any(c in (facts.get(t) or {}) for c in SEC_CONCEPTS[t]["rev"] + SEC_CONCEPTS[t]["net"])), None)
+    if not tax:
+        return None
+    f, cur, series = facts[tax], None, {}
+    for metric in ("rev", "op", "net"):
+        got = {}
+        for concept in SEC_CONCEPTS[tax][metric]:  # 앞에 있는 항목이 우선. 회사가 항목 이름을 바꿨으면 빈 기간만 뒤 항목으로 채움
+            units = (f.get(concept) or {}).get("units") or {}
+            u = sec_unit(units, cur)
+            if not u:
+                continue
+            cur = cur or u
+            best = {}
+            for e in units[u]:
+                if "start" not in e or not str(e.get("form", "")).startswith(SEC_FORMS):
+                    continue
+                try:
+                    k = (date.fromisoformat(e["start"]), date.fromisoformat(e["end"]))
+                    v = float(e["val"])
+                except (KeyError, ValueError, TypeError):
+                    continue
+                filed = str(e.get("filed", ""))
+                if k not in best or filed >= best[k][1]:  # 같은 기간이 여러 번 나오면 가장 나중(정정) 값
+                    best[k] = (v, filed)
+            for k, (v, _) in best.items():
+                got.setdefault(k, v)
+        series[metric] = got
+    ann, qtr, ytd9 = {}, {}, {}
+    for k in set().union(*series.values()):
+        days = (k[1] - k[0]).days
+        rec = {m: series[m].get(k) for m in series}
+        if 350 <= days <= 380:
+            ann[k] = rec
+        elif 80 <= days <= 100:
+            qtr[k] = rec
+        elif 255 <= days <= 290:
+            ytd9[k] = rec
+    derived = set()
+    for (s0, e0), rec in ann.items():  # 4분기 = 연간 - 3분기 누적 (직접 공시한 4분기가 없을 때만)
+        if any(abs((qe - e0).days) <= 10 for _, qe in qtr):
+            continue
+        for (ys, ye), y in ytd9.items():
+            if abs((ys - s0).days) <= 5 and 70 <= (e0 - ye).days <= 110:
+                q4 = {m: (rec[m] - y[m]) if rec[m] is not None and y[m] is not None else None for m in rec}
+                if any(v is not None for v in q4.values()):
+                    qtr[(ye + timedelta(days=1), e0)] = q4
+                    derived.add((ye + timedelta(days=1), e0))
+                break
+    mk = lambda d, flag=None: sorted(({"start": k[0], "end": k[1], "derived": (k in derived), **v} for k, v in d.items()), key=lambda p: p["end"])
+    return {"name": data.get("entityName"), "cur": cur, "annual": mk(ann), "quarter": mk(qtr)}
+
+
+def sec_company(cik):
+    """회사 하나의 파싱된 재무 (6시간 저장). 자료가 없으면 SecError."""
+    s = _sec_store()
+    with s["lock"]:
+        hit = s["facts"].get(cik)
+    if hit and time.time() - hit[0] < SEC_TTL:
+        return hit[1]
+    co = sec_parse(sec_get(SEC_FACTS_URL.format(cik)))
+    if not co or not co["cur"]:
+        raise SecError("EDGAR에서 이 회사의 매출·이익 자료를 찾지 못했어요. (미국에 재무 보고서를 내지 않는 회사일 수 있어요)")
+    with s["lock"]:
+        s["facts"][cik] = (time.time(), co)
+    return co
+
+
+def approx_end(d):
+    """52·53주 결산처럼 월 초에 끝나는 날은 전달 말로 본다 (1월 2일 종료 -> 12월 31일)."""
+    return d if d.day > 15 else d - timedelta(days=d.day)
+
+
+def sec_pick(co, year, period):
+    """달력 기준 연도·기간에 가장 가까운 결산 기간 -> (현재, 전년 같은 기간). 없으면 (None, None).
+    연간 = 회계연도 종료일이 그 해에 있는 것. 분기 = 종료일이 달력 분기 말(3/6/9/12월 말)에 46일 이내로 가까운 것."""
+    if period == "연간":
+        cands = [p for p in co["annual"] if approx_end(p["end"]).year == year]
+        cur = max(cands, key=lambda p: p["end"]) if cands else None
+        pool = co["annual"]
+    else:
+        q = int(period[0])
+        target = date(year, q * 3, 31 if q in (1, 4) else 30)
+        cands = [(abs((approx_end(p["end"]) - target).days), p) for p in co["quarter"]]
+        cands = [c for c in cands if c[0] <= 46]
+        cur = min(cands, key=lambda c: c[0])[1] if cands else None
+        pool = co["quarter"]
+    if not cur:
+        return None, None
+    want = approx_end(cur["end"]) - timedelta(days=365)
+    prevs = [(abs((approx_end(p["end"]) - want).days), p) for p in pool if p is not cur]
+    prevs = [c for c in prevs if c[0] <= 25]
+    return cur, (min(prevs, key=lambda c: c[0])[1] if prevs else None)
+
+
+def fx_range(cur, start, end):
+    """통화 1단위의 원화 환율 {"avg": 기간 평균, "last": 기간 말, "last_date"}. 지원하지 않거나 못 받으면 None."""
+    if cur == "KRW":
+        return {"avg": 1.0, "last": 1.0, "last_date": end}
+    s = _sec_store()
+    key = (cur, start, end)
+    with s["lock"]:
+        if key in s["fx"]:
+            return s["fx"][key]
+    out = None
+    for host, p_from, p_to in FX_HOSTS:
+        try:
+            res = get_session().get(f"{host}/{start:%Y-%m-%d}..{end:%Y-%m-%d}", params={p_from: cur, p_to: "KRW"}, timeout=REQUEST_TIMEOUT)
+        except Exception:
+            continue
+        if res.status_code in (404, 422):
+            break  # 지원하지 않는 통화 (예: 대만달러)
+        if res.status_code != 200:
+            continue
+        try:
+            rates = sorted((d, v["KRW"]) for d, v in (res.json().get("rates") or {}).items() if "KRW" in v)
+        except Exception:
+            continue
+        if rates:
+            out = {"avg": sum(v for _, v in rates) / len(rates), "last": rates[-1][1], "last_date": date.fromisoformat(rates[-1][0])}
+            break
+    else:
+        return out  # 서버에 닿지 않은 경우는 저장하지 않는다 (다음에 다시 시도)
+    with s["lock"]:
+        s["fx"][key] = out
+    return out
+
+
+def collect_overseas(items, year, period):
+    """items: [(티커, CIK, 회사명)] -> {티커: {"co", "now", "prev", "fx", "error"}}. 한 회사가 실패해도 나머지는 담는다."""
+    def one(item):
+        ticker, cik, title = item
+        try:
+            co = sec_company(cik)
+        except SecError as e:
+            return {"error": str(e)}
+        now, prev = sec_pick(co, year, period)
+        r = {"co": co, "now": now, "prev": prev, "fx": None, "error": None}
+        if now is None:
+            r["error"] = ("이 회사는 분기 자료가 없어요 (연 1회 공시)" if period != "연간" and not co["quarter"]
+                          else "해당 기간 자료가 없어요. 아직 공시 전이거나 결산월이 달라 가까운 기간이 없어요")
+        else:
+            r["fx"] = fx_range(co["cur"], now["start"], now["end"])
+        return r
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        return {it[0]: r for it, r in zip(items, pool.map(one, items))}
+
+
+def local_money(v, cur):
+    """현지 통화 기사체: 570억 달러 / 1조2000억 엔"""
+    body = won_text(v)[:-1] if v is not None and won_text(v).endswith("원") else won_text(v)
+    name = CURRENCY_NAMES.get(cur, cur)
+    return body + ("" if name in ("엔", "원") else " ") + name
+
+
+def ovs_rate(entry, mode, override):
+    """표시에 쓸 환율 (원/통화 1단위). 직접 입력이 있으면 그것, 없으면 자동값, 둘 다 없으면 None."""
+    if override and override > 0:
+        return override, "직접 입력"
+    fx = entry.get("fx")
+    if fx:
+        return fx["avg" if mode == "기간 평균" else "last"], "자동"
+    return None, ""
+
+
+def ovs_table(res, view, unit, mode, overrides):
+    """조회 결과 -> (표, 환율 표, 기사 문장 목록, 환율이 없어 원화로 못 바꾼 회사)"""
+    rows, rate_rows, sentences, no_rate = [], [], [], []
+    krw = view == "원화 환산"
+    totals = {"rev": 0.0, "op": 0.0, "net": 0.0}
+    n_total = 0
+    for ticker, entry in res["data"].items():
+        label = f"{res['names'][ticker]} ({ticker})"
+        now, prev, co = entry.get("now"), entry.get("prev"), entry.get("co")
+        if not now:
+            continue
+        cur = co["cur"]
+        rate, how = ovs_rate(entry, mode, overrides.get(cur))
+        if krw and rate is None:
+            no_rate.append(label)
+        if rate is not None and cur != "KRW":
+            rate_rows.append({"통화": f"{cur} ({CURRENCY_NAMES.get(cur, cur)})", "적용 환율(원)": f"{rate:,.2f}", "구분": how,
+                              "기준": (f"{now['start']:%Y.%m.%d}~{now['end']:%Y.%m.%d} 평균" if mode == "기간 평균" and how == "자동"
+                                     else (f"{entry['fx']['last_date']:%Y.%m.%d} 종가" if how == "자동" else "직접 입력")),
+                              "회사": label})
+
+        def show(v):
+            if v is None:
+                return "-"
+            if krw:
+                return "-" if rate is None else fmt_amount(v * rate, unit)
+            return f"{round(v / 1e8) + 0.0:,.0f}"
+
+        pv = prev or {}
+        margin = now["op"] / now["rev"] * 100 if now["op"] is not None and now["rev"] else None
+        period_note = "4분기 계산" if now.get("derived") else ""
+        rows.append({
+            "회사": label, "결산 종료일": f"{now['end']:%Y-%m-%d}" + (f" ({period_note})" if period_note else ""),
+            "통화": cur,
+            "매출액": show(now["rev"]), "매출 전년比": fmt_change(pct_change(now["rev"], pv.get("rev"))),
+            "영업이익": show(now["op"]), "영업이익 전년比": fmt_change(op_change(now["op"], pv.get("op"))),
+            "영업이익률": f"{margin:.1f}%" if margin is not None else "-",
+            "순이익": show(now["net"]), "순이익 전년比": fmt_change(op_change(now["net"], pv.get("net"))),
+        })
+        if krw and rate is not None:
+            for k in totals:
+                if now[k] is not None:
+                    totals[k] += now[k] * rate
+            n_total += 1
+        when = f"{res['year']}년 " + ("연간" if res["period"] == "연간" else f"{res['period'][0]}분기") + f"(결산 종료 {now['end']:%Y년 %-m월 %-d일})"
+        parts = []
+        for k, name in (("rev", "매출"), ("op", "영업이익"), ("net", "순이익")):
+            v = now[k]
+            if v is None:
+                continue
+            nm = "영업손실" if k == "op" and v < 0 else ("순손실" if k == "net" and v < 0 else name)
+            text = local_money(abs(v), cur) if cur != "KRW" else won_text(abs(v))
+            if krw and rate is not None and cur != "KRW":
+                text += f"(약 {won_text(abs(v) * rate)})"
+            chg = change_text((pct_change if k == "rev" else op_change)(v, pv.get(k)))
+            parts.append(f"{nm} {text}" + (f", 전년 대비 {chg}" if chg else ""))
+        if parts:
+            sentences.append(f"{label.split(' (')[0]}의 {when} " + " / ".join(parts) + "으로 집계됐다.")
+    table = pd.DataFrame(rows)
+    if krw and n_total > 1 and not table.empty:
+        total_row = {
+            "회사": f"합계 ({n_total}개사, 참고)", "결산 종료일": "", "통화": "원",
+            "매출액": fmt_amount(totals["rev"], unit), "매출 전년比": "", "영업이익": fmt_amount(totals["op"], unit), "영업이익 전년比": "",
+            "영업이익률": f"{totals['op'] / totals['rev'] * 100:.1f}%" if totals["rev"] else "-",
+            "순이익": fmt_amount(totals["net"], unit), "순이익 전년比": "",
+        }
+        table.loc[len(table)] = [total_row[c] for c in table.columns]
+    return table, pd.DataFrame(rate_rows), sentences, no_rate
+
+
+def fill_overseas():
+    group = st.session_state.get("ovs_group")
+    if group in OVERSEAS_GROUPS:
+        st.session_state["ovs_corps"] = ", ".join(OVERSEAS_GROUPS[group])
+
+
+def latest_overseas_period(today=None):
+    """지금 공시가 나와 있을 가능성이 큰 가장 최근 달력 분기 (분기 말 + 40일 이후) -> (연도, '1Q'~'4Q')"""
+    t = today or TODAY
+    for y in (t.year, t.year - 1):
+        for q in (4, 3, 2, 1):
+            end = date(y, q * 3, 31 if q in (1, 4) else 30)
+            if end + timedelta(days=40) <= t:
+                return y, f"{q}Q"
+    return t.year - 1, "4Q"
+
+
+def render_overseas():
+    """탭: 해외 기업 - 미국 SEC 공시로 해외 기업 실적을 보고, 환율로 원화 환산."""
+    groups = list(OVERSEAS_GROUPS) + ["직접 입력"]
+    st.session_state.setdefault("ovs_corps", ", ".join(OVERSEAS_GROUPS[groups[0]]))
+    st.selectbox("업종", groups, key="ovs_group", on_change=fill_overseas)
+    ly, lp = latest_overseas_period()
+    years = list(range(TODAY.year, 2014, -1))
+    with st.form("ovs_search"):
+        corp_text = st.text_input(
+            "티커 또는 회사 이름 (쉼표로 구분)", key="ovs_corps", placeholder="예: NVDA, 마이크론, Intel",
+            help=f"티커(NVDA), 영문 이름, 주요 기업은 한글 이름으로도 찾아요. 최대 {MAX_OVERSEAS}곳.",
+        )
+        c1, c2 = st.columns(2)
+        year = c1.selectbox("연도 (달력 기준)", years, index=years.index(ly), key="ovs_year")
+        period = c2.radio("기간", OVS_PERIODS, index=OVS_PERIODS.index(lp), horizontal=True, key="ovs_period",
+                          help="분기는 달력 분기에 가장 가까운 회사별 결산 분기를 골라요. 연간은 회계연도 종료일이 그 해에 있는 해예요.")
+        submitted = st.form_submit_button("해외 기업 조회")
+    st.caption("미국 SEC에 공시하는 기업의 실적이에요 (연결 기준, 각사 결산월 기준). 연 1회만 공시하는 외국 기업(TSMC·도요타 등)은 연간만 나와요.")
+
+    if submitted:
+        names, items, notes = [], [], []
+        for part in re.split(NEWS_SPLIT, corp_text):
+            if part.strip() and part.strip().lower() not in [n.lower() for n in names]:
+                names.append(part.strip())
+        if not names:
+            st.error("티커나 회사 이름을 입력해주세요.")
+        elif len(names) > MAX_OVERSEAS:
+            st.error(f"기업은 한 번에 {MAX_OVERSEAS}곳까지 넣을 수 있어요. (지금 {len(names)}곳)")
+        else:
+            st.session_state.pop("overseas", None)
+            try:
+                with st.spinner("회사를 확인하는 중입니다..."):
+                    for n in names:
+                        hit, alts, by_name = sec_resolve(n)
+                        if not hit:
+                            st.warning(f'"{n}"을(를) SEC 목록에서 찾지 못해 뺐어요. 티커(예: NVDA)로 입력해보세요.')
+                        elif hit[0] not in [i[0] for i in items]:
+                            items.append(hit)
+                            if by_name:
+                                alt = ", ".join(f"{a[2]}({a[0]})" for a in alts)
+                                notes.append(f'"{n}" → {hit[2]}({hit[0]})로 찾았어요.' + (f" 다른 후보: {alt}" if alt else ""))
+                if items:
+                    with st.spinner("SEC 공시와 환율을 불러오는 중입니다... (회사당 몇 초 걸려요)"):
+                        data = collect_overseas(items, int(year), period)
+                    st.session_state["overseas"] = {
+                        "data": data, "year": int(year), "period": period, "notes": notes,
+                        "names": {t: OVERSEAS_NAMES.get(t) or ((data[t]["co"]["name"] if data[t].get("co") else None) or title).title()
+                                  for t, _, title in items},
+                    }
+            except SecError as e:
+                st.error(str(e))
+
+    res = st.session_state.get("overseas")
+    if not res:
+        return
+    for n in res["notes"]:
+        st.caption(n)
+    for t, entry in res["data"].items():
+        if entry.get("error"):
+            st.warning(f"{res['names'].get(t, t)} ({t}): {entry['error']}")
+    if not any(e.get("now") for e in res["data"].values()):
+        return
+
+    c1, c2, c3 = st.columns([2, 2, 2])
+    view = c1.radio("표시", ["원화 환산", "현지 통화"], horizontal=True, key="ovs_view")
+    unit = c2.radio("단위", list(UNITS), index=list(UNITS).index("조원"), horizontal=True, key="ovs_unit", disabled=view != "원화 환산")
+    mode = c3.radio("환율 기준", ["기간 평균", "기간 말"], horizontal=True, key="ovs_fxmode", disabled=view != "원화 환산",
+                    help="손익은 한 기간 동안 번 돈이라 보통 기간 평균 환율로 바꿔요. 기간 말은 결산일 환율이에요.")
+    currencies = sorted({e["co"]["cur"] for e in res["data"].values() if e.get("now")} - {"KRW"})
+    overrides = {}
+    if view == "원화 환산":
+        with st.expander("환율 확인·직접 입력", expanded=any(
+                not (e.get("fx")) for e in res["data"].values() if e.get("now") and e["co"]["cur"] != "KRW")):
+            st.caption("자동 환율은 유럽중앙은행 기준환율(Frankfurter)로 계산한 원화 환율이에요. 한국은행 매매기준율과 조금 다를 수 있어요. "
+                       "기사에 쓸 환율이 따로 있으면 아래에 입력하면 그 값으로 바꿔요 (0이면 자동).")
+            cols = st.columns(max(len(currencies), 1))
+            for col, cur in zip(cols, currencies):
+                overrides[cur] = col.number_input(f"{cur} 1{CURRENCY_NAMES.get(cur, '')} = ? 원", min_value=0.0, value=0.0, step=1.0,
+                                                  key=f"ovs_fx_{cur}")
+    table, rates, sentences, no_rate = ovs_table(res, view, unit, mode, overrides)
+    when = f"{res['year']}년 " + ("연간" if res["period"] == "연간" else f"{res['period'][0]}분기")
+    unit_text = f"단위: {unit}, 환율 {mode}" if view == "원화 환산" else "단위: 억 (각 회사의 현지 통화)"
+    st.caption(f"{when} (달력 기준에 가장 가까운 결산 기간) · 연결 기준 · {unit_text} · 증감률은 현지 통화 기준이라 환율 영향이 없어요")
+    if no_rate:
+        st.warning("환율을 자동으로 구하지 못해 원화로 바꾸지 못한 회사: " + ", ".join(no_rate) + ". 위 '환율 확인·직접 입력'에 환율을 넣어주세요.")
+    st.dataframe(
+        table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
+        hide_index=True, height=(len(table) + 1) * 35 + 3,
+        column_config={"회사": st.column_config.TextColumn("회사", width=150), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
+                       "통화": st.column_config.TextColumn("통화", width=55)},
+    )
+    if view == "원화 환산" and len(table) > 1:
+        st.caption("합계는 결산 기간이 서로 다른 회사를 환율로 바꿔 더한 참고용 값이에요.")
+    if not rates.empty:
+        st.markdown("##### 적용 환율")
+        st.dataframe(rates, hide_index=True, height=(len(rates) + 1) * 35 + 3)
+    if sentences:
+        st.caption("기사 문장 초안 — 오른쪽 위 아이콘을 누르면 복사돼요.")
+        st.code("\n".join(sentences), language=None, wrap_lines=True)
+    st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"해외기업_{res['year']}_{res['period']}.csv", mime="text/csv", key="ovs_csv")
+    st.caption("자료: 미국 SEC EDGAR(XBRL), 환율: 유럽중앙은행 기준환율(Frankfurter) · 4분기는 '연간 - 3분기 누적'으로 계산한 값이에요")
+
+
 STYLE = """
 <style>
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
@@ -5337,6 +5843,7 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 [data-testid="stTab"] > div:not([data-testid]) { display: none; }  /* 기본 밑줄 표시는 숨김 */
 [data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after { display: none !important; }
 [data-testid="stTabs"] [role="tablist"] { box-shadow: none !important; background: none !important; }
+@media (min-width: 760px) { [data-testid="stTabs"] [role="tablist"] { grid-template-columns: repeat(5, minmax(0, 1fr)); } }  /* 넓은 화면: 5개씩 2줄 */
 @media (max-width: 400px) { [data-testid="stTab"] p { font-size: 0.8rem; } }  /* 작은 휴대폰에서도 글자가 칸 안에 */
 [data-testid="stTabs"] [role="tablist"] ~ button, [data-testid="stTabs"] button[aria-label*="croll"] { display: none !important; }
 
@@ -6281,14 +6788,14 @@ def render_brief():
 
 
 
-TAB_NAMES = ["재무 조회", "업종 합산", "재계 순위", "단독 뉴스", "오늘의 공시", "공시 목록", "정기보고서", "기업 브리핑", "주장 검증"]
+TAB_NAMES = ["재무 조회", "업종 합산", "재계 순위", "단독 뉴스", "오늘의 공시", "공시 목록", "정기보고서", "기업 브리핑", "주장 검증", "해외 기업"]
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_fin, tab_ind, tab_chaebol, tab_news, tab_feed, tab_list, tab_periodic, tab_brief, tab_claim = tabs
+tab_fin, tab_ind, tab_chaebol, tab_news, tab_feed, tab_list, tab_periodic, tab_brief, tab_claim, tab_overseas = tabs
 with tab_fin:
     render_financials()
 with tab_ind:
@@ -6307,4 +6814,6 @@ with tab_brief:
     render_brief()
 with tab_claim:
     render_claims()
+with tab_overseas:
+    render_overseas()
 render_krx_check()
