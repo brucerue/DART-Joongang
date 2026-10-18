@@ -3306,11 +3306,29 @@ def fill_industry():
         st.session_state["ind_corps"] = ", ".join(INDUSTRY_GROUPS[group])
 
 
+def fav_ind_pick():
+    """관심 기업을 합산 기업 칸에 채운다 (업종은 '직접 입력'으로)."""
+    st.session_state["ind_group"] = "직접 입력"
+    st.session_state["ind_corps"] = ", ".join(fav_list()[:MAX_INDUSTRY_CORPS])
+
+
+def render_fin_hub():
+    """탭: 재무 조회 - 기업 한 곳의 기간별 추이 / 여러 기업 합산을 고른다."""
+    mode = st.radio("조회 방식", ["기업 한 곳 (기간별 추이)", "여러 기업 (업종 합산)"], horizontal=True, key="fin_mode")
+    if mode.startswith("기업 한 곳"):
+        render_financials()
+    else:
+        render_industry()
+
+
 def render_industry():
     """탭: 업종 합산 - 여러 회사의 같은 기간 실적을 모으고 합계를 낸다."""
     groups = list(INDUSTRY_GROUPS) + ["직접 입력"]
     st.session_state.setdefault("ind_corps", ", ".join(INDUSTRY_GROUPS[groups[0]]))
     st.selectbox("업종", groups, key="ind_group", on_change=fill_industry)  # 폼 밖: 고르면 아래 기업 칸이 바뀜
+    favs = fav_list()
+    if favs:
+        st.button(f"관심 기업 불러오기 ({min(len(favs), MAX_INDUSTRY_CORPS)}곳)", key="fav_ind", on_click=fav_ind_pick)
     ly, lp = latest_period()
     years = list(range(TODAY.year, 2014, -1))
     with st.form("ind_search"):
@@ -6832,7 +6850,7 @@ def render_fav_panel():
             st.rerun()
 
 
-TAB_NAMES = ["재무 조회", "업종 합산", "재계 순위", "단독 뉴스", "오늘의 공시", "공시 목록", "정기보고서", "기업 브리핑", "해외 기업"]
+TAB_NAMES = ["재무 조회", "재계 순위", "단독 뉴스", "오늘의 공시", "공시 목록", "정기보고서", "기업 브리핑", "해외 기업"]
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
 render_fav_panel()
 first_tab = "단독 뉴스" if apply_watchlist() else None
@@ -6840,11 +6858,9 @@ try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_fin, tab_ind, tab_chaebol, tab_news, tab_feed, tab_list, tab_periodic, tab_brief, tab_overseas = tabs
+tab_fin, tab_chaebol, tab_news, tab_feed, tab_list, tab_periodic, tab_brief, tab_overseas = tabs
 with tab_fin:
-    render_financials()
-with tab_ind:
-    render_industry()
+    render_fin_hub()
 with tab_chaebol:
     render_chaebol()
 with tab_news:
