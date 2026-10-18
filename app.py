@@ -1882,6 +1882,11 @@ REPORT_COMMON_FORMAT = (
 
 # 분석 항목: key, 이름, 설명, 읽을 블록 [(블록 이름)], 지시문
 PERIODIC_ANALYSES = [
+    dict(key="diff", label="직전 보고서 대비 달라진 점", blocks=["biz_overview", "biz_products", "biz_plant", "biz_sales", "biz_risk", "audit_ext", "etc_contingent", "etc_sanction"],
+         needs_prev=True, help="같은 기간 직전 보고서와 비교해 새로 생기거나 사라진 문장 (사업·위험·소송·제재 항목 중심)",
+         task="아래는 직전 보고서와 이번 보고서를 항목별로 비교해 기계적으로 뽑은 '새로 생긴 문장'과 '없어진 문장'이다 (숫자만 바뀐 줄은 제외됨). "
+              "이 중 의미 있는 변화를 골라라: 신규 사업·제품·투자 계획, 중단·철수, 위험 요인 문구의 변화, 소송·제재의 신규 발생이나 종결, 감사 관련 변화. "
+              "단순 표현 다듬기와 날짜·숫자 갱신은 무시한다. 변화마다 '직전 → 이번' 형태로 쓴다."),
     dict(key="mdna", label="경영진단 요약 (실적 변동 원인·전망)", blocks=["mdna"], needs_prev=False,
          help="회사가 직접 설명하는 실적 변동 원인, 사업부문별 설명, 자금조달, 향후 전망·위험 요인",
          task="이사의 경영진단 및 분석의견에서 ① 이번 기간 실적(매출·영업이익 등)이 변한 이유로 회사가 든 요인 ② 사업부문별 설명 "
@@ -1899,11 +1904,6 @@ PERIODIC_ANALYSES = [
          help="제품별 생산능력·생산실적·가동률, 주요 생산설비, 진행·계획 중인 시설투자, 원재료 조달",
          task="생산능력·생산실적·가동률(제품별·사업장별, 기간별 숫자), 주요 생산설비(사업장·면적), 시설투자(진행 중·계획 중 금액, 목적, 예상 완료 시기), "
               "주요 원재료 매입 구조와 가격 변동을 정리해라. 기간별 표가 있으면 숫자를 시간순으로 적는다."),
-    dict(key="diff", label="직전 보고서 대비 달라진 점", blocks=["biz_overview", "biz_products", "biz_plant", "biz_sales", "biz_risk", "audit_ext", "etc_contingent", "etc_sanction"],
-         needs_prev=True, help="같은 기간 직전 보고서와 비교해 새로 생기거나 사라진 문장 (사업·위험·소송·제재 항목 중심)",
-         task="아래는 직전 보고서와 이번 보고서를 항목별로 비교해 기계적으로 뽑은 '새로 생긴 문장'과 '없어진 문장'이다 (숫자만 바뀐 줄은 제외됨). "
-              "이 중 의미 있는 변화를 골라라: 신규 사업·제품·투자 계획, 중단·철수, 위험 요인 문구의 변화, 소송·제재의 신규 발생이나 종결, 감사 관련 변화. "
-              "단순 표현 다듬기와 날짜·숫자 갱신은 무시한다. 변화마다 '직전 → 이번' 형태로 쓴다."),
     dict(key="rnd", label="연구개발 (비용·조직·과제)", blocks=["biz_rnd", "detail_rnd"], needs_prev=False,
          help="연구개발비 규모와 매출 대비 비율, 연구 조직·인력, 주요 연구 과제·실적, 경영상 주요 계약",
          task="연구개발비용(금액, 매출 대비 비율, 비용·자산 처리), 연구개발 조직·인력, 주요 연구개발 실적·과제(제품·기술명, 시기), 경영상 주요 계약(상대방·기간·내용)을 정리해라. "
@@ -3222,11 +3222,11 @@ def render_financials():
         st.warning("조회된 데이터가 없습니다. 기업명(종목코드)과 연도를 확인해주세요.")
         return
 
-    st.markdown("##### 실적")  # 아래 '재무상태'와 같은 크기의 소제목
+    st.markdown(f"##### {result['corp']} 실적")  # 아래 '재무상태'와 같은 크기의 소제목
     unit = st.radio("단위", list(UNITS), horizontal=True, key="fin_unit", label_visibility="collapsed")  # 기본 억원, 조원으로 바꿀 수 있음
     table = build_table(result["records"], result["period"], unit=unit)
     basis = "연결 기준" if FS_DIV == "CFS" else "별도 기준"  # 지금은 항상 연결재무제표(CFS)로 조회
-    st.caption(f"{result['corp']} · {basis} · 단위: {unit}")
+    st.caption(f"단위: {unit} · {basis}")
     # 스크롤 없이 전체가 보이도록 높이를 행 수에 맞춘다 (머리글 1줄 + 데이터 행, 한 줄당 약 35px)
     st.dataframe(
         style_table(table),
@@ -3251,7 +3251,7 @@ def render_financials():
         yearly = result["period"] != "분기별"
         capex_note = "  \n**CAPEX** = 유형자산 취득액(연간, 현금흐름표)  \n**잉여현금흐름** = 영업활동현금흐름 − CAPEX" if yearly else ""
         st.caption(
-            f"기말 기준 · 단위: {unit}",
+            f"단위: {unit} · 기말 기준",
             help="**부채비율** = 부채총계 ÷ 자본총계  \n**순차입금** = 차입금 − 현금성자산 (마이너스는 현금이 빚보다 많은 순현금)" + capex_note,
         )
         st.dataframe(
@@ -4288,7 +4288,7 @@ def render_feed():
         day = c1.date_input(
             "날짜", value=last_weekday(TODAY), min_value=date(2015, 1, 1), max_value=TODAY, key="feed_date"
         )
-        market = c2.radio("시장", list(FEED_MARKETS), horizontal=True, key="feed_market")
+        market = c2.radio("시장", list(FEED_MARKETS), index=list(FEED_MARKETS).index("코스피"), horizontal=True, key="feed_market")
         submitted = st.form_submit_button("공시 불러오기")
 
     if submitted:
@@ -4379,7 +4379,7 @@ def render_news():
             )
         else:
             sector = st.radio("섹터", list(NEWS_SECTORS), horizontal=True, key="news_sector")
-        period = st.radio("기간", list(NEWS_PERIODS), index=0, horizontal=True, key="news_period")
+        period = st.radio("기간", list(NEWS_PERIODS), index=list(NEWS_PERIODS).index("3일"), horizontal=True, key="news_period")
         in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key="news_title")
         submitted = st.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False)
 
@@ -4780,7 +4780,7 @@ def render_chaebol():
     prev_groups = sum(1 for g in groups if g.get("n_prev") is not None) + len(excluded)
     prev_firms = sum(g.get("n_prev") or 0 for g in groups) + sum(e.get("n_prev") or 0 for e in excluded)
     limited = [g for g in groups if g["limited"]]
-    st.caption(f"{data['year']}년 공시대상기업집단 · 출처: {CHAEBOL_SOURCE} · 실시간 자료가 아니라 공정위 발표 시점의 정리본이에요")
+    st.caption(f"{data['year']}년 공시대상기업집단 · 출처: {CHAEBOL_SOURCE}")
 
     st.markdown(cb_cards([
         ("공시대상기업집단", f"{n_groups}개", f"{n_groups - prev_groups:+d}개", None),
@@ -5993,6 +5993,12 @@ html, body, [class*="st-"], button, input, textarea {
 [data-testid="stAppViewContainer"] { background: #f6f8fb; }
 [data-testid="stHeader"] { background: transparent; }
 footer { visibility: hidden; }
+.fav-lbl { font-size: 0.8rem; font-weight: 700; color: #7a8699; white-space: nowrap; }
+[class*="st-key-fav_bar"] [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.4rem !important; }  /* 모바일에서도 한 줄 */
+[class*="st-key-fav_bar"] [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
+[class*="st-key-fav_bar"] [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
+[class*="st-key-fav_bar"] [data-testid="stColumn"]:nth-child(3) { flex: 0 0 auto !important; }  /* '+N' 팝업 칸은 내용만큼 */
+[class*="st-key-fav_bar"] [data-testid="stButtonGroup"] > div:last-child { flex-wrap: wrap !important; overflow: visible !important; }  /* 기업 버튼은 줄바꿈 */
 .st-key-fav_bridge { position: absolute; left: -9999px; height: 0; overflow: hidden; }  /* 관심 기업 저장 연결용 숨은 입력칸 */
 
 .block-container { max-width: 1080px; padding-top: 2.5rem; padding-bottom: 4rem; }
@@ -6000,7 +6006,7 @@ footer { visibility: hidden; }
 h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !important; padding-bottom: 0.2rem; }
 [data-testid="stCaptionContainer"] { color: #7a8699; }
 
-/* 탭: 한 줄에 4개씩 2줄 바둑판으로 (옆으로 밀지 않아도 모두 보이게) */
+/* 탭: 모바일은 한 줄에 4개씩 2줄 바둑판으로 (옆으로 밀지 않아도 모두 보이게) */
 [data-testid="stTabs"] [role="tablist"] {
     display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.35rem;
     overflow: visible !important; width: 100% !important; border-bottom: none !important; margin-bottom: 0.6rem;
@@ -6016,7 +6022,7 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 [data-testid="stTab"] > div:not([data-testid]) { display: none; }  /* 기본 밑줄 표시는 숨김 */
 [data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after { display: none !important; }
 [data-testid="stTabs"] [role="tablist"] { box-shadow: none !important; background: none !important; }
-@media (min-width: 760px) { [data-testid="stTabs"] [role="tablist"] { grid-template-columns: repeat(5, minmax(0, 1fr)); } }  /* 넓은 화면: 5개씩 2줄 */
+@media (min-width: 900px) { [data-testid="stTabs"] [role="tablist"] { grid-template-columns: repeat(8, minmax(0, 1fr)); } }  /* PC: 8개 한 줄 (모바일은 4x2) */
 @media (max-width: 400px) { [data-testid="stTab"] p { font-size: 0.8rem; } }  /* 작은 휴대폰에서도 글자가 칸 안에 */
 [data-testid="stTabs"] [role="tablist"] ~ button, [data-testid="stTabs"] button[aria-label*="croll"] { display: none !important; }
 
@@ -6092,7 +6098,7 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 st.set_page_config(page_title="산업부 취재 도우미", layout="wide")
 st.markdown(STYLE, unsafe_allow_html=True)
 st.title("산업부 취재 도우미")
-st.caption(f"credit/중앙일보 나상현  \nupdated/{LAST_UPDATED}")  # 크레딧 두 줄 (줄바꿈 = 공백 2칸 + \n). 수정할 때 빠뜨리지 말 것
+st.caption("credit/중앙일보 나상현")
 
 if not API_KEY:
     st.error(
@@ -6372,7 +6378,7 @@ def render_report_ai():
     st.markdown(f"[DART 원문 보기]({DART_VIEW_URL.format(rno)})")
 
 
-PERIODIC_VIEWS = ["AI 분석", "배당·자사주", "임직원", "주주·지분"]
+PERIODIC_VIEWS = ["AI 분석", "주주·지분", "임직원", "배당·자사주"]
 # 정기보고서 탭은 고른 화면의 입력칸만 그린다. 안 그린 화면의 입력값은 Streamlit이 지우므로, 화면을 오가도 남도록 미리 일반 값으로 옮겨 둔다.
 PERIODIC_KEEP = [f"rts_{k}" for k in ("corp", "year", "report", "mode")] + [
     "rai_corp", "rai_pick", "rai_item", "pay_exctv", "pay_exctv_basis", "pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report", "div_mode", "div_tsk_period"]
@@ -6784,14 +6790,11 @@ def fav_news_pick():
     st.session_state["news_run"] = True
 
 
-def fav_chips(prefix, tag="fav"):
-    """탭 위쪽에 관심 기업 버튼 줄. 누르면 그 기업으로 바로 조회. 목록이 비어 있으면 아무것도 안 그림."""
-    favs = fav_list()
-    if not favs:
-        return
-    st.caption("관심 기업 — 누르면 바로 조회")
-    key = f"{tag}_{prefix}_pick"
+FAV_SHOW = 5  # 버튼 줄에 바로 보이는 관심 기업 수 (나머지는 '+N' 팝업)
 
+
+def fav_pick_group(names, prefix, key):
+    """관심 기업 버튼 묶음. 누르면 그 기업으로 바로 조회."""
     def picked():
         v = st.session_state.get(key)
         if v:
@@ -6799,12 +6802,27 @@ def fav_chips(prefix, tag="fav"):
         st.session_state[key] = None
 
     if hasattr(st, "pills"):
-        st.pills("관심 기업", favs, key=key, on_change=picked, label_visibility="collapsed")
+        st.pills("관심 기업", names, key=key, on_change=picked, label_visibility="collapsed")
     else:
-        for row in range(0, len(favs), 4):
-            cols = st.columns(4)
-            for col, (i, n) in zip(cols, list(enumerate(favs))[row:row + 4]):
-                col.button(n, key=f"{key}_{i}", on_click=fav_pick, args=(prefix, n))
+        for i, n in enumerate(names):
+            st.button(n, key=f"{key}_{i}", on_click=fav_pick, args=(prefix, n))
+
+
+def fav_chips(prefix, tag="fav"):
+    """탭 위쪽 관심 기업 줄: '관심기업' 라벨 뒤에 기업 버튼(5개까지), 6번째부터는 '+N' 팝업. 목록이 비어 있으면 아무것도 안 그림."""
+    favs = fav_list()
+    if not favs:
+        return
+    shown, rest = favs[:FAV_SHOW], favs[FAV_SHOW:]
+    with st.container(key=f"fav_bar_{prefix}"):
+        cols = st.columns([1.3, 6, 1.5] if rest else [1.3, 7.5], vertical_alignment="center")
+        cols[0].markdown('<span class="fav-lbl">관심기업</span>', unsafe_allow_html=True)
+        with cols[1]:
+            fav_pick_group(shown, prefix, f"{tag}_{prefix}_pick")
+        if rest:
+            with cols[2]:
+                with st.popover(f"+{len(rest)}"):
+                    fav_pick_group(rest, prefix, f"{tag}_{prefix}_pick_more")
 
 
 def render_fav_panel():
@@ -6850,19 +6868,21 @@ def render_fav_panel():
             st.rerun()
 
 
-TAB_NAMES = ["재무 조회", "재계 순위", "단독 뉴스", "오늘의 공시", "공시 목록", "정기보고서", "기업 브리핑", "해외 기업"]
+TAB_NAMES = ["기업 브리핑", "재무 조회", "해외 기업", "단독 뉴스", "오늘의 공시", "공시 목록", "정기보고서", "재계 순위"]
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
-render_fav_panel()
+fav_from_bridge()  # 브라우저 저장소에서 올라온 관심 기업 (설정 칸은 맨 아래, 탭보다 먼저 목록이 정해져야 해서 여기서 처리)
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_fin, tab_chaebol, tab_news, tab_feed, tab_list, tab_periodic, tab_brief, tab_overseas = tabs
+tab_brief, tab_fin, tab_overseas, tab_news, tab_feed, tab_list, tab_periodic, tab_chaebol = tabs
+with tab_brief:
+    render_brief()
 with tab_fin:
     render_fin_hub()
-with tab_chaebol:
-    render_chaebol()
+with tab_overseas:
+    render_overseas()
 with tab_news:
     render_news()
 with tab_feed:
@@ -6871,11 +6891,8 @@ with tab_list:
     render_disclosures()
 with tab_periodic:
     render_periodic()
-with tab_brief:
-    render_brief()
-with tab_overseas:
-    render_overseas()
-
+with tab_chaebol:
+    render_chaebol()
 # 모바일에서 표를 옆으로 밀 때 열 순서가 바뀌는 것을 막는다(Streamlit에 끄는 옵션이 없어 JS로 처리).
 # 머리글에서 시작한 드래그의 move 이벤트만 차단하고, 탭(정렬)·기본 스크롤은 그대로 둔다.
 _COL_LOCK_JS = """
@@ -6911,3 +6928,5 @@ _COL_LOCK_JS = """
 run_js(_COL_LOCK_JS)
 
 render_krx_check()
+render_fav_panel()  # 관심 기업 설정: 맨 아래에서 두 번째 줄
+st.caption(f"updated/{LAST_UPDATED}")  # 맨 아래
