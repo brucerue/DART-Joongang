@@ -5510,7 +5510,7 @@ def sec_company(cik):
         return hit[1]
     co = sec_parse(sec_get(SEC_FACTS_URL.format(cik)))
     if not co or not co["cur"]:
-        raise SecError("EDGAR에서 이 회사의 매출·이익 자료를 찾지 못했어요. (미국에 재무 보고서를 내지 않는 회사일 수 있어요)")
+        raise SecError("EDGAR에 매출·이익 자료 없음 (미국에 재무 보고서를 내지 않는 회사일 수 있어요)")
     with s["lock"]:
         s["facts"][cik] = (time.time(), co)
     return co
@@ -5589,9 +5589,9 @@ def collect_overseas(items, year, period):
         if now is None:
             have = sorted({approx_end(p["end"]).year for p in co["annual"]})
             last_q = max((p["end"] for p in co["quarter"]), default=None)
-            found = (f" (EDGAR에서 찾은 자료: 연간 {have[0]}~{have[-1]}년" + (f", 분기는 {last_q:%Y-%m-%d} 종료분까지" if last_q else "") + ")") if have else ""
-            r["error"] = ("이 회사는 분기 자료가 없어요 (연 1회 공시)" + found if period != "연간" and not co["quarter"]
-                          else "해당 기간 자료가 없어요. 아직 공시 전이거나 EDGAR에 아직 반영되지 않았거나 결산월이 달라 가까운 기간이 없어요" + found)
+            found = (f" (EDGAR에 있는 자료: 연간 {have[0]}~{have[-1]}년" + (f", 분기는 {last_q:%Y-%m-%d} 종료분까지" if last_q else "") + ")") if have else ""
+            r["error"] = ("분기 자료 없음 - 연 1회만 공시하는 기업" + found if period != "연간" and not co["quarter"]
+                          else "해당 기간 자료 없음 - 아직 공시 전이거나 EDGAR에 반영 전일 수 있어요" + found)
         else:
             r["fx"] = fx_range(co["cur"], now["start"], now["end"])
         return r
@@ -5614,8 +5614,6 @@ def ovs_table(res, view, unit, mode, overrides):
     """조회 결과 -> (표, 환율 표, 환율이 없어 원화로 못 바꾼 회사)"""
     rows, rate_rows, no_rate = [], [], []
     krw = view == "원화 환산"
-    totals = {"rev": 0.0, "op": 0.0, "net": 0.0}
-    n_total = 0
     for ticker, entry in res["data"].items():
         label = f"{res['names'][ticker]} ({ticker})"
         now, prev, co = entry.get("now"), entry.get("prev"), entry.get("co")
@@ -5643,27 +5641,28 @@ def ovs_table(res, view, unit, mode, overrides):
         period_note = "4분기 계산" if now.get("derived") else ""
         rows.append({
             "회사": label, "결산 종료일": f"{now['end']:%Y-%m-%d}" + (f" ({period_note})" if period_note else ""),
-            "통화": cur,
             "매출액": show(now["rev"]), "매출 전년比": fmt_change(pct_change(now["rev"], pv.get("rev"))),
             "영업이익": show(now["op"]), "영업이익 전년比": fmt_change(op_change(now["op"], pv.get("op"))),
             "영업이익률": f"{margin:.1f}%" if margin is not None else "-",
             "순이익": show(now["net"]), "순이익 전년比": fmt_change(op_change(now["net"], pv.get("net"))),
         })
-        if krw and rate is not None:
-            for k in totals:
-                if now[k] is not None:
-                    totals[k] += now[k] * rate
-            n_total += 1
     table = pd.DataFrame(rows)
-    if krw and n_total > 1 and not table.empty:
-        total_row = {
-            "회사": f"합계 ({n_total}개사, 참고)", "결산 종료일": "", "통화": "원",
-            "매출액": fmt_amount(totals["rev"], unit), "매출 전년比": "", "영업이익": fmt_amount(totals["op"], unit), "영업이익 전년比": "",
-            "영업이익률": f"{totals['op'] / totals['rev'] * 100:.1f}%" if totals["rev"] else "-",
-            "순이익": fmt_amount(totals["net"], unit), "순이익 전년比": "",
-        }
-        table.loc[len(table)] = [total_row[c] for c in table.columns]
+    if not table.empty:  # 결산 종료일은 맨 뒤로
+        table = table[[c for c in table.columns if c != "결산 종료일"] + ["결산 종료일"]]
     return table, pd.DataFrame(rate_rows), no_rate
+
+
+def ovs_missing_line(res):
+    """조회되지 않은 기업을 이유별로 묶은 한 줄. 없으면 ''."""
+    groups = {}
+    for n, why in res.get("missing", []):
+        groups.setdefault(why, []).append(n)
+    for t, entry in res["data"].items():
+        if entry.get("error"):
+            groups.setdefault(entry["error"], []).append(f"{res['names'].get(t, t)}({t})")
+    if not groups:
+        return ""
+    return "조회되지 않은 기업 — " + " · ".join(f"{', '.join(names)}: {why}" for why, names in groups.items())
 
 
 def fill_overseas():
@@ -5703,7 +5702,7 @@ def render_overseas():
     st.caption("미국 SEC에 공시하는 기업의 실적이에요 (연결 기준, 각사 결산월 기준). 연 1회만 공시하는 외국 기업(TSMC·도요타 등)은 연간만 나와요.")
 
     if submitted:
-        names, items, notes = [], [], []
+        names, items, notes, missing = [], [], [], []
         for part in re.split(NEWS_SPLIT, corp_text):
             if part.strip() and part.strip().lower() not in [n.lower() for n in names]:
                 names.append(part.strip())
@@ -5718,17 +5717,19 @@ def render_overseas():
                     for n in names:
                         hit, alts, by_name = sec_resolve(n)
                         if not hit:
-                            st.warning(f'"{n}"을(를) SEC 목록에서 찾지 못해 뺐어요. 티커(예: NVDA)로 입력해보세요.')
+                            missing.append((n, "SEC 목록에 없음 - 티커(예: NVDA)로 입력해보세요"))
                         elif hit[0] not in [i[0] for i in items]:
                             items.append(hit)
                             if by_name:
                                 alt = ", ".join(f"{a[2]}({a[0]})" for a in alts)
                                 notes.append(f'"{n}" → {hit[2]}({hit[0]})로 찾았어요.' + (f" 다른 후보: {alt}" if alt else ""))
+                data = {}
                 if items:
                     with st.spinner("SEC 공시와 환율을 불러오는 중입니다... (회사당 몇 초 걸려요)"):
                         data = collect_overseas(items, int(year), period)
+                if items or missing:
                     st.session_state["overseas"] = {
-                        "data": data, "year": int(year), "period": period, "notes": notes,
+                        "data": data, "year": int(year), "period": period, "notes": notes, "missing": missing,
                         "names": {t: OVERSEAS_NAMES.get(t) or ((data[t]["co"]["name"] if data[t].get("co") else None) or title).title()
                                   for t, _, title in items},
                     }
@@ -5740,10 +5741,8 @@ def render_overseas():
         return
     for n in res["notes"]:
         st.caption(n)
-    for t, entry in res["data"].items():
-        if entry.get("error"):
-            st.warning(f"{res['names'].get(t, t)} ({t}): {entry['error']}")
     if not any(e.get("now") for e in res["data"].values()):
+        st.caption(ovs_missing_line(res) or "표시할 실적이 없어요.")
         return
 
     krw_on = st.toggle("원화로 환산", key="ovs_krw", help="켜면 환율로 원화 환산해 보여주고, 단위와 환율 기준을 고를 수 있어요.")
@@ -5770,10 +5769,14 @@ def render_overseas():
     used = sorted({e["co"]["cur"] for e in res["data"].values() if e.get("now")})
     if krw_on:
         unit_label = f"{unit} · 환율 {mode}"
-    elif len(used) == 1:
-        unit_label = f"억 {CURRENCY_NAMES.get(used[0], used[0])}"
     else:
-        unit_label = "억 (통화는 표의 '통화' 열)"
+        # 외국 기업은 USD가 아니라 보고 통화(대만달러·엔·유로 등) 그대로 나오므로, 다른 통화인 회사는 따로 적는다
+        cur_of = {t: e["co"]["cur"] for t, e in res["data"].items() if e.get("now")}
+        main = max(set(cur_of.values()), key=lambda c: (list(cur_of.values()).count(c), c == "USD"))
+        unit_label = f"억 {CURRENCY_NAMES.get(main, main)}"
+        other = [f"{res['names'][t]}({t})는 억 {CURRENCY_NAMES.get(c, c)}" for t, c in cur_of.items() if c != main]
+        if other:
+            unit_label += " (" + ", ".join(other) + ")"
     st.markdown(f'<div style="font-weight:800; font-size:1.1rem; color:#1c7ed6; margin:0.3rem 0 0.1rem">단위: {html.escape(unit_label)}</div>',
                 unsafe_allow_html=True)
     st.caption(f"{when} (달력 기준에 가장 가까운 결산 기간) · 연결 기준 · 증감률은 현지 통화 기준이라 환율 영향이 없어요")
@@ -5782,11 +5785,11 @@ def render_overseas():
     st.dataframe(
         table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
         hide_index=True, height=(len(table) + 1) * 35 + 3,
-        column_config={"회사": st.column_config.TextColumn("회사", width=150), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
-                       "통화": st.column_config.TextColumn("통화", width=55)},
+        column_config={"회사": st.column_config.TextColumn("회사", width=150), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130)},
     )
-    if krw_on and len(table) > 1:
-        st.caption("합계는 결산 기간이 서로 다른 회사를 환율로 바꿔 더한 참고용 값이에요.")
+    miss = ovs_missing_line(res)
+    if miss:
+        st.caption(miss)
     if fx_box is not None and not rates.empty:
         with fx_box:
             st.markdown("**적용 환율**")
