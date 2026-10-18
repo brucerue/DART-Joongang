@@ -6958,4 +6958,42 @@ with tab_claim:
     render_claims()
 with tab_overseas:
     render_overseas()
+
+# 모바일에서 표를 옆으로 밀 때 열 순서가 바뀌는 것을 막는다(Streamlit에 끄는 옵션이 없어 JS로 처리).
+# 머리글에서 시작한 드래그의 move 이벤트만 차단하고, 탭(정렬)·기본 스크롤은 그대로 둔다.
+_COL_LOCK_JS = """
+<script>
+(function(){
+  try{
+    var w = window.parent, d = w.document;
+    if (w.__colLock) return;
+    w.__colLock = true;
+    var armed = false;
+    function inHeader(e){
+      var t = e.target && e.target.closest ? e.target.closest('[data-testid="stDataFrame"]') : null;
+      if(!t) return false;
+      var p = e.touches && e.touches[0] ? e.touches[0] : e;
+      var r = t.getBoundingClientRect();
+      return (p.clientY - r.top) < 40;
+    }
+    ['pointerdown','mousedown','touchstart'].forEach(function(n){
+      d.addEventListener(n, function(e){ armed = inHeader(e); }, true);
+    });
+    ['pointerup','mouseup','touchend','touchcancel','pointercancel'].forEach(function(n){
+      w.addEventListener(n, function(){ armed = false; }, true);
+    });
+    ['pointermove','mousemove','touchmove','dragstart'].forEach(function(n){
+      w.addEventListener(n, function(e){
+        if(armed){ e.stopImmediatePropagation(); }
+      }, true);
+    });
+  }catch(err){}
+})();
+</script>
+"""
+try:
+    st.components.v1.html(_COL_LOCK_JS, height=0)
+except Exception:
+    pass
+
 render_krx_check()
