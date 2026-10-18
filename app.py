@@ -5910,11 +5910,11 @@ def render_overseas():
         cur_of = {t: e["co"]["cur"] for t, e in res["data"].items() if e.get("now")}
         main = max(set(cur_of.values()), key=lambda c: (list(cur_of.values()).count(c), c == "USD"))
         unit_label = f"억 {CURRENCY_NAMES.get(main, main)}"
-        other = [f"{res['names'][t]}({t})는 억 {CURRENCY_NAMES.get(c, c)}" for t, c in cur_of.items() if c != main]
+        other = [f"{res['names'][t]}는 억 {CURRENCY_NAMES.get(c, c)}" for t, c in cur_of.items() if c != main]
         if other:
             unit_label += " (" + ", ".join(other) + ")"
     with body:
-        st.markdown(f'<div style="font-weight:800; font-size:1.1rem; color:#1c7ed6; margin:0.3rem 0 0.1rem">단위: {html.escape(unit_label)}</div>',
+        st.markdown(f'<div style="font-weight:800; font-size:0.875rem; color:#1c7ed6; margin:0.3rem 0 0.1rem">단위: {html.escape(unit_label)}</div>',
                     unsafe_allow_html=True)
         st.caption(f"{when} (달력 기준에 가장 가까운 결산 기간) · 연결 기준 · 증감률은 현지 통화 기준이라 환율 영향이 없어요")
         if no_rate:
