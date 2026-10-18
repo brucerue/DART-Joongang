@@ -3169,6 +3169,7 @@ def render_fin_ai(result):
 def render_financials():
     """탭 1: 매출액·영업이익 조회"""
     this_year = TODAY.year
+    fav_chips("fin")
 
     with st.form("search"):
         corp_text = st.text_input("기업명 또는 종목코드", key="fin_corp", placeholder="예: 삼성전자 또는 005930")
@@ -4310,6 +4311,10 @@ def render_feed():
         "회사·보고서명 검색", key="feed_keyword", placeholder="예: 삼성, 하이닉스, 유상증자 (공백으로 여러 단어를 넣으면 모두 포함된 공시만)"
     )
     shown = match_preset(res["rows"], view)
+    favs = fav_list()
+    if favs and st.toggle(f"관심 기업만 보기 ({len(favs)}곳)", key="feed_fav_only"):
+        shown = [r for r in shown if r.get("corp_name") in favs]
+        st.caption(f"관심 기업 공시 {len(shown):,}건")
     terms = keyword.lower().split()
     if terms:
         shown = [
@@ -4343,6 +4348,9 @@ def render_news():
         return
 
     st.session_state.setdefault("news_corp", "")  # 처음엔 빈칸 (관심 목록 주소로 들어오면 그 기업들)
+    favs = fav_list()
+    if favs:
+        st.button(f"관심 기업 뉴스 한 번에 보기 ({min(len(favs), MAX_NEWS_CORPS)}곳)", key="fav_news", on_click=fav_news_pick)
     mode = st.radio("검색 방식", ["기업명", "섹터"], horizontal=True, key="news_mode")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     with st.form("news_search"):
         if mode == "기업명":
@@ -5967,6 +5975,7 @@ html, body, [class*="st-"], button, input, textarea {
 [data-testid="stAppViewContainer"] { background: #f6f8fb; }
 [data-testid="stHeader"] { background: transparent; }
 footer { visibility: hidden; }
+.st-key-fav_bridge { position: absolute; left: -9999px; height: 0; overflow: hidden; }  /* 관심 기업 저장 연결용 숨은 입력칸 */
 
 .block-container { max-width: 1080px; padding-top: 2.5rem; padding-bottom: 4rem; }
 
@@ -6898,6 +6907,7 @@ def render_brief_result(b):
 
 def render_brief():
     """탭: 기업 브리핑 - 회사 하나의 실적·공시·배당·임원·뉴스를 한 화면에."""
+    fav_chips("brief")
     with st.form("brief_search"):
         corp_text = st.text_input("기업명 또는 종목코드", key="brief_corp", placeholder="예: 삼성전자 또는 005930")
         submitted = st.form_submit_button("브리핑 만들기", type="primary") or st.session_state.pop("brief_run", False)
@@ -6934,8 +6944,201 @@ def render_brief():
 
 
 
+# ------------------------------------------------------------
+# 관심 기업 목록 (접속자 브라우저에 저장 · 내려받기/올리기로 백업·이동)
+# ------------------------------------------------------------
+FAV_STORAGE_KEY = "dart_fav_v1"
+FAV_MAX = 30
+
+
+def run_js(code):
+    """높이 없는 iframe으로 짧은 스크립트를 실행한다. 새 Streamlit은 st.iframe, 옛 버전은 components.html. 실패해도 앱은 계속."""
+    try:
+        if hasattr(st, "iframe"):
+            st.iframe(code, height=1)
+        else:
+            st.components.v1.html(code, height=0)
+    except Exception:
+        pass
+
+
+def fav_list():
+    return st.session_state.setdefault("fav_list", [])
+
+
+def fav_clean(names):
+    """이름 목록 -> (DART에 있는 정확한 표기 목록, 못 찾은 이름 목록). 중복 제거."""
+    ok, bad, idx = [], [], get_name_index()
+    for raw in names:
+        t = unicodedata.normalize("NFKC", str(raw)).strip()
+        if not t:
+            continue
+        name = canonical_corp(t)
+        hit = idx[idx["corp_name"] == name] if not name.isdigit() else idx[idx["stock_code"] == name]
+        if hit.empty:
+            bad.append(t)
+            continue
+        name = hit.iloc[0]["corp_name"]
+        if name not in ok:
+            ok.append(name)
+    return ok, bad
+
+
+def fav_split(text):
+    return [p for p in re.split(r"[\n,;\t]+", str(text or "")) if p.strip()]
+
+
+def fav_merge(names):
+    """목록에 합친다. -> (새로 추가한 수, 못 찾은 이름, 한도 초과 여부)"""
+    ok, bad = fav_clean(names)
+    cur = fav_list()
+    added, over = 0, False
+    for n in ok:
+        if n in cur:
+            continue
+        if len(cur) >= FAV_MAX:
+            over = True
+            break
+        cur.append(n)
+        added += 1
+    return added, bad, over
+
+
+def fav_from_bridge():
+    """브라우저 저장소에서 올라온 값(JSON 목록)을 처음 한 번만 합친다."""
+    raw = st.session_state.get("fav_bridge", "")
+    if st.session_state.get("fav_loaded") or not raw:
+        return
+    try:
+        data = json.loads(raw)
+        names = [str(x) for x in data] if isinstance(data, list) else []
+    except (ValueError, TypeError):
+        names = []
+    cur = fav_list()
+    for n in names:  # 저장소에서 온 이름은 이미 검증된 값이라 그대로 쓴다 (순서 유지, 한도만 지킴)
+        if n and n not in cur and len(cur) < FAV_MAX:
+            cur.append(n)
+    st.session_state["fav_loaded"] = True
+
+
+def fav_sync_js(favs, loaded):
+    """브라우저 저장소(localStorage) <-> 앱 연결. 아직 안 불러왔으면 저장된 목록을 숨은 입력칸으로 올려 보내고,
+    불러온 뒤에는 목록이 바뀔 때마다 저장소에 덮어쓴다."""
+    payload = json.dumps(json.dumps(list(favs), ensure_ascii=False))  # JS 문자열 리터럴
+    code = """
+<script>
+(function(){
+  var KEY = %s, LOADED = %s, LIST = %s;
+  try{
+    var w = window.parent, d = w.document;
+    if (LOADED) { w.localStorage.setItem(KEY, LIST); return; }
+    var saved = w.localStorage.getItem(KEY) || "[]";
+    var tries = 0;
+    var timer = setInterval(function(){
+      tries++;
+      var inp = d.querySelector('input[aria-label="fav_bridge"]');
+      if (inp) {
+        clearInterval(timer);
+        var setter = Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, "value").set;
+        setter.call(inp, saved);
+        inp.dispatchEvent(new w.Event("input", {bubbles: true}));
+        inp.focus(); inp.blur();
+      } else if (tries > 80) { clearInterval(timer); }
+    }, 100);
+  }catch(err){}
+})();
+</script>
+""" % (json.dumps(FAV_STORAGE_KEY), "true" if loaded else "false", payload)
+    run_js(code)
+
+
+def fav_add_submit():
+    added, bad, over = fav_merge(fav_split(st.session_state.get("fav_add_text", "")))
+    st.session_state["fav_add_text"] = ""
+    st.session_state["fav_msg"] = (added, bad, over)
+
+
+def fav_pick(prefix, name):
+    """관심 기업 버튼 -> 해당 탭의 입력칸을 채우고 바로 조회."""
+    st.session_state[f"{prefix}_corp"] = name
+    st.session_state[f"{prefix}_run"] = True
+
+
+def fav_news_pick():
+    st.session_state["news_mode"] = "기업명"
+    st.session_state["news_corp"] = ", ".join(fav_list()[:MAX_NEWS_CORPS])
+    st.session_state["news_run"] = True
+
+
+def fav_chips(prefix, tag="fav"):
+    """탭 위쪽에 관심 기업 버튼 줄. 누르면 그 기업으로 바로 조회. 목록이 비어 있으면 아무것도 안 그림."""
+    favs = fav_list()
+    if not favs:
+        return
+    st.caption("관심 기업 — 누르면 바로 조회")
+    key = f"{tag}_{prefix}_pick"
+
+    def picked():
+        v = st.session_state.get(key)
+        if v:
+            fav_pick(prefix, v)
+        st.session_state[key] = None
+
+    if hasattr(st, "pills"):
+        st.pills("관심 기업", favs, key=key, on_change=picked, label_visibility="collapsed")
+    else:
+        for row in range(0, len(favs), 4):
+            cols = st.columns(4)
+            for col, (i, n) in zip(cols, list(enumerate(favs))[row:row + 4]):
+                col.button(n, key=f"{key}_{i}", on_click=fav_pick, args=(prefix, n))
+
+
+def render_fav_panel():
+    """맨 위 '관심 기업' 접이식 칸: 추가·삭제·내려받기·올리기. 브라우저 저장소 연결도 여기서."""
+    st.text_input("fav_bridge", key="fav_bridge", label_visibility="collapsed")  # 저장소 -> 앱 전달용 숨은 칸
+    fav_from_bridge()
+    favs = fav_list()
+    fav_sync_js(favs, st.session_state.get("fav_loaded", False))
+    with st.expander(f"관심 기업 ({len(favs)})", expanded=False):
+        st.caption("자주 보는 기업을 담아 두면 재무 조회·기업 브리핑·단독 뉴스·오늘의 공시에서 바로 쓸 수 있어요. "
+                   "이 브라우저에 저장돼 접속자마다 따로 쓰고, 브라우저 데이터를 지우면 사라지니 '내려받기'로 백업해 두세요.")
+        with st.form("fav_add", clear_on_submit=False, border=False):
+            c1, c2 = st.columns([4, 1])
+            c1.text_input("기업 추가", key="fav_add_text", placeholder="예: 삼성전자, SK하이닉스 (쉼표로 여러 개)", label_visibility="collapsed")
+            c2.form_submit_button("추가", on_click=fav_add_submit)
+        msg = st.session_state.pop("fav_msg", None)
+        if msg:
+            added, bad, over = msg
+            if added:
+                st.success(f"{added}개를 추가했어요.")
+            if bad:
+                st.warning("찾지 못한 기업: " + ", ".join(bad) + " (DART에 등록된 이름으로 입력해 주세요)")
+            if over:
+                st.warning(f"관심 기업은 최대 {FAV_MAX}개까지 담을 수 있어요.")
+        if favs:
+            keep = st.multiselect("목록 (x를 눌러 삭제)", favs, default=favs, key="fav_keep_" + str(abs(hash(tuple(favs)))))
+            if len(keep) != len(favs):
+                st.session_state["fav_list"] = [n for n in favs if n in keep]
+                st.rerun()
+        else:
+            st.caption("아직 담은 기업이 없어요.")
+        d1, d2 = st.columns(2)
+        d1.download_button("내려받기", "\n".join(favs).encode("utf-8-sig"), file_name="관심기업.txt", mime="text/plain",
+                           disabled=not favs, key="fav_dl", use_container_width=True)
+        up = st.file_uploader("올리기 (내려받은 파일 · 한 줄에 한 기업)", type=["txt", "csv"], key="fav_up")
+        if up is not None and st.session_state.get("fav_up_done") != up.file_id:
+            st.session_state["fav_up_done"] = up.file_id
+            try:
+                text = up.getvalue().decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = up.getvalue().decode("cp949", errors="ignore")
+            st.session_state["fav_msg"] = fav_merge(fav_split(text))
+            st.rerun()
+
+
 TAB_NAMES = ["재무 조회", "업종 합산", "재계 순위", "단독 뉴스", "오늘의 공시", "공시 목록", "정기보고서", "기업 브리핑", "주장 검증", "해외 기업"]
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
+render_fav_panel()
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
@@ -6995,9 +7198,6 @@ _COL_LOCK_JS = """
 })();
 </script>
 """
-try:
-    st.components.v1.html(_COL_LOCK_JS, height=0)
-except Exception:
-    pass
+run_js(_COL_LOCK_JS)
 
 render_krx_check()
