@@ -5587,18 +5587,22 @@ def sec_index_url(cik, accn):
     return SEC_INDEX_URL.format(cik=cik, nodash=accn.replace("-", ""), accn=accn)
 
 
+SEC_PARSE_VER = 3  # 파싱 항목이 바뀌면 올린다 (서버에 남은 옛 저장분을 쓰지 않도록)
+
+
 def sec_company(cik):
     """회사 하나의 파싱된 재무 (6시간 저장). 자료가 없으면 SecError."""
     s = _sec_store()
+    ck = (cik, SEC_PARSE_VER)
     with s["lock"]:
-        hit = s["facts"].get(cik)
+        hit = s["facts"].get(ck)
     if hit and time.time() - hit[0] < SEC_TTL:
         return hit[1]
     co = sec_parse(sec_get(SEC_FACTS_URL.format(cik)))
     if not co or not co["cur"]:
         raise SecError("EDGAR에 매출·이익 자료 없음 (미국에 재무 보고서를 내지 않는 회사일 수 있어요)")
     with s["lock"]:
-        s["facts"][cik] = (time.time(), co)
+        s["facts"][ck] = (time.time(), co)
     return co
 
 
