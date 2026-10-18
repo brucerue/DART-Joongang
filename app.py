@@ -5934,10 +5934,11 @@ def render_overseas():
             st.dataframe(rates, hide_index=True, height=(len(rates) + 1) * 35 + 3)
     if more_on:
         extra = ovs_extra_table(res, view, unit, mode, overrides)
-        st.markdown("##### 추가 지표")
-        st.caption("EBITDA = 영업이익 + 감가상각비(회사가 발표하는 조정 EBITDA와 다를 수 있어요) · 잉여현금흐름 = 영업현금흐름 - 설비투자 · "
-                   "주당순이익은 1주당 금액(" + ("원화 환산 시 원" if krw_on else "현지 통화") + ")이고 4분기 계산 기간은 비워요 · "
-                   "조정(Non-GAAP) 실적과 가이던스는 SEC 데이터에 없어 첫 표의 '원문'(실적 발표 8-K)에서 확인하세요")
+        st.markdown("##### 추가 지표", help=(
+            "EBITDA = 영업이익 + 감가상각비 (회사가 발표하는 조정 EBITDA와 다를 수 있어요)\n\n"
+            "잉여현금흐름 = 영업현금흐름 - 설비투자\n\n"
+            "주당순이익은 1주당 금액(" + ("원화 환산 시 원" if krw_on else "현지 통화") + ")이고, 4분기 계산 기간은 비워요\n\n"
+            "조정(Non-GAAP) 실적과 가이던스는 SEC 데이터에 없어요. 첫 표의 '원문'(실적 발표 8-K)에서 확인하세요"))
         st.dataframe(extra.style.map(amount_style, subset=["EBITDA", "영업현금흐름", "잉여현금흐름"]), hide_index=True,
                      height=(len(extra) + 1) * 35 + 3, column_config={"회사": st.column_config.TextColumn("회사", width=150)})
     st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
