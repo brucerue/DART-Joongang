@@ -5653,16 +5653,10 @@ def ovs_table(res, view, unit, mode, overrides):
 
 
 def ovs_missing_line(res):
-    """조회되지 않은 기업을 이유별로 묶은 한 줄. 없으면 ''."""
-    groups = {}
-    for n, why in res.get("missing", []):
-        groups.setdefault(why, []).append(n)
-    for t, entry in res["data"].items():
-        if entry.get("error"):
-            groups.setdefault(entry["error"], []).append(f"{res['names'].get(t, t)}({t})")
-    if not groups:
-        return ""
-    return "조회되지 않은 기업 — " + " · ".join(f"{', '.join(names)}: {why}" for why, names in groups.items())
+    """조회되지 않은 기업 이름만 나열한 한 줄. 없으면 ''."""
+    names = [n for n, _ in res.get("missing", [])]
+    names += [f"{res['names'].get(t, t)}({t})" for t, e in res["data"].items() if e.get("error")]
+    return "조회되지 않은 기업 — " + ", ".join(names) if names else ""
 
 
 def fill_overseas():
@@ -5755,6 +5749,7 @@ def render_overseas():
                         help="손익은 한 기간 동안 번 돈이라 보통 기간 평균 환율로 바꿔요. 기간 말은 결산일 환율이에요.")
     currencies = sorted({e["co"]["cur"] for e in res["data"].values() if e.get("now")} - {"KRW"})
     overrides = {}
+    body = st.container()  # 표 영역. 적용 환율 칸이 표·안내 줄 바로 밑에 오도록 자리를 먼저 잡는다
     fx_box = st.expander("적용 환율 보기·직접 입력") if krw_on else None
     if fx_box is not None:
         with fx_box:
@@ -5777,19 +5772,20 @@ def render_overseas():
         other = [f"{res['names'][t]}({t})는 억 {CURRENCY_NAMES.get(c, c)}" for t, c in cur_of.items() if c != main]
         if other:
             unit_label += " (" + ", ".join(other) + ")"
-    st.markdown(f'<div style="font-weight:800; font-size:1.1rem; color:#1c7ed6; margin:0.3rem 0 0.1rem">단위: {html.escape(unit_label)}</div>',
-                unsafe_allow_html=True)
-    st.caption(f"{when} (달력 기준에 가장 가까운 결산 기간) · 연결 기준 · 증감률은 현지 통화 기준이라 환율 영향이 없어요")
-    if no_rate:
-        st.warning("환율을 자동으로 구하지 못해 원화로 바꾸지 못한 회사: " + ", ".join(no_rate) + ". 아래 '적용 환율 보기·직접 입력'을 열어 환율을 넣어주세요.")
-    st.dataframe(
-        table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
-        hide_index=True, height=(len(table) + 1) * 35 + 3,
-        column_config={"회사": st.column_config.TextColumn("회사", width=150), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130)},
-    )
-    miss = ovs_missing_line(res)
-    if miss:
-        st.caption(miss)
+    with body:
+        st.markdown(f'<div style="font-weight:800; font-size:1.1rem; color:#1c7ed6; margin:0.3rem 0 0.1rem">단위: {html.escape(unit_label)}</div>',
+                    unsafe_allow_html=True)
+        st.caption(f"{when} (달력 기준에 가장 가까운 결산 기간) · 연결 기준 · 증감률은 현지 통화 기준이라 환율 영향이 없어요")
+        if no_rate:
+            st.warning("환율을 자동으로 구하지 못해 원화로 바꾸지 못한 회사: " + ", ".join(no_rate) + ". 아래 '적용 환율 보기·직접 입력'을 열어 환율을 넣어주세요.")
+        st.dataframe(
+            table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
+            hide_index=True, height=(len(table) + 1) * 35 + 3,
+            column_config={"회사": st.column_config.TextColumn("회사", width=150), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130)},
+        )
+        miss = ovs_missing_line(res)
+        if miss:
+            st.caption(miss)
     if fx_box is not None and not rates.empty:
         with fx_box:
             st.markdown("**적용 환율**")
