@@ -5317,6 +5317,8 @@ def render_krx_check():
 SEC_UA = load_secret("SEC_USER_AGENT") or "JoongangIndustryDesk research app (set the SEC_USER_AGENT secret with a contact)"
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{:010d}.json"
+SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{:010d}.json"
+SEC_INDEX_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{nodash}/{accn}-index.htm"
 SEC_TIMEOUT = 45  # 회사 하나의 재무 파일이 수 MB라 DART보다 길게
 SEC_TTL = 6 * 3600
 SEC_FORMS = ("10-K", "10-Q", "20-F", "40-F")
@@ -5353,11 +5355,21 @@ SEC_CONCEPTS = {
                 "SalesRevenueNet", "SalesRevenueGoodsNet"],
         "op": ["OperatingIncomeLoss"],
         "net": ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"],
+        "gp": ["GrossProfit"],
+        "eps": ["EarningsPerShareDiluted"],
+        "ocf": ["NetCashProvidedByUsedInOperatingActivities", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"],
+        "capex": ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"],
+        "da": ["DepreciationDepletionAndAmortization", "DepreciationAndAmortization", "DepreciationAmortizationAndAccretionNet"],
     },
     "ifrs-full": {
         "rev": ["Revenue", "RevenueFromContractsWithCustomers"],
         "op": ["ProfitLossFromOperatingActivities"],
         "net": ["ProfitLossAttributableToOwnersOfParent", "ProfitLoss"],
+        "gp": ["GrossProfit"],
+        "eps": ["DilutedEarningsLossPerShare"],
+        "ocf": ["CashFlowsFromUsedInOperatingActivities"],
+        "capex": ["PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities", "PurchaseOfPropertyPlantAndEquipment"],
+        "da": ["DepreciationAndAmortisationExpense", "AdjustmentsForDepreciationAndAmortisationExpense"],
     },
 }
 OVS_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
@@ -5445,22 +5457,32 @@ def sec_unit(units, cur):
     return max(keys, key=lambda k: len(units[k])) if keys else None
 
 
+def sec_pershare_unit(units, cur):
+    keys = [k for k in units if "/" in k]
+    for k in keys:
+        if cur and k.startswith(cur + "/"):
+            return k
+    return keys[0] if keys else None
+
+
 def sec_parse(data):
-    """companyfacts -> {"name", "cur", "annual": [...], "quarter": [...]} (기간마다 start·end·rev·op·net). 못 읽으면 None."""
+    """companyfacts -> {"name", "cur", "annual": [...], "quarter": [...]}.
+    기간마다 start·end·rev(매출)·op(영업이익)·net(순이익)·gp(매출총이익)·eps(희석 주당순이익)·ocf(영업현금흐름)·capex(설비투자)·da(감가상각)·accn(공시 번호)."""
     facts = (data or {}).get("facts") or {}
     tax = next((t for t in ("us-gaap", "ifrs-full")
                 if any(c in (facts.get(t) or {}) for c in SEC_CONCEPTS[t]["rev"] + SEC_CONCEPTS[t]["net"])), None)
     if not tax:
         return None
-    f, cur, series = facts[tax], None, {}
-    for metric in ("rev", "op", "net"):
+    f, cur, series, accn_of = facts[tax], None, {}, {}
+    for metric in ("rev", "op", "net", "gp", "eps", "ocf", "capex", "da"):
         got = {}
-        for concept in SEC_CONCEPTS[tax][metric]:  # 앞에 있는 항목이 우선. 회사가 항목 이름을 바꿨으면 빈 기간만 뒤 항목으로 채움
+        for concept in SEC_CONCEPTS[tax].get(metric, []):  # 앞에 있는 항목이 우선. 회사가 항목 이름을 바꿨으면 빈 기간만 뒤 항목으로 채움
             units = (f.get(concept) or {}).get("units") or {}
-            u = sec_unit(units, cur)
+            u = sec_pershare_unit(units, cur) if metric == "eps" else sec_unit(units, cur)
             if not u:
                 continue
-            cur = cur or u
+            if metric != "eps":
+                cur = cur or u
             best = {}
             for e in units[u]:
                 if "start" not in e or not str(e.get("form", "")).startswith(SEC_FORMS):
@@ -5472,33 +5494,97 @@ def sec_parse(data):
                     continue
                 filed = str(e.get("filed", ""))
                 if k not in best or filed >= best[k][1]:  # 같은 기간이 여러 번 나오면 가장 나중(정정) 값
-                    best[k] = (v, filed)
-            for k, (v, _) in best.items():
+                    best[k] = (v, filed, str(e.get("accn", "")))
+            for k, (v, _, ac) in best.items():
                 got.setdefault(k, v)
+                if metric in ("rev", "net") and ac:
+                    accn_of.setdefault(k, ac)
         series[metric] = got
+    inc = ("rev", "op", "net", "gp", "eps")  # 손익계산서 항목 (분기 값이 따로 공시됨)
     ann, qtr, ytd9 = {}, {}, {}
-    for k in set().union(*series.values()):
+    for k in set().union(*(series[m].keys() for m in inc)):
         days = (k[1] - k[0]).days
-        rec = {m: series[m].get(k) for m in series}
+        rec = {m: series[m].get(k) for m in inc}
         if 350 <= days <= 380:
             ann[k] = rec
         elif 80 <= days <= 100:
             qtr[k] = rec
         elif 255 <= days <= 290:
             ytd9[k] = rec
-    derived = set()
+    derived, derived_accn = set(), {}
     for (s0, e0), rec in ann.items():  # 4분기 = 연간 - 3분기 누적 (직접 공시한 4분기가 없을 때만)
         if any(abs((qe - e0).days) <= 10 for _, qe in qtr):
             continue
         for (ys, ye), y in ytd9.items():
             if abs((ys - s0).days) <= 5 and 70 <= (e0 - ye).days <= 110:
-                q4 = {m: (rec[m] - y[m]) if rec[m] is not None and y[m] is not None else None for m in rec}
+                # 주당순이익은 주식 수가 분기마다 달라 빼서 구할 수 없으니 비운다
+                q4 = {m: (None if m == "eps" else ((rec[m] - y[m]) if rec[m] is not None and y[m] is not None else None)) for m in rec}
                 if any(v is not None for v in q4.values()):
-                    qtr[(ye + timedelta(days=1), e0)] = q4
-                    derived.add((ye + timedelta(days=1), e0))
+                    key = (ye + timedelta(days=1), e0)
+                    qtr[key] = q4
+                    derived.add(key)
+                    derived_accn[key] = accn_of.get((s0, e0), "")
                 break
-    mk = lambda d, flag=None: sorted(({"start": k[0], "end": k[1], "derived": (k in derived), **v} for k, v in d.items()), key=lambda p: p["end"])
-    return {"name": data.get("entityName"), "cur": cur, "annual": mk(ann), "quarter": mk(qtr)}
+    cum = {m: series[m] for m in ("ocf", "capex", "da")}
+
+    def flow(m, ps, pe, annual):
+        """현금흐름 항목은 누적(3·6·9·12개월)으로만 공시돼서, 분기 값은 누적에서 앞 누적을 빼서 구한다."""
+        c = cum[m]
+        if annual:
+            return next((v for (s0, e0), v in c.items() if abs((s0 - ps).days) <= 5 and abs((e0 - pe).days) <= 10), None)
+        for (s0, e0), v in c.items():
+            dur = (e0 - s0).days
+            if abs((e0 - pe).days) > 10 or dur < 80 or dur > 380:
+                continue
+            n = round(dur / 91.3)
+            if abs((ps - s0).days - (n - 1) * 91.3) > 20:
+                continue
+            if n == 1:
+                return v
+            for (s1, e1), v1 in c.items():
+                if abs((s1 - s0).days) <= 3 and abs((e1 - ps).days) <= 12 and (e1 - s1).days < dur:
+                    return v - v1
+        return None
+
+    def mk(d, annual):
+        out = []
+        for k, v in d.items():
+            rec = {"start": k[0], "end": k[1], "derived": k in derived, **v, "accn": accn_of.get(k) or derived_accn.get(k, "")}
+            for m in cum:
+                rec[m] = flow(m, k[0], k[1], annual)
+            out.append(rec)
+        return sorted(out, key=lambda p: p["end"])
+
+    return {"name": data.get("entityName"), "cur": cur, "annual": mk(ann, True), "quarter": mk(qtr, False)}
+
+
+def sec_release_link(cik, end):
+    """결산 종료일 뒤 90일 안에 낸 실적 발표 8-K(항목 2.02)의 공시 목록 주소. 못 찾으면 None. (실적 발표 자료는 이 공시에 첨부돼요)"""
+    s = _sec_store()
+    with s["lock"]:
+        hit = s["facts"].get(("filings", cik))
+    if not hit or time.time() - hit[0] > SEC_TTL:
+        data = sec_get(SEC_SUBMISSIONS_URL.format(cik))
+        rec = ((data or {}).get("filings") or {}).get("recent") or {}
+        rows = list(zip(rec.get("form", []), rec.get("filingDate", []), rec.get("items", []), rec.get("accessionNumber", [])))
+        with s["lock"]:
+            s["facts"][("filings", cik)] = (time.time(), rows)
+        hit = (0, rows)
+    cands = []
+    for form, filed, items, accn in hit[1]:
+        try:
+            d = date.fromisoformat(filed)
+        except ValueError:
+            continue
+        if form == "8-K" and "2.02" in str(items).split(",") and end < d <= end + timedelta(days=90):
+            cands.append((d, accn))
+    if not cands:
+        return None
+    return sec_index_url(cik, min(cands)[1])
+
+
+def sec_index_url(cik, accn):
+    return SEC_INDEX_URL.format(cik=cik, nodash=accn.replace("-", ""), accn=accn)
 
 
 def sec_company(cik):
@@ -5594,6 +5680,12 @@ def collect_overseas(items, year, period):
                           else "해당 기간 자료 없음 - 아직 공시 전이거나 EDGAR에 반영 전일 수 있어요" + found)
         else:
             r["fx"] = fx_range(co["cur"], now["start"], now["end"])
+            try:
+                r["link"] = sec_release_link(cik, now["end"])
+            except SecError:
+                r["link"] = None
+            if not r["link"] and now.get("accn"):  # 실적 발표 8-K를 못 찾으면 분기·연간 보고서 공시로
+                r["link"] = sec_index_url(cik, now["accn"])
         return r
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
@@ -5645,11 +5737,58 @@ def ovs_table(res, view, unit, mode, overrides):
             "영업이익": show(now["op"]), "영업이익 전년比": fmt_change(op_change(now["op"], pv.get("op"))),
             "영업이익률": f"{margin:.1f}%" if margin is not None else "-",
             "순이익": show(now["net"]), "순이익 전년比": fmt_change(op_change(now["net"], pv.get("net"))),
+            "원문": entry.get("link"),
         })
     table = pd.DataFrame(rows)
-    if not table.empty:  # 결산 종료일은 맨 뒤로
-        table = table[[c for c in table.columns if c != "결산 종료일"] + ["결산 종료일"]]
+    if not table.empty:  # 결산 종료일, 원문은 맨 뒤로
+        table = table[[c for c in table.columns if c not in ("결산 종료일", "원문")] + ["결산 종료일", "원문"]]
     return table, pd.DataFrame(rate_rows), no_rate
+
+
+def ovs_ebitda(p):
+    """영업이익 + 감가상각비 (회사가 발표하는 조정 EBITDA와 다를 수 있다)"""
+    return p["op"] + p["da"] if p and p.get("op") is not None and p.get("da") is not None else None
+
+
+def ovs_fcf(p):
+    """잉여현금흐름 = 영업현금흐름 - 설비투자"""
+    return p["ocf"] - p["capex"] if p and p.get("ocf") is not None and p.get("capex") is not None else None
+
+
+def ovs_extra_table(res, view, unit, mode, overrides):
+    """'지표 더 보기' 표: 주당순이익(희석), 매출총이익률, EBITDA, 영업현금흐름, 잉여현금흐름."""
+    rows = []
+    krw = view == "원화 환산"
+    for ticker, entry in res["data"].items():
+        now, prev, co = entry.get("now"), entry.get("prev"), entry.get("co")
+        if not now:
+            continue
+        rate, _ = ovs_rate(entry, mode, overrides.get(co["cur"]))
+
+        def amt(v):
+            if v is None:
+                return "-"
+            if krw:
+                return "-" if rate is None else fmt_amount(v * rate, unit)
+            return f"{round(v / 1e8) + 0.0:,.0f}"
+
+        def eps_text(v):
+            if v is None:
+                return "-"
+            if krw:
+                return "-" if rate is None else f"{v * rate:,.0f}원"
+            return f"{v:,.2f}"
+
+        pv = prev or {}
+        gm = now["gp"] / now["rev"] * 100 if now.get("gp") is not None and now.get("rev") else None
+        rows.append({
+            "회사": f"{res['names'][ticker]} ({ticker})",
+            "주당순이익(희석)": eps_text(now.get("eps")), "주당순이익 전년比": fmt_change(op_change(now.get("eps"), pv.get("eps"))),
+            "매출총이익률": f"{gm:.1f}%" if gm is not None else "-",
+            "EBITDA": amt(ovs_ebitda(now)), "EBITDA 전년比": fmt_change(op_change(ovs_ebitda(now), ovs_ebitda(pv))),
+            "영업현금흐름": amt(now.get("ocf")), "잉여현금흐름": amt(ovs_fcf(now)),
+        })
+    return pd.DataFrame(rows)
 
 
 def ovs_missing_line(res):
@@ -5739,7 +5878,9 @@ def render_overseas():
         st.caption(ovs_missing_line(res) or "표시할 실적이 없어요.")
         return
 
-    krw_on = st.toggle("원화로 환산", key="ovs_krw", help="켜면 환율로 원화 환산해 보여주고, 단위와 환율 기준을 고를 수 있어요.")
+    t1, t2 = st.columns(2)
+    krw_on = t1.toggle("원화로 환산", key="ovs_krw", help="켜면 환율로 원화 환산해 보여주고, 단위와 환율 기준을 고를 수 있어요.")
+    more_on = t2.toggle("지표 더 보기", key="ovs_more", help="주당순이익, 매출총이익률, EBITDA, 영업현금흐름, 잉여현금흐름을 표 아래에 더 보여줘요.")
     view = "원화 환산" if krw_on else "현지 통화"
     unit, mode = list(UNITS)[1], "기간 평균"
     if krw_on:
@@ -5781,7 +5922,8 @@ def render_overseas():
         st.dataframe(
             table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
             hide_index=True, height=(len(table) + 1) * 35 + 3,
-            column_config={"회사": st.column_config.TextColumn("회사", width=150), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130)},
+            column_config={"회사": st.column_config.TextColumn("회사", width=150), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
+                           "원문": st.column_config.LinkColumn("원문", display_text="실적 발표")},
         )
         miss = ovs_missing_line(res)
         if miss:
@@ -5790,9 +5932,18 @@ def render_overseas():
         with fx_box:
             st.markdown("**적용 환율**")
             st.dataframe(rates, hide_index=True, height=(len(rates) + 1) * 35 + 3)
+    if more_on:
+        extra = ovs_extra_table(res, view, unit, mode, overrides)
+        st.markdown("##### 추가 지표")
+        st.caption("EBITDA = 영업이익 + 감가상각비(회사가 발표하는 조정 EBITDA와 다를 수 있어요) · 잉여현금흐름 = 영업현금흐름 - 설비투자 · "
+                   "주당순이익은 1주당 금액(" + ("원화 환산 시 원" if krw_on else "현지 통화") + ")이고 4분기 계산 기간은 비워요 · "
+                   "조정(Non-GAAP) 실적과 가이던스는 SEC 데이터에 없어 첫 표의 '원문'(실적 발표 8-K)에서 확인하세요")
+        st.dataframe(extra.style.map(amount_style, subset=["EBITDA", "영업현금흐름", "잉여현금흐름"]), hide_index=True,
+                     height=(len(extra) + 1) * 35 + 3, column_config={"회사": st.column_config.TextColumn("회사", width=150)})
     st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"해외기업_{res['year']}_{res['period']}.csv", mime="text/csv", key="ovs_csv")
-    st.caption("자료: 미국 SEC EDGAR(XBRL), 환율: 유럽중앙은행 기준환율(Frankfurter) · 4분기는 '연간 - 3분기 누적'으로 계산한 값이에요")
+    st.caption("자료: 미국 SEC EDGAR(XBRL), 환율: 유럽중앙은행 기준환율(Frankfurter) · 4분기는 '연간 - 3분기 누적'으로 계산한 값이에요 · "
+               "'원문'은 실적 발표 8-K 공시로 연결하고, 찾지 못하면 분기·연간 보고서 공시로 연결해요")
 
 
 STYLE = """
