@@ -5587,21 +5587,17 @@ def collect_overseas(items, year, period):
         now, prev = sec_pick(co, year, period)
         r = {"co": co, "now": now, "prev": prev, "fx": None, "error": None}
         if now is None:
-            r["error"] = ("이 회사는 분기 자료가 없어요 (연 1회 공시)" if period != "연간" and not co["quarter"]
-                          else "해당 기간 자료가 없어요. 아직 공시 전이거나 결산월이 달라 가까운 기간이 없어요")
+            have = sorted({approx_end(p["end"]).year for p in co["annual"]})
+            last_q = max((p["end"] for p in co["quarter"]), default=None)
+            found = (f" (EDGAR에서 찾은 자료: 연간 {have[0]}~{have[-1]}년" + (f", 분기는 {last_q:%Y-%m-%d} 종료분까지" if last_q else "") + ")") if have else ""
+            r["error"] = ("이 회사는 분기 자료가 없어요 (연 1회 공시)" + found if period != "연간" and not co["quarter"]
+                          else "해당 기간 자료가 없어요. 아직 공시 전이거나 EDGAR에 아직 반영되지 않았거나 결산월이 달라 가까운 기간이 없어요" + found)
         else:
             r["fx"] = fx_range(co["cur"], now["start"], now["end"])
         return r
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         return {it[0]: r for it, r in zip(items, pool.map(one, items))}
-
-
-def local_money(v, cur):
-    """현지 통화 기사체: 570억 달러 / 1조2000억 엔"""
-    body = won_text(v)[:-1] if v is not None and won_text(v).endswith("원") else won_text(v)
-    name = CURRENCY_NAMES.get(cur, cur)
-    return body + ("" if name in ("엔", "원") else " ") + name
 
 
 def ovs_rate(entry, mode, override):
@@ -5615,8 +5611,8 @@ def ovs_rate(entry, mode, override):
 
 
 def ovs_table(res, view, unit, mode, overrides):
-    """조회 결과 -> (표, 환율 표, 기사 문장 목록, 환율이 없어 원화로 못 바꾼 회사)"""
-    rows, rate_rows, sentences, no_rate = [], [], [], []
+    """조회 결과 -> (표, 환율 표, 환율이 없어 원화로 못 바꾼 회사)"""
+    rows, rate_rows, no_rate = [], [], []
     krw = view == "원화 환산"
     totals = {"rev": 0.0, "op": 0.0, "net": 0.0}
     n_total = 0
@@ -5658,20 +5654,6 @@ def ovs_table(res, view, unit, mode, overrides):
                 if now[k] is not None:
                     totals[k] += now[k] * rate
             n_total += 1
-        when = f"{res['year']}년 " + ("연간" if res["period"] == "연간" else f"{res['period'][0]}분기") + f"(결산 종료 {now['end']:%Y년 %-m월 %-d일})"
-        parts = []
-        for k, name in (("rev", "매출"), ("op", "영업이익"), ("net", "순이익")):
-            v = now[k]
-            if v is None:
-                continue
-            nm = "영업손실" if k == "op" and v < 0 else ("순손실" if k == "net" and v < 0 else name)
-            text = local_money(abs(v), cur) if cur != "KRW" else won_text(abs(v))
-            if krw and rate is not None and cur != "KRW":
-                text += f"(약 {won_text(abs(v) * rate)})"
-            chg = change_text((pct_change if k == "rev" else op_change)(v, pv.get(k)))
-            parts.append(f"{nm} {text}" + (f", 전년 대비 {chg}" if chg else ""))
-        if parts:
-            sentences.append(f"{label.split(' (')[0]}의 {when} " + " / ".join(parts) + "으로 집계됐다.")
     table = pd.DataFrame(rows)
     if krw and n_total > 1 and not table.empty:
         total_row = {
@@ -5681,7 +5663,7 @@ def ovs_table(res, view, unit, mode, overrides):
             "순이익": fmt_amount(totals["net"], unit), "순이익 전년比": "",
         }
         table.loc[len(table)] = [total_row[c] for c in table.columns]
-    return table, pd.DataFrame(rate_rows), sentences, no_rate
+    return table, pd.DataFrame(rate_rows), no_rate
 
 
 def fill_overseas():
@@ -5764,42 +5746,51 @@ def render_overseas():
     if not any(e.get("now") for e in res["data"].values()):
         return
 
-    c1, c2, c3 = st.columns([2, 2, 2])
-    view = c1.radio("표시", ["원화 환산", "현지 통화"], horizontal=True, key="ovs_view")
-    unit = c2.radio("단위", list(UNITS), index=list(UNITS).index("조원"), horizontal=True, key="ovs_unit", disabled=view != "원화 환산")
-    mode = c3.radio("환율 기준", ["기간 평균", "기간 말"], horizontal=True, key="ovs_fxmode", disabled=view != "원화 환산",
-                    help="손익은 한 기간 동안 번 돈이라 보통 기간 평균 환율로 바꿔요. 기간 말은 결산일 환율이에요.")
+    krw_on = st.toggle("원화로 환산", key="ovs_krw", help="켜면 환율로 원화 환산해 보여주고, 단위와 환율 기준을 고를 수 있어요.")
+    view = "원화 환산" if krw_on else "현지 통화"
+    unit, mode = list(UNITS)[1], "기간 평균"
+    if krw_on:
+        c1, c2 = st.columns(2)
+        unit = c1.radio("단위", list(UNITS), index=list(UNITS).index("조원"), horizontal=True, key="ovs_unit")
+        mode = c2.radio("환율 기준", ["기간 평균", "기간 말"], horizontal=True, key="ovs_fxmode",
+                        help="손익은 한 기간 동안 번 돈이라 보통 기간 평균 환율로 바꿔요. 기간 말은 결산일 환율이에요.")
     currencies = sorted({e["co"]["cur"] for e in res["data"].values() if e.get("now")} - {"KRW"})
     overrides = {}
-    if view == "원화 환산":
-        with st.expander("환율 확인·직접 입력", expanded=any(
-                not (e.get("fx")) for e in res["data"].values() if e.get("now") and e["co"]["cur"] != "KRW")):
+    fx_box = st.expander("적용 환율 보기·직접 입력") if krw_on else None
+    if fx_box is not None:
+        with fx_box:
             st.caption("자동 환율은 유럽중앙은행 기준환율(Frankfurter)로 계산한 원화 환율이에요. 한국은행 매매기준율과 조금 다를 수 있어요. "
                        "기사에 쓸 환율이 따로 있으면 아래에 입력하면 그 값으로 바꿔요 (0이면 자동).")
             cols = st.columns(max(len(currencies), 1))
             for col, cur in zip(cols, currencies):
                 overrides[cur] = col.number_input(f"{cur} 1{CURRENCY_NAMES.get(cur, '')} = ? 원", min_value=0.0, value=0.0, step=1.0,
                                                   key=f"ovs_fx_{cur}")
-    table, rates, sentences, no_rate = ovs_table(res, view, unit, mode, overrides)
+    table, rates, no_rate = ovs_table(res, view, unit, mode, overrides)
     when = f"{res['year']}년 " + ("연간" if res["period"] == "연간" else f"{res['period'][0]}분기")
-    unit_text = f"단위: {unit}, 환율 {mode}" if view == "원화 환산" else "단위: 억 (각 회사의 현지 통화)"
-    st.caption(f"{when} (달력 기준에 가장 가까운 결산 기간) · 연결 기준 · {unit_text} · 증감률은 현지 통화 기준이라 환율 영향이 없어요")
+    used = sorted({e["co"]["cur"] for e in res["data"].values() if e.get("now")})
+    if krw_on:
+        unit_label = f"{unit} · 환율 {mode}"
+    elif len(used) == 1:
+        unit_label = f"억 {CURRENCY_NAMES.get(used[0], used[0])}"
+    else:
+        unit_label = "억 (통화는 표의 '통화' 열)"
+    st.markdown(f'<div style="font-weight:800; font-size:1.1rem; color:#1c7ed6; margin:0.3rem 0 0.1rem">단위: {html.escape(unit_label)}</div>',
+                unsafe_allow_html=True)
+    st.caption(f"{when} (달력 기준에 가장 가까운 결산 기간) · 연결 기준 · 증감률은 현지 통화 기준이라 환율 영향이 없어요")
     if no_rate:
-        st.warning("환율을 자동으로 구하지 못해 원화로 바꾸지 못한 회사: " + ", ".join(no_rate) + ". 위 '환율 확인·직접 입력'에 환율을 넣어주세요.")
+        st.warning("환율을 자동으로 구하지 못해 원화로 바꾸지 못한 회사: " + ", ".join(no_rate) + ". 아래 '적용 환율 보기·직접 입력'을 열어 환율을 넣어주세요.")
     st.dataframe(
         table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
         hide_index=True, height=(len(table) + 1) * 35 + 3,
         column_config={"회사": st.column_config.TextColumn("회사", width=150), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
                        "통화": st.column_config.TextColumn("통화", width=55)},
     )
-    if view == "원화 환산" and len(table) > 1:
+    if krw_on and len(table) > 1:
         st.caption("합계는 결산 기간이 서로 다른 회사를 환율로 바꿔 더한 참고용 값이에요.")
-    if not rates.empty:
-        st.markdown("##### 적용 환율")
-        st.dataframe(rates, hide_index=True, height=(len(rates) + 1) * 35 + 3)
-    if sentences:
-        st.caption("기사 문장 초안 — 오른쪽 위 아이콘을 누르면 복사돼요.")
-        st.code("\n".join(sentences), language=None, wrap_lines=True)
+    if fx_box is not None and not rates.empty:
+        with fx_box:
+            st.markdown("**적용 환율**")
+            st.dataframe(rates, hide_index=True, height=(len(rates) + 1) * 35 + 3)
     st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"해외기업_{res['year']}_{res['period']}.csv", mime="text/csv", key="ovs_csv")
     st.caption("자료: 미국 SEC EDGAR(XBRL), 환율: 유럽중앙은행 기준환율(Frankfurter) · 4분기는 '연간 - 3분기 누적'으로 계산한 값이에요")
