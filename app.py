@@ -6651,24 +6651,52 @@ def brief_overview_prompt(corp, row, excerpt):
     )
 
 
-def brief_trend_prompt(b):
-    parts = []
+def brief_trend_sources(b):
+    """동향 요약에 보내는 공시·기사 -> [(구역, 줄 글자, 제목, 링크)]. 번호는 이 목록의 순서(1부터)."""
+    out = []
     if b.get("disc") is not None and not b["disc"].empty:
-        parts.append("[최근 3개월 주요 공시 제목]\n" + "\n".join(df_lines(b["disc"], ["접수일", "보고서명"])))
+        for r in b["disc"].to_dict("records"):
+            out.append(("[최근 3개월 주요 공시 제목]", f"{r.get('접수일', '')} | {r.get('보고서명', '')}", str(r.get("보고서명", "")), str(r.get("원문") or "")))
+    for head, key in (("[최근 한 달 단독 기사 제목]", "news"), ("[최근 일반 기사 제목 (최신순)]", "news_all")):
+        for c in b.get(key) or []:
+            rep = c["rep"]
+            out.append((head, f"{rep['dt']:%m/%d} {rep.get('publisher', '')} · {rep['title']}", rep["title"], rep.get("url", "")))
+    return out
 
-    def news_lines(clusters):
-        return [f"{c['rep']['dt']:%m/%d} {c['rep'].get('publisher', '')} · {c['rep']['title']}" for c in clusters]
 
-    if b.get("news"):
-        parts.append("[최근 한 달 단독 기사 제목]\n" + "\n".join(news_lines(b["news"])))
-    if b.get("news_all"):
-        parts.append("[최근 일반 기사 제목 (최신순)]\n" + "\n".join(news_lines(b["news_all"])))
+def brief_trend_prompt(b):
+    parts, last, n = [], None, 0
+    for head, line, _, _ in brief_trend_sources(b):
+        n += 1
+        if head != last:
+            parts.append(("\n\n" if parts else "") + head)
+            last = head
+        parts.append(f"\n[{n}] {line}")
     return (
-        f"기업: {b['corp']}\n\n" + "\n\n".join(parts)
+        f"기업: {b['corp']}\n\n" + "".join(parts)
         + "\n\n위 제목들만 근거로 아래 형식으로 써라.\n"
-        "**이번 분기 이슈 3가지**: 각 항목은 '- 이슈 이름: 한두 문장 (근거: 공시명 또는 기사 제목 일부)' 형식. 공시와 기사가 같은 사안이면 한 이슈로 묶고, 중요도 순으로 쓴다\n"
+        "**이번 분기 이슈 3가지**: 각 항목은 '- 이슈 이름: 한두 문장 (근거: [번호], [번호])' 형식. 근거는 위 제목 앞의 번호만 대괄호로 적고 제목이나 주소는 쓰지 않는다. "
+        "공시와 기사가 같은 사안이면 한 이슈로 묶고, 중요도 순으로 쓴다.\n"
         "'제목만으로는 알 수 없다', '확인이 필요하다' 같은 단서·면책 문구는 쓰지 않는다. 제목에서 읽히는 사실만 담백하게 쓴다."
     )
+
+
+def brief_trend_linkify(text, sources):
+    """AI 답의 [3], [3, 7] 같은 번호를 제목 링크로 바꾼다 (번호가 목록에 없으면 지움)."""
+    def label(t):
+        t = re.sub(r"[\[\]]", "", t).strip()
+        return t if len(t) <= 28 else t[:27] + "…"
+
+    def one(m):
+        links = []
+        for num in re.findall(r"\d+", m.group(1)):
+            i = int(num) - 1
+            if 0 <= i < len(sources):
+                _, _, title, url = sources[i]
+                links.append(f"[{label(title)}]({url.replace(')', '%29')})" if url else label(title))
+        return ", ".join(links)
+
+    return re.sub(r"\[(\d+(?:\s*[,，]\s*\d+)*)\]", one, text)
 
 
 def collect_brief(name, code, progress):
@@ -6824,7 +6852,7 @@ def render_brief_trend(b):
     saved = st.session_state.get("brief_trend")
     n_news = len(b.get("news") or []) + len(b.get("news_all") or [])
     if saved and saved["sig"] == sig:
-        st.markdown(saved["text"])
+        st.markdown(brief_trend_linkify(saved["text"], brief_trend_sources(b)))
         st.caption(f"AI 분석({saved['model']}) · 공시 제목과 기사 제목만 보고 정리한 것이에요. 본문은 읽지 않았으니 원문 확인이 필요해요")
     else:
         st.caption(f"누르면 최근 주요 공시 {0 if not has_disc else len(b['disc'])}건과 기사 {n_news}묶음의 제목을 종합해 이슈를 정리해 줘요. (기사는 검색된 최근 기사 중 주요 언론사 것만 봐요)")
