@@ -6812,21 +6812,28 @@ def cal_list_rows(session, store, code, start, end):
     return rows
 
 
-def cal_ir_date(session, store, rcept_no):
-    """IR 개최 공시 원문에서 개최일을 읽는다. 못 읽으면 None."""
+IR_PURPOSE_RE = re.compile(r"개최\s*목적\s*[|:：]*\s*([^|\n]{2,80})")
+
+
+def cal_ir_info(session, store, rcept_no):
+    """IR 개최 공시 원문에서 (개최일, 개최 목적)을 읽는다. 못 읽은 것은 None."""
     try:
         text = fetch_document_text(session, store, rcept_no)
     except Exception:
-        return None
+        return None, None
+    held = None
     pos = text.find("일시")
     for chunk in ([text[pos:pos + 200]] if pos >= 0 else []) + [text[:1500]]:
         m = IR_DATE_RE.search(chunk)
         if m:
             try:
-                return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                held = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                break
             except ValueError:
                 continue
-    return None
+    m = IR_PURPOSE_RE.search(text)
+    purpose = re.sub(r"\s+", " ", m.group(1)).strip(" ()|") if m else None
+    return held, (purpose or None)
 
 
 def cal_move_weekday(d):
@@ -6855,12 +6862,12 @@ def cal_company(session, store, name, code, ws, we, today):
             irs.append((d, r))
     ir_days = []
     for filed, r in sorted(irs, key=lambda x: x[0], reverse=True)[:3]:
-        held = cal_ir_date(session, store, r["rcept_no"])
+        held, purpose = cal_ir_info(session, store, r["rcept_no"])
         if held is None:
             unread.append((name, filed, r.get("rcept_no")))
         elif ws <= held <= we:
             ir_days.append(held)
-            events.append({"date": held, "corp": name, "kind": "IR 개최", "text": "기업설명회(IR) 개최 · " + f"{filed.month}/{filed.day} 공시", "no": r.get("rcept_no")})
+            events.append({"date": held, "corp": name, "kind": "IR 개최", "text": "기업설명회(IR) 개최" + (f" ({purpose})" if purpose else "") + f" · {filed.month}/{filed.day} 공시", "no": r.get("rcept_no")})
     if we >= today:  # 앞으로의 날짜: 작년 같은 시기 발표일을 올해로 옮겨 예상
         for r in cal_list_rows(session, store, code, ws - timedelta(days=372), we - timedelta(days=357)):
             key = disclosure_key(r.get("report_nm", ""))
