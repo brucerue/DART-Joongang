@@ -2604,16 +2604,17 @@ def fetch_news(session, query, days, today_str):
     return items, (got_full_page and not reached_cutoff)
 
 
-def search_news(terms, days):
+def search_news(terms, days, keyword=None):
     """검색어마다 '검색어 단독'으로 동시에 검색해 합친다.
 
     -> (기사 목록, 한도에 걸렸는지, 한도에 걸린 검색에서 빠짐없이 본 가장 이른 시각)
     같은 기사가 여러 검색에 걸려도 한 번만 담는다. 같은 검색은 30분('오늘'은 10분) 동안 저장해 둔 결과를 쓴다.
     """
     session, store, today = get_session(), get_cache_store(), TODAY.isoformat()  # 화면 스레드에서 미리 준비
+    keyword = NEWS_KEYWORD if keyword is None else keyword  # 빈 문자열이면 단독 표기 없이 일반 기사까지
 
     def one(term):
-        query = f"{term} {NEWS_KEYWORD}"
+        query = f"{term} {keyword}".strip()
         key = ("news", query, days, today)
         hit = cache_lookup(store, key, NEWS_TTL_TODAY if days <= 1 else NEWS_TTL)
         if hit is not _MISSING:
@@ -2732,7 +2733,7 @@ def apply_watchlist():
         return False
     st.session_state["watch_applied"] = True
     if corps:
-        st.session_state["news_mode"] = "기업명"
+        st.session_state["news_mode"] = "기업"
         st.session_state["news_corp"] = corps
     elif sector in NEWS_SECTORS:
         st.session_state["news_mode"] = "섹터"
@@ -4353,9 +4354,12 @@ def render_news():
         return
 
     st.session_state.setdefault("news_corp", "")  # 처음엔 빈칸 (관심 목록 주소로 들어오면 그 기업들)
-    mode = st.radio("검색 방식", ["기업명", "섹터"], horizontal=True, key="news_mode")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
+    with st.container(key="news_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에 (재무 조회와 같은 모양)
+        c1, c2 = st.columns([1, 4], vertical_alignment="center")
+        c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
+        mode = c2.radio("조회 방식", ["기업", "섹터"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     with st.form("news_search"):
-        if mode == "기업명":
+        if mode == "기업":
             corp_text = st.text_input(
                 "기업명 (여러 곳은 쉼표로)", key="news_corp",
                 placeholder="예: 삼성전자, SK하이닉스, 현대차",
@@ -4369,7 +4373,7 @@ def render_news():
 
     if submitted:
         corps = []
-        if mode == "기업명":
+        if mode == "기업":
             for part in re.split(NEWS_SPLIT, corp_text):
                 part = canonical_corp(part)  # 대소문자 무시 (sk하이닉스 -> SK하이닉스)
                 if part.isdigit() and len(part) == 6:  # 종목코드를 넣었다면 기업명으로 바꿔서 검색
@@ -4390,7 +4394,7 @@ def render_news():
             st.session_state.pop("news", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
             match_extra = []  # 섹터 모드에서 검색하지 않는 줄임말 (제목 확인용)
             owner = {}  # 검색어 -> 어느 기업 것인지 (여러 기업 검색 때 기사에 기업명 꼬리표를 달기 위해)
-            if mode == "기업명":
+            if mode == "기업":
                 terms = []
                 for c in corps:
                     for t in news_names(c):  # 입력한 이름 + 별칭
@@ -6125,9 +6129,9 @@ html, body, [class*="st-"], button, input, textarea {
 [data-testid="stHeader"] { background: transparent; }
 footer { visibility: hidden; }
 .mode-lbl { font-size: 0.9rem; font-weight: 600; color: #334155; white-space: nowrap; }
-.st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
-.st-key-fin_mode_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
-.st-key-fin_mode_bar [data-testid="stColumn"]:first-child, .st-key-disc_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
+.st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"], .st-key-news_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
+.st-key-fin_mode_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"], .st-key-news_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
+.st-key-fin_mode_bar [data-testid="stColumn"]:first-child, .st-key-disc_mode_bar [data-testid="stColumn"]:first-child, .st-key-news_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
 .st-key-ovs_fx_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.75rem !important; }  /* 모바일에서도 한 줄 */
 .st-key-ovs_fx_bar [data-testid="stColumn"] { min-width: 0 !important; }
 
@@ -6572,6 +6576,101 @@ def brief_ai_prompt(b):
     )
 
 
+BRIEF_TREND_NEWS_MAX = 12  # 동향 요약에 보내는 일반 기사 묶음 수
+BRIEF_CLS = {"Y": "유가증권시장", "K": "코스닥", "N": "코넥스", "E": "기타"}
+# 회사 개요 요약에 보내는 보고서 부분과 부분별 최대 글자 수
+BRIEF_BIZ_BLOCKS = [("biz_overview", 6000), ("biz_products", 12000), ("biz_sales", 12000), ("note_segment", 8000), ("biz_fin_ops", 8000)]
+
+AI_TREND_SYSTEM = (
+    "너는 중앙일보 산업부 기자의 취재 준비를 돕는 보조자다. 사용자가 준 공시 제목과 기사 제목만 근거로 쓴다. "
+    "제목에 적힌 내용 밖의 숫자·원인·배경·전망·시장 반응을 절대 만들지 않는다. 기사 본문과 공시 내용은 보지 못했으니 제목에서 읽히는 것까지만 말하고, "
+    "단정이 어려운 것은 '확인 필요'로 표시한다. 같은 사안의 공시·기사는 하나의 이슈로 묶는다. 한국어, 짧고 명확한 기사체로 쓴다."
+)
+
+
+def brief_profile(code):
+    """기업 개황(company.json) 중 브리핑에 쓰는 항목 (하루 저장). 못 받으면 None."""
+    session, store = get_session(), get_cache_store()
+    key = ("company_profile", code)
+    cached = cache_lookup(store, key, 24 * 3600)
+    if cached is not _MISSING and cached:
+        return cached
+    jo = call_dart(session, DART_COMPANY_URL, {"crtfc_key": API_KEY, "corp_code": code})
+    prof = {k: str((jo or {}).get(k) or "").strip() for k in ("stock_name", "ceo_nm", "est_dt", "acc_mt", "corp_cls", "hm_url", "adres", "stock_code")}
+    if not any(prof.values()):
+        return None
+    cache_save(store, key, prof)
+    return prof
+
+
+def brief_holder(code, end_year):
+    """최대주주 현황 (사업보고서 기준, 가장 최근 연도). -> dict(year, name, relate, rate, total_rate) 또는 None"""
+    for y in (end_year, end_year - 1):
+        got = rt_collect([("h", code, y, "hyslrSttus", "11011")])
+        rows = [r for r in (((got.get(("h", y, "hyslrSttus"))) or {}).get("list") or []) if isinstance(r, dict)]
+        if not rows:
+            continue
+        common = [r for r in rows if "보통" in str(r.get("stock_knd", ""))] or rows
+        main = next((r for r in common if "최대주주" in str(r.get("relate", ""))), None) or common[0]
+        total = next((r for r in common if str(r.get("nm", "")).strip() == "계"), None)
+        return {"year": y, "name": str(main.get("nm", "")).strip(), "relate": str(main.get("relate", "")).strip(),
+                "rate": str(main.get("trmend_posesn_stock_qota_rt", "")).strip(),
+                "total_rate": str(total.get("trmend_posesn_stock_qota_rt", "")).strip() if total else ""}
+    return None
+
+
+def brief_report_row(code):
+    """사업 설명을 읽을 보고서: 가장 최근 사업보고서 (없으면 가장 최근 정기보고서)."""
+    rows = [r for r in periodic_reports(code) if report_period_of(r.get("report_nm"))]  # 이름에 (2025.12) 같은 기간이 있는 것만
+    for r in rows:
+        if strip_correction(r.get("report_nm")).startswith("사업보고서"):
+            return r
+    return rows[0] if rows else None
+
+
+def brief_overview_excerpt(blocks):
+    """보고서 블록에서 회사 개요 요약에 쓸 부분만 이어 붙인다. -> (글, 읽은 부분 이름들)"""
+    parts, read = [], []
+    for key, cap in BRIEF_BIZ_BLOCKS:
+        value = (blocks.get(key) or "").strip()
+        if value:
+            parts.append(f"[{REPORT_BLOCK_LABELS[key]}]\n{value[:cap]}")
+            read.append(REPORT_BLOCK_LABELS[key])
+    return "\n\n".join(parts), read
+
+
+def brief_overview_prompt(corp, row, excerpt):
+    return (
+        f"기업: {corp}\n보고서: {strip_correction(row.get('report_nm'))}\n\n[발췌]\n{excerpt}\n\n"
+        "위 발췌만 근거로, 이 기업을 처음 취재하는 산업부 기자가 읽을 '회사 개요'를 아래 형식으로 써라. 발췌에 없는 항목은 건너뛴다.\n"
+        "**회사 소개**: 이 회사가 무엇으로 돈을 버는 곳인지 3~4문장 (주력 사업·제품·서비스, 사업 구조. 회사의 자기 설명은 '회사는 ~라고 설명'으로)\n"
+        "**주력 제품·서비스**: 3~5개 항목(- 로 시작). 각 항목은 '제품·서비스 이름: 한 줄 설명'\n"
+        "**매출 구성**: 사업 부문별 또는 제품별 매출과 비중을 마크다운 표로 (열: 구분 | 매출액 | 비중). "
+        "금액·비중은 발췌 표기 그대로(단위 포함) 옮기고, 비중이 발췌에 없으면 '-'로 둔다. 새로 계산하지 않는다. "
+        "표 아래에 기준 기간과 근거 위치를 [ ] 안에 적는다 (예: [II-4. 매출 및 수주상황]). 매출 구성을 찾지 못하면 '보고서 발췌에서 확인되지 않음'이라고 쓴다."
+    )
+
+
+def brief_trend_prompt(b):
+    parts = []
+    if b.get("disc") is not None and not b["disc"].empty:
+        parts.append("[최근 3개월 주요 공시 제목]\n" + "\n".join(df_lines(b["disc"], ["접수일", "보고서명"])))
+
+    def news_lines(clusters):
+        return [f"{c['rep']['dt']:%m/%d} {c['rep'].get('publisher', '')} · {c['rep']['title']}" for c in clusters]
+
+    if b.get("news"):
+        parts.append("[최근 한 달 단독 기사 제목]\n" + "\n".join(news_lines(b["news"])))
+    if b.get("news_all"):
+        parts.append("[최근 일반 기사 제목 (최신순)]\n" + "\n".join(news_lines(b["news_all"])))
+    return (
+        f"기업: {b['corp']}\n\n" + "\n\n".join(parts)
+        + "\n\n위 제목들만 근거로 아래 형식으로 써라.\n"
+        "**이번 분기 이슈 3가지**: 각 항목은 '- 이슈 이름: 한두 문장 (근거: 공시명 또는 기사 제목 일부)' 형식. 공시와 기사가 같은 사안이면 한 이슈로 묶고, 중요도 순으로 쓴다\n"
+        "**더 확인할 것**: 제목만으로는 알 수 없어 원문·취재로 확인해야 할 점 1~2개 (- 로 시작)"
+    )
+
+
 def collect_brief(name, code, progress):
     """회사 하나의 브리핑 재료. 항목 하나가 실패해도 나머지는 보여주도록 항목별로 오류를 담는다."""
     b = {"corp": name, "code": code, "errors": {}, "asof": datetime.now(KST)}
@@ -6586,6 +6685,9 @@ def collect_brief(name, code, progress):
             b["errors"][key] = str(e) if isinstance(e, (DartApiError, AiError, NewsApiError, KrxError)) else f"불러오지 못했어요 ({type(e).__name__})"
             return None
 
+    b["profile"] = step("기업 개황을 불러오는 중...", "profile", lambda: brief_profile(code))
+    b["holder"] = step("최대주주를 확인하는 중...", "holder", lambda: brief_holder(code, end))
+    b["biz_row"] = step("사업보고서를 찾는 중...", "biz_row", lambda: brief_report_row(code))
     if KRX_KEY:
         stock = stock_code_of(code)
         b["quote"] = step("시세를 불러오는 중...", "quote", lambda: collect_quote(stock) if stock else None)
@@ -6621,15 +6723,119 @@ def collect_brief(name, code, progress):
             return cluster_news(items)[:BRIEF_NEWS_MAX]
 
         b["news"] = step("최근 단독 뉴스를 찾는 중...", "news", news)
+
+        def news_all():  # 단독 표기와 상관없는 일반 기사 (동향 요약용)
+            items, _, _ = search_news([name], BRIEF_NEWS_DAYS, keyword="")
+            key = name_key(name)
+            items = [i for i in items if i["category"] and key in name_key(i["title"]) and not is_exclusive(i["title"])]  # 단독은 위 목록에 있음
+            return cluster_news(items)[:BRIEF_TREND_NEWS_MAX]
+
+        b["news_all"] = step("최근 기사를 찾는 중...", "news_all", news_all)
     else:
         b["news"] = None
+        b["news_all"] = None
     return b
+
+
+def render_brief_overview(b):
+    """브리핑 맨 위: 기업 개황(대표이사·설립일·결산월·최대주주) + 사업 개요·매출 구성 AI 요약."""
+    errs = b["errors"]
+    st.markdown("##### 회사 개요")
+    p = b.get("profile")
+    if errs.get("profile"):
+        st.warning(errs["profile"])
+    elif p:
+        bits = []
+        if p.get("ceo_nm"):
+            bits.append(f"**대표이사** {p['ceo_nm']}")
+        d = p.get("est_dt", "")
+        if len(d) == 8 and d.isdigit():
+            bits.append(f"**설립일** {d[:4]}.{d[4:6]}.{d[6:]}")
+        if p.get("acc_mt", "").isdigit():
+            bits.append(f"**결산월** {int(p['acc_mt'])}월")
+        if BRIEF_CLS.get(p.get("corp_cls")):
+            bits.append(f"**시장** {BRIEF_CLS[p['corp_cls']]}")
+        h = b.get("holder")
+        if h and h.get("name"):
+            rate = f"{h['rate']}%" if h.get("rate") not in ("", "-") else "-"
+            extra = f", 특수관계인 합계 {h['total_rate']}%" if h.get("total_rate") not in ("", "-") else ""
+            bits.append(f"**최대주주** {h['name']} ({rate}{extra} · {h['year']}년 말)")
+        elif errs.get("holder"):
+            bits.append("**최대주주** 불러오지 못함")
+        if bits:
+            st.markdown("  ·  ".join(bits))
+        if p.get("hm_url"):
+            url = p["hm_url"] if p["hm_url"].startswith("http") else "http://" + p["hm_url"]
+            st.caption(f"홈페이지 {url}")
+    else:
+        st.info("기업 개황을 찾지 못했어요.")
+
+    row = b.get("biz_row")
+    if not AI_PROVIDER:
+        st.caption("사업 개요·매출 구성 요약을 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude) 또는 GEMINI_API_KEY(Gemini)를 추가해주세요.")
+        return
+    if errs.get("biz_row"):
+        st.warning(errs["biz_row"])
+        return
+    if not row:
+        st.caption("최근 4년 안에 정기보고서(사업·반기·분기)가 없어 사업 개요를 만들 수 없어요.")
+        return
+    rno = str(row["rcept_no"]).strip()
+    if st.button("사업 개요·매출 구성 보기 (AI)", key="brief_ov_go"):
+        with st.spinner("사업보고서를 읽는 중입니다... (처음엔 30초 안팎)"):
+            try:
+                blocks = periodic_blocks(rno)
+                excerpt, read = brief_overview_excerpt(blocks)
+                if not excerpt:
+                    raise AiError("보고서에서 사업의 내용 부분을 찾지 못했어요. 원문 링크로 확인해주세요.")
+                (text, used) = ai_cached(("briefov", rno), lambda: ai_generate(brief_overview_prompt(b["corp"], row, excerpt), system=AI_PERIODIC_SYSTEM))
+            except (AiError, DartApiError) as e:
+                st.error(str(e))
+            else:
+                st.session_state["brief_ov"] = {"rno": rno, "text": text, "model": used, "read": read}
+    saved = st.session_state.get("brief_ov")
+    if saved and saved["rno"] == rno:
+        st.markdown(saved["text"])
+        st.caption(f"AI 요약({saved['model']}) · [{strip_correction(row.get('report_nm'))}]({DART_VIEW_URL.format(rno)}) 발췌만 근거 · 읽은 부분: {', '.join(saved['read'])}. 숫자는 원문 확인이 필요해요")
+    else:
+        st.caption(f"누르면 {strip_correction(row.get('report_nm'))}의 '사업의 내용'을 읽어 회사 소개·주력 제품·부문별 매출 비중을 정리해 줘요.")
+
+
+def render_brief_trend(b):
+    """최근 3개월 공시 + 최근 기사 제목으로 '이번 분기 이슈'를 AI가 정리."""
+    st.markdown("##### 최근 동향 요약 (AI)")
+    if not AI_PROVIDER:
+        st.caption("동향 요약을 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude) 또는 GEMINI_API_KEY(Gemini)를 추가해주세요.")
+        return
+    has_disc = b.get("disc") is not None and not b["disc"].empty
+    if not (has_disc or b.get("news") or b.get("news_all")):
+        st.caption("요약할 최근 공시·기사가 없어요.")
+        return
+    prompt = brief_trend_prompt(b)
+    sig = hashlib.sha1(prompt.encode("utf-8")).hexdigest()
+    if st.button("공시·기사 제목으로 이슈 정리", key="brief_trend_go"):
+        with st.spinner("최근 공시와 기사를 종합하는 중입니다... (10~30초)"):
+            try:
+                (text, used) = ai_cached(("brieftrend", sig), lambda: ai_generate(prompt, system=AI_TREND_SYSTEM))
+            except AiError as e:
+                st.error(str(e))
+            else:
+                st.session_state["brief_trend"] = {"sig": sig, "text": text, "model": used}
+    saved = st.session_state.get("brief_trend")
+    n_news = len(b.get("news") or []) + len(b.get("news_all") or [])
+    if saved and saved["sig"] == sig:
+        st.markdown(saved["text"])
+        st.caption(f"AI 분석({saved['model']}) · 공시 제목과 기사 제목만 보고 정리한 것이에요. 본문은 읽지 않았으니 원문 확인이 필요해요")
+    else:
+        st.caption(f"누르면 최근 주요 공시 {0 if not has_disc else len(b['disc'])}건과 기사 {n_news}묶음의 제목을 종합해 이슈를 정리해 줘요. (기사는 검색된 최근 기사 중 주요 언론사 것만 봐요)")
 
 
 def render_brief_result(b):
     st.markdown(f"#### {b['corp']} 브리핑")
     st.caption(f"{b['asof']:%Y.%m.%d %H:%M} 기준 · 연결 기준")
     errs = b["errors"]
+
+    render_brief_overview(b)
 
     if b.get("quote") is False:
         krx_hint()
@@ -6687,6 +6893,8 @@ def render_brief_result(b):
     else:
         st.markdown(news_html(b["news"]), unsafe_allow_html=True)
 
+    render_brief_trend(b)
+
     st.markdown("##### AI 취재 포인트")
     if not AI_PROVIDER:
         st.caption("AI 취재 포인트를 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude) 또는 GEMINI_API_KEY(Gemini)를 추가해주세요.")
@@ -6722,6 +6930,8 @@ def render_brief():
         else:
             st.session_state.pop("brief", None)
             st.session_state.pop("brief_ai", None)
+            st.session_state.pop("brief_ov", None)
+            st.session_state.pop("brief_trend", None)
             code = lookup_corp_code(corp, "brief")
             if code:
                 if corp.isdigit():  # 종목코드로 넣었으면 회사 이름으로
@@ -6733,7 +6943,7 @@ def render_brief():
 
                 def progress(label):
                     steps[0] += 1
-                    bar.progress(min(steps[0] / 5, 1.0), text=label)
+                    bar.progress(min(steps[0] / 9, 1.0), text=label)
 
                 try:
                     st.session_state["brief"] = collect_brief(corp, code, progress)
@@ -6747,15 +6957,14 @@ def render_brief():
 
 
 # ------------------------------------------------------------
-# 실적 일정 (국내 기업)
+# 실적 캘린더 (국내 기업)
 # ------------------------------------------------------------
 DART_COMPANY_URL = "https://opendart.fss.or.kr/api/company.json"  # 기업 개황 (결산월)
 CAL_RANGES = {"앞으로 2주": (0, 14), "앞으로 1개월": (0, 31), "지난 2주": (-14, 0)}
 MAX_CAL_CORPS = 100
 WEEKDAYS = "월화수목금토일"
 CAL_KINDS_HELP = (
-    "**발표 완료**: DART에 올라온 영업(잠정)실적 공시\n\n"
-    "**IR 개최**: 기업이 공시한 IR(기업설명회) 일정. 원문에서 날짜를 읽어 와요\n\n"
+    "**IR 개최**: 기업이 공시한 IR(기업설명회) 개최 예정 일정. 원문에서 날짜를 읽어 와요. 이미 발표한 잠정실적 공시는 넣지 않아요\n\n"
     "**전년 기준 예상**: 작년 같은 시기 잠정실적 공시일을 올해로 옮긴 추정이에요. 확정이 아니에요\n\n"
     "**법정 제출기한**: 분기·반기보고서는 결산 후 45일, 사업보고서는 90일이에요. 잠정실적은 보통 이보다 먼저 나와요"
 )
@@ -6857,8 +7066,6 @@ def cal_company(session, store, name, code, ws, we, today):
             continue
         if "잠정" in key and "실적" in key:
             actual.append(d)
-            if ws <= d <= we:
-                events.append({"date": d, "corp": name, "kind": "발표 완료", "text": str(r["report_nm"]).strip(), "no": r.get("rcept_no")})
         elif "기업설명회" in key:
             irs.append((d, r))
     ir_days = []
@@ -6901,7 +7108,7 @@ def collect_calendar(corps, ws, we):
         out["unread"].extend(res["unread"])
         for key in res["deadlines"]:
             out["deadlines"].setdefault(key, []).append(name)
-    kind_order = {"발표 완료": 0, "IR 개최": 1, "전년 기준 예상": 2}
+    kind_order = {"IR 개최": 1, "전년 기준 예상": 2}
     out["events"].sort(key=lambda e: (e["date"], kind_order[e["kind"]], e["corp"]))
     return out
 
@@ -6915,7 +7122,7 @@ def fill_calendar():
 
 
 def render_calendar():
-    """탭: 실적 일정 - 업종별 국내 기업의 잠정실적·IR 일정과 정기보고서 제출기한."""
+    """탭: 실적 캘린더 - 업종별 국내 기업의 잠정실적·IR 일정과 정기보고서 제출기한."""
     first = list(INDUSTRY_GROUPS)[0]
     st.session_state.setdefault("cal_groups", [first])
     st.session_state.setdefault("cal_corps", ", ".join(INDUSTRY_GROUPS[first]))
@@ -6975,6 +7182,7 @@ def render_calendar():
         } for e in events])
         st.dataframe(table, hide_index=True, height=(len(table) + 1) * 35 + 3,
                      column_config={"날짜": st.column_config.TextColumn("날짜", width=80), "기업": st.column_config.TextColumn("기업", width=110),
+                                    "개최 목적": st.column_config.TextColumn("개최 목적", width=260),
                                     "원문": LINK_COLUMN})
     else:
         st.info("이 기간에 확인된 실적 일정이 없어요. 기업이 IR 일정을 공시하면 나타나요." + (" 위 스위치를 켜면 전년 기준 예상을 볼 수 있어요." if est_n else ""))
@@ -7009,7 +7217,7 @@ def run_js(code):
         pass
 
 
-TAB_NAMES = ["기업 브리핑", "재무 조회", "해외 기업", "단독 뉴스", "공시 분석", "실적 일정", "정기보고서", "재계 순위"]
+TAB_NAMES = ["기업 브리핑", "재무 조회", "해외 기업", "단독 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
