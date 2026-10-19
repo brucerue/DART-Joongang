@@ -5856,8 +5856,8 @@ def ovs_factor(entry, view, mode, overrides):
 def ovs_unit_label(cur, view, unit):
     """표의 '단위' 칸에 적을 글자"""
     if view == "원화 환산":
-        return unit.replace("원", "KRW")  # 억원 -> 억KRW, 조원 -> 조KRW
-    return "억" + ("USD" if view == "달러 환산" else cur)
+        return unit  # 억원, 조원
+    return "억" + ("USD" if view == "달러 환산" else ("원" if cur == "KRW" else cur))
 
 
 def ovs_table(res, view, unit, mode, overrides):
