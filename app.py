@@ -5856,8 +5856,8 @@ def ovs_factor(entry, view, mode, overrides):
 def ovs_unit_label(cur, view, unit):
     """표의 '단위' 칸에 적을 글자"""
     if view == "원화 환산":
-        return unit
-    return "억 " + (CURRENCY_NAMES["USD"] if view == "달러 환산" else CURRENCY_NAMES.get(cur, cur))
+        return unit.replace("원", "KRW")  # 억원 -> 억KRW, 조원 -> 조KRW
+    return "억" + ("USD" if view == "달러 환산" else cur)
 
 
 def ovs_table(res, view, unit, mode, overrides):
@@ -5865,7 +5865,7 @@ def ovs_table(res, view, unit, mode, overrides):
     rows, rate_rows, no_rate = [], [], []
     krw = view == "원화 환산"
     for ticker, entry in res["data"].items():
-        label = f"{res['names'][ticker]} ({ticker})"
+        label = res['names'][ticker]
         now, prev, co = entry.get("now"), entry.get("prev"), entry.get("co")
         if not now:
             continue
@@ -5948,7 +5948,7 @@ def ovs_extra_table(res, view, unit, mode, overrides):
         pv = prev or {}
         gm = now["gp"] / now["rev"] * 100 if now.get("gp") is not None and now.get("rev") else None
         rows.append({
-            "회사": f"{res['names'][ticker]} ({ticker})", "단위": ovs_unit_label(co["cur"], view, unit),
+            "회사": res['names'][ticker], "단위": ovs_unit_label(co["cur"], view, unit),
             "주당순이익(희석)": eps_text(now.get("eps")), "주당순이익 전년比": fmt_change(op_change(now.get("eps"), pv.get("eps"))),
             "매출총이익률": f"{gm:.1f}%" if gm is not None else "-",
             "EBITDA": amt(ovs_ebitda(now)), "EBITDA 전년比": fmt_change(op_change(ovs_ebitda(now), ovs_ebitda(pv))),
@@ -6080,7 +6080,7 @@ def render_overseas():
         st.dataframe(
             table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
             hide_index=True, height=(len(table) + 1) * 35 + 3,
-            column_config={"회사": st.column_config.TextColumn("회사", width=150), "단위": st.column_config.TextColumn("단위", width=80), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
+            column_config={"회사": st.column_config.TextColumn("회사", width=105), "단위": st.column_config.TextColumn("단위", width=80), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
                            "원문": st.column_config.LinkColumn("원문", display_text="보기")},
         )
         miss = ovs_missing_line(res)
@@ -6099,7 +6099,7 @@ def render_overseas():
             "주당순이익은 1주당 금액(" + ("원화 환산 시 원" if krw_on else ("달러 환산 시 달러" if fx_on else "현지 통화")) + ")이고, 4분기 계산 기간은 비워요\n\n"
             "조정(Non-GAAP) 실적과 가이던스는 SEC 데이터에 없어요. 첫 표의 '원문'(실적 발표 8-K)에서 확인하세요"))
         st.dataframe(extra.style.map(amount_style, subset=["EBITDA", "영업현금흐름", "잉여현금흐름"]), hide_index=True,
-                     height=(len(extra) + 1) * 35 + 3, column_config={"회사": st.column_config.TextColumn("회사", width=150), "단위": st.column_config.TextColumn("단위", width=80)})
+                     height=(len(extra) + 1) * 35 + 3, column_config={"회사": st.column_config.TextColumn("회사", width=105), "단위": st.column_config.TextColumn("단위", width=80)})
     st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"해외기업_{res['year']}_{res['period']}.csv", mime="text/csv", key="ovs_csv")
     st.caption("자료: 미국 SEC EDGAR(XBRL), 환율: 유럽중앙은행 기준환율(Frankfurter) · 4분기는 '연간 - 3분기 누적'으로 계산한 값이에요 · "
