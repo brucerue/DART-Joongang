@@ -5302,7 +5302,7 @@ SEC_INDEX_URL = "https://www.sec.gov/Archives/edgar/data/{cik}/{nodash}/{accn}-i
 SEC_TIMEOUT = 45  # 회사 하나의 재무 파일이 수 MB라 DART보다 길게
 SEC_TTL = 6 * 3600
 SEC_FORMS = ("10-K", "10-Q", "20-F", "40-F")
-MAX_OVERSEAS = 10
+MAX_OVERSEAS = 20
 FX_HOSTS = (("https://api.frankfurter.dev/v1", "base", "symbols"), ("https://api.frankfurter.app", "from", "to"))
 
 # 회사 이름 (입력칸에 한글로 써도 찾는다). 업종 후보는 아래 OVERSEAS_GROUPS.
@@ -5340,18 +5340,14 @@ ASIA_COMPANIES = {
 }
 OVERSEAS_NAMES.update({k: v[0] for k, v in ASIA_COMPANIES.items()})
 OVERSEAS_GROUPS = {
-    "반도체": ["NVDA", "AMD", "MU", "INTC", "QCOM", "AVGO", "TSM", "ASML"],
+    "반도체": ["NVDA", "AMD", "MU", "INTC", "QCOM", "AVGO", "ASML", "2330.TW", "2454.TW", "2303.TW", "285A.T", "688825.SS", "688981.SS", "688347.SS"],
     "빅테크": ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
-    "자동차": ["TSLA", "GM", "F", "TM"],
+    "자동차": ["TSLA", "GM", "F", "7203.T", "7267.T", "7201.T", "7269.T", "7270.T", "7261.T", "7211.T", "002594.SZ", "0175.HK", "601633.SS", "600104.SS", "300750.SZ"],
     "방산·항공우주": ["LMT", "RTX", "NOC", "GD", "BA"],
     "에너지·정유": ["XOM", "CVX", "COP", "MPC", "VLO"],
     "철강": ["NUE", "STLD", "MT"],
     "통신": ["VZ", "T", "TMUS"],
     "제약·바이오": ["LLY", "JNJ", "PFE", "MRK", "ABBV"],
-    "대만·일본 반도체": ["2330.TW", "2454.TW", "2303.TW", "285A.T"],
-    "중국 반도체": ["688825.SS", "688981.SS", "688347.SS"],
-    "중국 자동차·배터리": ["002594.SZ", "0175.HK", "601633.SS", "600104.SS", "300750.SZ"],
-    "일본 자동차": ["7203.T", "7267.T", "7201.T", "7269.T", "7270.T", "7261.T", "7211.T"],
 }
 KOREAN_TO_TICKER = {re.sub(r"\s+", "", v).lower(): k for k, v in OVERSEAS_NAMES.items()}
 CURRENCY_NAMES = {"USD": "달러", "EUR": "유로", "JPY": "엔", "GBP": "파운드", "CNY": "위안", "TWD": "대만달러", "CHF": "프랑",
