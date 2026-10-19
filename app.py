@@ -6965,16 +6965,16 @@ def render_calendar():
     show_est = False
     if est_n:  # 확정이 아닌 예상은 눌러야 보인다 (기사에 확정 일정처럼 쓰이는 것을 막기 위해)
         show_est = st.toggle(f"전년 기준 예상 일정도 보기 ({est_n}건)", key="cal_est",
-                             help="작년 같은 시기 잠정실적 공시일을 올해로 옮긴 추정이에요. 확정된 일정이 아니에요.")
+                             help="작년 같은 시기 잠정실적 공시일을 올해로 옮긴 추정이에요. 확정된 일정이 아니고, 표에서 기업명 뒤에 *가 붙어요.")
     events = [e for e in data["events"] if show_est or e["kind"] != "전년 기준 예상"]
     if events:
         table = pd.DataFrame([{
-            "날짜": cal_day(e["date"]), "기업": e["corp"], "구분": e["kind"], "개최 목적": e.get("purpose") or "-", "내용": e["text"],
+            "날짜": cal_day(e["date"]), "기업": e["corp"] + ("*" if e["kind"] == "전년 기준 예상" else ""), "개최 목적": e.get("purpose") or "-", "내용": e["text"],
             "원문": DART_VIEW_URL.format(e["no"]) if e.get("no") else None,
         } for e in events])
         st.dataframe(table, hide_index=True, height=(len(table) + 1) * 35 + 3,
                      column_config={"날짜": st.column_config.TextColumn("날짜", width=80), "기업": st.column_config.TextColumn("기업", width=110),
-                                    "구분": st.column_config.TextColumn("구분", width=80), "원문": LINK_COLUMN})
+                                    "원문": LINK_COLUMN})
     else:
         st.info("이 기간에 확인된 실적 일정이 없어요. 기업이 IR 일정을 공시하면 나타나요." + (" 위 스위치를 켜면 전년 기준 예상을 볼 수 있어요." if est_n else ""))
     for (deadline, label), who in sorted(data["deadlines"].items()):
