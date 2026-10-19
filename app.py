@@ -22,12 +22,13 @@ import re
 import threading
 import time
 import unicodedata
+import xml.etree.ElementTree as ET
 import zipfile
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import pandas as pd
 import requests
@@ -4357,8 +4358,147 @@ def render_feed():
     render_news_picks(shown, res["id"])
 
 
+# ------------------------------------------------------------
+# 해외 언론 뉴스 (Google News RSS) - 시험용. 문제가 있으면 이 블록과 render_news 첫머리의 '해외 언론' 분기를 지우면 된다.
+#  - 공식 API가 아니라 비공식 RSS라 문법이 바뀌거나 막힐 수 있다. 제목·링크·매체·시각만 가져온다 (본문은 가져오지 않는다).
+# ------------------------------------------------------------
+GNEWS_URL = "https://news.google.com/rss/search"
+GNEWS_OUTLETS = {  # 화면 이름 -> 도메인
+    "WSJ": "wsj.com", "Bloomberg": "bloomberg.com", "NYT": "nytimes.com", "Reuters": "reuters.com",
+    "FT": "ft.com", "CNBC": "cnbc.com", "AP": "apnews.com",
+}
+GNEWS_PERIODS = {"1일": 1, "3일": 3, "7일": 7}
+MAX_GNEWS_CORPS = 5
+# 한글 기업명 -> 영문 검색어 (없으면 입력한 그대로 검색). 필요하면 자유롭게 추가하세요.
+GNEWS_NAMES = {
+    "삼성전자": "Samsung Electronics", "SK하이닉스": "SK hynix", "현대자동차": "Hyundai Motor", "기아": "Kia",
+    "LG에너지솔루션": "LG Energy Solution", "NAVER": "Naver", "카카오": "Kakao", "POSCO홀딩스": "POSCO Holdings",
+    "LG전자": "LG Electronics", "삼성SDI": "Samsung SDI", "삼성바이오로직스": "Samsung Biologics", "셀트리온": "Celltrion",
+    "한화에어로스페이스": "Hanwha Aerospace", "에스케이온": "SK On", "현대모비스": "Hyundai Mobis", "케이티": "KT Corp",
+    "SK텔레콤": "SK Telecom", "하이브": "HYBE", "삼성물산": "Samsung C&T", "한국전력공사": "KEPCO",
+    "두산에너빌리티": "Doosan Enerbility", "HD현대중공업": "HD Hyundai Heavy Industries", "한화오션": "Hanwha Ocean",
+    "LG디스플레이": "LG Display", "삼성전기": "Samsung Electro-Mechanics", "SK이노베이션": "SK Innovation",
+    "한국항공우주산업": "Korea Aerospace Industries", "LIG디펜스앤에어로스페이스": "LIG Nex1", "현대로템": "Hyundai Rotem",
+}
+
+
+def gnews_term(corp):
+    """입력한 기업명 -> 영문 검색어 (모르는 이름은 그대로)."""
+    name = canonical_corp(corp)
+    return GNEWS_NAMES.get(name) or GNEWS_NAMES.get(corp) or corp
+
+
+def gnews_fetch(session, term, days, domains):
+    """검색어 하나 -> [{"title","url","publisher","domain","dt"}] 최신순. 선택한 언론사 도메인만 남긴다."""
+    sites = " OR ".join(f"site:{d}" for d in domains)
+    query = f'"{term}" ({sites}) when:{days}d'
+    res = session.get(GNEWS_URL, params={"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"}, timeout=REQUEST_TIMEOUT,
+                      headers={"User-Agent": "Mozilla/5.0"})
+    if getattr(res, "status_code", 200) >= 400:
+        raise NewsApiError(f"Google News에서 기사를 받지 못했어요 (오류 {res.status_code}). 잠시 후 다시 시도해주세요.")
+    try:
+        root = ET.fromstring(res.content)
+    except ET.ParseError as e:
+        raise NewsApiError("Google News 응답을 읽지 못했어요. 잠시 후 다시 시도해주세요.") from e
+    cutoff = datetime.now(KST) - timedelta(days=days)
+    out = []
+    for it in root.iter("item"):
+        src = it.find("source")
+        domain = urlparse((src.get("url") if src is not None else "") or "").netloc.lower().removeprefix("www.")
+        if not any(domain == d or domain.endswith("." + d) for d in domains):
+            continue
+        try:
+            when = parsedate_to_datetime(it.findtext("pubDate") or "").astimezone(KST)
+        except Exception:
+            continue
+        if when < cutoff:
+            continue
+        publisher = (src.text or "").strip() if src is not None else domain
+        title = (it.findtext("title") or "").strip()
+        if publisher and title.endswith(" - " + publisher):
+            title = title[: -len(publisher) - 3].strip()
+        out.append({"title": title, "url": (it.findtext("link") or "").strip(), "publisher": publisher, "domain": domain, "dt": when})
+    out.sort(key=lambda x: x["dt"], reverse=True)
+    return out
+
+
+def gnews_search(terms, days, domains):
+    """-> {검색어: 기사 목록}. 같은 검색은 30분 저장."""
+    session, store = get_session(), get_cache_store()
+    doms = tuple(sorted(domains))
+
+    def one(term):
+        key = ("gnews", term, days, doms, TODAY.isoformat())
+        hit = cache_lookup(store, key, NEWS_TTL)
+        if hit is not _MISSING:
+            return hit
+        value = gnews_fetch(session, term, days, doms)
+        cache_save(store, key, value)
+        return value
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        return dict(zip(terms, pool.map(one, terms)))
+
+
+def render_global_news():
+    """뉴스 탭 > 해외 언론: 영문 기업명으로 WSJ·Bloomberg 등의 최근 기사 제목과 링크를 보여준다."""
+    st.caption("Google News 검색으로 미국 주요 언론의 제목·링크만 가져와요 (본문은 가져오지 않아요). 기업은 영문 이름이 가장 잘 잡혀요.")
+    with st.form("gn_search"):
+        corp_text = st.text_input("기업명 (여러 곳은 쉼표로)", key="gn_corp", placeholder="예: 삼성전자, SK하이닉스, Tesla",
+                                  help=f"한글 이름은 알려진 기업이면 영문으로 바꿔 검색해요. 최대 {MAX_GNEWS_CORPS}곳까지 한 번에 검색해요.")
+        outlets = st.multiselect("언론사", list(GNEWS_OUTLETS), default=list(GNEWS_OUTLETS), key="gn_outlets")
+        period = st.radio("기간", list(GNEWS_PERIODS), index=1, horizontal=True, key="gn_period")
+        submitted = st.form_submit_button("해외 뉴스 조회")
+    if submitted:
+        st.session_state.pop("gn_res", None)
+        parts = []
+        for part in re.split(NEWS_SPLIT, corp_text):
+            part = part.strip()
+            if part and part.casefold() not in {x.casefold() for x in parts}:
+                parts.append(part)
+        if not parts:
+            st.error("기업명을 입력해주세요.")
+        elif len(parts) > MAX_GNEWS_CORPS:
+            st.error(f"기업은 한 번에 {MAX_GNEWS_CORPS}곳까지 넣을 수 있어요. (지금 {len(parts)}곳)")
+        elif not outlets:
+            st.error("언론사를 하나 이상 골라주세요.")
+        else:
+            terms = {gnews_term(p): p for p in parts}  # 영문 검색어 -> 입력한 이름
+            with st.spinner("해외 뉴스를 찾는 중입니다..."):
+                try:
+                    got = gnews_search(list(terms), GNEWS_PERIODS[period], [GNEWS_OUTLETS[o] for o in outlets])
+                except NewsApiError as e:
+                    st.error(str(e))
+                except requests.exceptions.RequestException:
+                    st.error("Google News에 연결하지 못했어요. 잠시 후 다시 시도해주세요.")
+                else:
+                    st.session_state["gn_res"] = {"got": got, "labels": terms, "period": period, "outlets": outlets}
+    res = st.session_state.get("gn_res")
+    if not res:
+        return
+    st.caption(f"최근 {res['period']} · {', '.join(res['outlets'])} · 최신순")
+    for term, items in res["got"].items():
+        label = res["labels"].get(term, term)
+        st.markdown(f"##### {label}" + (f" ({term})" if label.casefold() != term.casefold() else ""))
+        if not items:
+            st.info("이 기간에 해당 언론사 기사를 찾지 못했어요. 기간을 늘리거나 영문 이름으로 검색해 보세요.")
+            continue
+        lines = []
+        for i in items:
+            title = re.sub(r"([\[\]])", r"\\\1", i["title"])
+            lines.append(f"- [{title}]({i['url'].replace(')', '%29')})  \n  <small>{i['publisher']} · {i['dt']:%m/%d %H:%M}</small>")
+        st.markdown("\n".join(lines), unsafe_allow_html=True)
+
+
 def render_news():
     """탭 3: 기업 관련 단독 뉴스 (비슷한 기사는 한 묶음으로)"""
+    with st.container(key="news_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에 (재무 조회와 같은 모양)
+        c1, c2 = st.columns([1, 4], vertical_alignment="center")
+        c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
+        mode = c2.radio("조회 방식", ["기업", "섹터", "해외 언론"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
+    if mode == "해외 언론":
+        render_global_news()
+        return
     if not (NAVER_ID and NAVER_SECRET):
         st.info(
             "뉴스 기능을 쓰려면 네이버 검색 API 키를 등록해야 합니다. "
@@ -4367,10 +4507,6 @@ def render_news():
         return
 
     st.session_state.setdefault("news_corp", "")  # 처음엔 빈칸 (관심 목록 주소로 들어오면 그 기업들)
-    with st.container(key="news_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에 (재무 조회와 같은 모양)
-        c1, c2 = st.columns([1, 4], vertical_alignment="center")
-        c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["기업", "섹터"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     with st.form("news_search"):
         if mode == "기업":
             corp_text = st.text_input(
