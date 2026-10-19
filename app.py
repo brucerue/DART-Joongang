@@ -5991,15 +5991,15 @@ def render_overseas():
     with st.form("ovs_search"):
         corp_text = st.text_input(
             "티커 또는 회사 이름 (쉼표로 구분)", key="ovs_corps", placeholder="예: NVDA, 마이크론, Intel",
-            help=f"티커(NVDA), 영문 이름, 주요 기업은 한글 이름으로도 찾아요. 최대 {MAX_OVERSEAS}곳.",
+            help=(f"티커(NVDA), 영문 이름, 주요 기업은 한글 이름으로도 찾아요. 대만·일본·중국은 2330, 7203, 688825처럼 종목 코드도 돼요. 최대 {MAX_OVERSEAS}곳.\n\n"
+                  "미국 SEC에 공시하는 기업의 실적이에요 (연결 기준, 각사 결산월 기준). 연 1회만 공시하는 외국 기업은 연간만 나와요.\n\n"
+                  "대만·일본·중국 상장사(TSMC·도요타·BYD 등)는 야후 파이낸스 자료라 최근 4~5개 분기, 연간 4년까지만 조회돼요."),
         )
         c1, c2 = st.columns(2)
         year = c1.selectbox("연도 (달력 기준)", years, index=years.index(ly), key="ovs_year")
         period = c2.radio("기간", OVS_PERIODS, index=OVS_PERIODS.index(lp), horizontal=True, key="ovs_period",
                           help="분기는 달력 분기에 가장 가까운 회사별 결산 분기를 골라요. 연간은 회계연도 종료일이 그 해에 있는 해예요.")
         submitted = st.form_submit_button("해외 기업 조회")
-    st.caption("미국 SEC에 공시하는 기업의 실적이에요 (연결 기준, 각사 결산월 기준). 연 1회만 공시하는 외국 기업은 연간만 나와요. "
-               "대만·일본·중국 상장사(TSMC·도요타·BYD 등)는 야후 파이낸스 자료라 최근 4~5개 분기, 연간 4년까지만 조회돼요.")
 
     if submitted:
         names, items, notes, missing = [], [], [], []
@@ -6052,11 +6052,12 @@ def render_overseas():
     fx_on = view != "현지 통화"
     unit, mode = list(UNITS)[1], "기간 평균"
     if fx_on:
-        c1, c2 = st.columns(2)
-        if krw_on:
-            unit = c1.radio("단위", list(UNITS), index=list(UNITS).index("조원"), horizontal=True, key="ovs_unit")
-        mode = c2.radio("환율 기준", ["기간 평균", "기간 말"], horizontal=True, key="ovs_fxmode",
-                        help="손익은 한 기간 동안 번 돈이라 보통 기간 평균 환율로 바꿔요. 기간 말은 결산일 환율이에요.")
+        with st.container(key="ovs_fx_bar"):  # 모바일에서도 단위·환율 기준을 한 줄에 나란히
+            c1, c2 = st.columns([2, 3]) if krw_on else (st.container(), st.container())
+            if krw_on:
+                unit = c1.radio("단위", list(UNITS), index=list(UNITS).index("조원"), horizontal=True, key="ovs_unit")
+            mode = c2.radio("환율 기준", ["기간 평균", "기간 말"], horizontal=True, key="ovs_fxmode",
+                            help="손익은 한 기간 동안 번 돈이라 보통 기간 평균 환율로 바꿔요. 기간 말은 결산일 환율이에요.")
     cur_set = {e["co"]["cur"] for e in res["data"].values() if e.get("now")}
     currencies = sorted(cur_set - {"KRW"}) if krw_on else (sorted(cur_set | {"USD"}) if fx_on and cur_set - {"USD"} else [])
     overrides = {}
@@ -6127,6 +6128,8 @@ footer { visibility: hidden; }
 .st-key-fin_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
 .st-key-fin_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
 .st-key-fin_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
+.st-key-ovs_fx_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.75rem !important; }  /* 모바일에서도 한 줄 */
+.st-key-ovs_fx_bar [data-testid="stColumn"] { min-width: 0 !important; }
 
 .block-container { max-width: 1080px; padding-top: 2.5rem; padding-bottom: 4rem; }
 
