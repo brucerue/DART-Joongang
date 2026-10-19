@@ -181,6 +181,7 @@ MAJOR_DISCLOSURES = {
     "합병·분할": ["합병", "분할", "주식교환", "주식이전"],
     "자기주식": ["자기주식"],
     "지분 변동": ["대량보유", "소유상황", "최대주주", "소유주식변동"],
+    "정기보고서": ["사업보고서", "반기보고서", "분기보고서"],
 }
 
 # 공시 유형 (DART 공시 목록 API의 pblntf_ty 값). 빈 문자열은 '전체'
@@ -216,18 +217,36 @@ NEWS_KEYWORD = "단독"  # 뉴스 탭은 항상 이 표기가 제목에 있는 �
 # 별칭 없이 기업명만 입력하면 그 이름만 검색합니다. 예: '삼성'을 입력하면 '삼성'만, '삼성전자'를 입력하면 삼성전자·삼성·삼전.
 NEWS_ALIASES = {
     "삼성전자": ["삼성", "삼전"],
+    "삼전": ["삼성전자"],
+    "하닉": ["SK하이닉스"],
+    "엔솔": ["LG에너지솔루션", "LG엔솔"],
+    "현차": ["현대자동차", "현대차"],
+    "삼전": ["삼성전자"],
+    "하닉": ["SK하이닉스"],
+    "엔솔": ["LG에너지솔루션", "LG엔솔"],
+    "현차": ["현대자동차", "현대차"],
     "현대자동차": ["현대차", "현차"],
-    "현대차": ["현차"],
+    "현대차": ["현차", "현대자동차"],
     "SK하이닉스": ["하닉"],
     "LG에너지솔루션": ["LG엔솔", "엔솔"],
     "LG엔솔": ["LG에너지솔루션", "엔솔"],
     "삼성바이오로직스": ["삼바"],
     "삼성바이오": ["삼성바이오로직스", "삼바"],
+    "삼바": ["삼성바이오로직스", "삼성바이오"],
     "SK텔레콤": ["SKT"],
     "SKT": ["SK텔레콤"],
     "SK이노베이션": ["SK이노"],
+    "SK이노": ["SK이노베이션"],
+    "S-Oil": ["에쓰오일"],
+    "에쓰오일": ["S-Oil"],
+    "LG유플러스": ["LG유플"],
+    "LG유플": ["LG유플러스"],
+    "HD현대오일뱅크": ["오일뱅크", "에이치디현대오일뱅크"],
+    "에이치디현대오일뱅크": ["오일뱅크", "HD현대오일뱅크"],
+    "오일뱅크": ["HD현대오일뱅크", "에이치디현대오일뱅크"],
     "한국전력공사": ["한전"],
     "한국전력": ["한전"],
+    "한전": ["한국전력공사", "한국전력"],
     "POSCO홀딩스": ["포스코홀딩스", "포스코"],
     "포스코홀딩스": ["POSCO홀딩스", "포스코"],
     "한화에어로스페이스": ["한화에어로"],
@@ -237,6 +256,7 @@ NEWS_ALIASES = {
     "KAI": ["한국항공우주산업", "한국항공우주"],
     "HD한국조선해양": ["한국조선해양", "한조"],
     "한국조선해양": ["HD한국조선해양", "한조"],
+    "한조": ["HD한국조선해양", "한국조선해양"],
     "삼성화재해상보험": ["삼성화재"],
     "삼성화재": ["삼성화재해상보험"],
     "현대모비스": ["모비스"],
@@ -250,6 +270,7 @@ NEWS_ALIASES = {
     "우리금융": ["우리금융지주"],
     "KB금융": ["KB금융지주", "KB금융그룹"],
     "KB금융지주": ["KB금융", "KB금융그룹"],
+    "KB금융그룹": ["KB금융", "KB금융지주"],
     "NAVER": ["네이버"],
     "네이버": ["NAVER"],
     "아모레퍼시픽": ["아모레"],
@@ -263,32 +284,36 @@ NEWS_ALIASES = {
 # 제목에 이 검색어 중 하나가 들어간 기사만 보여줍니다. 너무 넓은 단어는 잡음이 늘어나니 꼭 필요한 것만 넣으세요.
 NEWS_SECTORS = {
     "반도체": {
-        "기업": ["삼성전자", "삼전", "SK하이닉스", "하닉", "한미반도체", "DB하이텍"],
-        "키워드": ["HBM", "파운드리", "반도체"],
+        "기업": ["삼성전자", "삼전", "SK하이닉스", "하닉", "엔비디아", "마이크론", "TSMC"],
+        "키워드": ["반도체", "HBM", "파운드리"],
     },
     "자동차": {
-        "기업": ["현대차", "기아", "현대모비스", "한국GM", "KG모빌리티"],
+        "기업": ["현대차", "기아", "현대모비스", "테슬라"],
         "키워드": ["전기차", "완성차"],
     },
     "배터리": {
-        "기업": ["LG에너지솔루션", "LG엔솔", "엔솔", "삼성SDI", "SK온", "에코프로비엠", "포스코퓨처엠"],
+        "기업": ["LG에너지솔루션", "엔솔", "삼성SDI", "SK온", "에코프로비엠", "포스코퓨처엠"],
         "키워드": ["2차전지", "배터리"],
     },
     "철강": {
-        "기업": ["포스코", "현대제철", "동국제강", "세아제강"],
+        "기업": ["포스코", "현대제철", "동국제강"],
         "키워드": ["철강", "후판", "열연"],
     },
-    "방산·항공우주": {
-        "기업": ["한화에어로스페이스", "KAI", "LIG넥스원", "현대로템"],
-        "키워드": ["방산", "K방산", "수출 계약"],
+    "방산": {
+        "기업": ["한화에어로", "한화에어로스페이스", "KAI", "LIG넥스원", "현대로템"],
+        "키워드": ["방산"],
     },
     "조선·해운": {
-        "기업": ["HD한국조선해양", "한화오션", "삼성중공업", "HMM"],
-        "키워드": ["조선", "LNG선", "수주"],
+        "기업": ["HD한국조선해양", "HD현대중공업", "한화오션", "삼성중공업", "HMM"],
+        "키워드": ["조선업", "LNG선"],
     },
-    "석유화학·정유": {
-        "기업": ["롯데케미칼", "LG화학", "S-Oil", "GS칼텍스", "SK이노베이션"],
-        "키워드": ["석유화학", "나프타", "정유"],
+    "정유·석화": {
+        "기업": ["SK이노베이션", "SK이노", "에쓰오일", "GS칼텍스", "오일뱅크", "롯데케미칼", "LG화학", "한화솔루션", "금호석유화학", "여천NCC"],
+        "키워드": ["석유화학", "석화", "정유"],
+    },
+    "IT·통신": {
+        "기업": ["네이버", "카카오", "SKT", "KT", "LG유플"],
+        "키워드": ["통신"],
     },
 }
 PUBLISHERS = {
@@ -308,7 +333,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.18"  # 화면 아래 크레딧의 updated 날짜. 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.19"  # 화면 아래 크레딧의 updated 날짜. 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -1149,12 +1174,13 @@ def period_values(reports, period):
     if period == "연간" or period in ("1Q", "2Q", "3Q"):
         df = reports.get(period_codes(period)[0])
         return {"rev": pick(df, REVENUE_NAMES, ids=REVENUE_IDS), "op": pick(df, OPERATING_NAMES, ids=OPERATING_IDS),
-                "net": pick(df, NET_NAMES, ids=NET_IDS)}
+                "net": pick(df, NET_NAMES, ids=NET_IDS), "link": link_of(df)}
     r = [reports.get(c) for c in (Q1, H1, Q3, ANNUAL)]
     return {
         "rev": quarter_values(*r, REVENUE_NAMES, ids=REVENUE_IDS)[3],
         "op": quarter_values(*r, OPERATING_NAMES, ids=OPERATING_IDS)[3],
         "net": quarter_values(*r, NET_NAMES, ids=NET_IDS)[3],
+        "link": link_of(reports.get(ANNUAL)),  # 4분기는 연간(사업)보고서로 연결
     }
 
 
@@ -1224,6 +1250,7 @@ def industry_result(data, unit):
             "영업이익": fmt_amount(now["op"], unit), "영업이익 전년比": fmt_change(op_change(now["op"], prev["op"])),
             "영업이익률": f"{margin:.1f}%" if margin is not None else "-",
             "순이익": fmt_amount(now["net"], unit), "순이익 전년比": fmt_change(op_change(now["net"], prev["net"])),
+            "원문": now.get("link"),
         })
     total = {}
     for k in ("rev", "op", "net"):
@@ -1238,25 +1265,9 @@ def industry_result(data, unit):
             "영업이익": fmt_amount(total["op"], unit), "영업이익 전년比": fmt_change(total["op_chg"]),
             "영업이익률": f"{margin:.1f}%" if margin is not None else "-",
             "순이익": fmt_amount(total["net"], unit), "순이익 전년比": fmt_change(total["net_chg"]),
+            "원문": None,
         })
     return pd.DataFrame(rows), total, used
-
-
-def industry_sentence(label, used, year, period, total):
-    """기사 첫 문장 초안."""
-    when = f"{year}년" if period == "연간" else f"{year}년 {period[0]}분기"
-    base = "전년 대비" if period == "연간" else "전년 동기 대비"
-    parts = []
-    for k, name in (("rev", "매출"), ("op", "영업이익"), ("net", "순이익")):
-        v = total.get(k)
-        if v is None:
-            continue
-        nm = "영업손실" if k == "op" and v < 0 else ("순손실" if k == "net" and v < 0 else name)
-        chg = change_text(total.get(k + "_chg"))
-        parts.append(f"{nm} {won_text(abs(v) if v < 0 else v)}" + (f"({base} {chg})" if chg else ""))
-    if not parts:
-        return ""
-    return f"{label} {used}개사의 {when} 합산 실적은 " + ", ".join(parts) + "으로 집계됐다."
 
 
 def total_row_style(row):
@@ -3309,8 +3320,11 @@ def fill_industry():
 
 def render_fin_hub():
     """탭: 재무 조회 - 기업 한 곳의 기간별 추이 / 여러 기업 합산을 고른다."""
-    mode = st.radio("조회 방식", ["기업 한 곳 (기간별 추이)", "여러 기업 (업종 합산)"], horizontal=True, key="fin_mode")
-    if mode.startswith("기업 한 곳"):
+    with st.container(key="fin_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
+        c1, c2 = st.columns([1, 4], vertical_alignment="center")
+        c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
+        mode = c2.radio("조회 방식", ["기업", "섹터"], horizontal=True, key="fin_mode", label_visibility="collapsed")
+    if mode == "기업":
         render_financials()
     else:
         render_industry()
@@ -3320,7 +3334,7 @@ def render_industry():
     """탭: 업종 합산 - 여러 회사의 같은 기간 실적을 모으고 합계를 낸다."""
     groups = list(INDUSTRY_GROUPS) + ["직접 입력"]
     st.session_state.setdefault("ind_corps", ", ".join(INDUSTRY_GROUPS[groups[0]]))
-    st.selectbox("업종", groups, key="ind_group", on_change=fill_industry)  # 폼 밖: 고르면 아래 기업 칸이 바뀜
+    st.selectbox("섹터", groups, key="ind_group", on_change=fill_industry)  # 폼 밖: 고르면 아래 기업 칸이 바뀜
     ly, lp = latest_period()
     years = list(range(TODAY.year, 2014, -1))
     with st.form("ind_search"):
@@ -3390,13 +3404,10 @@ def render_industry():
             "매출액": st.column_config.TextColumn("매출액", width=108),
             "영업이익": st.column_config.TextColumn("영업이익", width=95),
             "순이익": st.column_config.TextColumn("순이익", width=95),
+            "원문": LINK_COLUMN,
         },
         height=(len(table) + 1) * 35 + 3,
     )
-    sentence = industry_sentence(res["label"], used, res["year"], res["period"], total)
-    if sentence:
-        st.caption("기사 첫 문장 초안 — 오른쪽 위 아이콘을 누르면 복사돼요.")
-        st.code(sentence, language=None, wrap_lines=True)
     st.download_button(
         "CSV 다운로드",
         table.to_csv(index=False).encode("utf-8-sig"),
@@ -3431,18 +3442,6 @@ def render_industry_caps(res):
     st.caption(f"KRX {day:%Y.%m.%d} 종가 기준 · 보통주+우선주 · 비상장사는 빠져요" if day else "KRX 시세 기준")
     st.dataframe(table.style.map(price_style, subset=["전일比"]).apply(total_row_style, axis=1), hide_index=True,
                  height=(len(table) + 1) * 35 + 3)
-    sentence = (f"{res['label']} {len(listed)}개사의 시가총액 합계는 {won_text(total)}으로, 가장 큰 {listed_top(items)[0]}이(가) "
-                f"{listed_top(items)[1]:.0f}%를 차지한다.")
-    st.caption("기사 문장 초안")
-    st.code(sentence, language=None, wrap_lines=True)
-
-
-def listed_top(items):
-    """-> (가장 큰 회사 이름, 비중 %)"""
-    listed = [i for i in items if i["cap"]]
-    total = sum(i["cap"] for i in listed)
-    top = max(listed, key=lambda i: i["cap"])
-    return top["회사"], top["cap"] / total * 100
 
 
 def render_major_numbers(r):
@@ -3664,7 +3663,7 @@ def render_disclosures():
     # 주요 공시 버튼과 검색은 이미 가져온 목록 안에서 걸러내는 것이라 DART를 다시 부르지 않는다
     preset = st.radio(
         "주요 공시",
-        ["전체", "정기공시"] + list(MAJOR_DISCLOSURES),
+        ["전체"] + list(MAJOR_DISCLOSURES),
         horizontal=True,
         key=f"list_preset_{res['id']}",  # 건수가 조회마다 바뀌므로 키도 새로 만든다 (feed_view와 같은 이유)
         format_func=lambda p: f"{p} ({len(match_preset(res['rows'], p)):,})",
@@ -5211,7 +5210,7 @@ def render_quote(q):
     st.markdown(cb_cards(cards), unsafe_allow_html=True)
     ret = pd.DataFrame([{"기간": k, "수익률": pct_text(v)} for k, v in q["ret"].items()]).set_index("기간").T
     st.dataframe(ret.style.map(price_style), height=(len(ret) + 1) * 35 + 3)
-    st.caption(f"KRX {q['day']:%Y.%m.%d} 종가 기준 · 기간 수익률은 그 날짜(휴장이면 직전 거래일) 종가와 비교한 값이며 배당·증자는 반영하지 않았어요")
+    st.caption(f"KRX {q['day']:%Y.%m.%d} 종가 기준")
 
 
 # --- 3) 배당수익률 직접 계산 ---
@@ -5287,36 +5286,6 @@ def chaebol_caps(day_str):
         firms.sort(key=lambda f: -(f[4] or 0))
         out[int(g["rank"])] = {"cap": sum(f[4] or 0 for f in firms), "firms": firms}
     return {"day": day, "groups": out}
-
-
-# --- 연결 점검 ---
-def render_krx_check():
-    """KRX 연결 상태를 직접 확인하는 작은 도구."""
-    with st.expander("KRX 연결 점검"):
-        if not KRX_KEY:
-            st.write("KRX_API_KEY가 등록되지 않았어요. Streamlit Secrets에 `KRX_API_KEY = \"...\"` 한 줄을 추가해주세요.")
-            return
-        st.caption("시장마다 최근 거래일 시세를 한 번씩 불러와 보고 결과를 보여줘요. 승인된 API만 '정상'으로 나와요.")
-        if st.button("연결 점검하기", key="krx_check_btn"):
-            lines, day = [], last_weekday(TODAY - timedelta(days=1))
-            for m in KRX_MARKETS:
-                for back in range(6):
-                    d = day - timedelta(days=back)
-                    if d.weekday() >= 5:
-                        continue
-                    try:
-                        rows = krx_market_day(d, m)
-                    except KrxError as e:
-                        lines.append({"시장": m, "기준일": f"{d}", "결과": "실패", "내용": str(e)})
-                        break
-                    if rows:
-                        sample = next(iter(rows.items()))
-                        lines.append({"시장": m, "기준일": f"{d}", "결과": "정상", "내용": f"{len(rows):,}종목 · 예: {sample[0]} {sample[1].name} 종가 {sample[1].close}"})
-                        break
-                else:
-                    lines.append({"시장": m, "기준일": "-", "결과": "자료 없음", "내용": "최근 6일 동안 시세가 비어 있어요"})
-            st.dataframe(pd.DataFrame(lines), hide_index=True)
-            st.caption(f"인증키 전달 방식: {_krx_store()['auth']['mode']} · 저장된 시세 {len(_krx_store()['days'])}건")
 
 
 # ------------------------------------------------------------
@@ -5978,6 +5947,10 @@ html, body, [class*="st-"], button, input, textarea {
 [data-testid="stAppViewContainer"] { background: #f6f8fb; }
 [data-testid="stHeader"] { background: transparent; }
 footer { visibility: hidden; }
+.mode-lbl { font-size: 0.9rem; font-weight: 600; color: #334155; white-space: nowrap; }
+.st-key-fin_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
+.st-key-fin_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
+.st-key-fin_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
 
 .block-container { max-width: 1080px; padding-top: 2.5rem; padding-bottom: 4rem; }
 
@@ -6388,7 +6361,7 @@ BRIEF_NEWS_MAX = 8  # 보여줄 뉴스 묶음 수
 BRIEF_DISC_MAX = 12  # 보여줄 주요 공시 수
 
 AI_BRIEF_SYSTEM = (
-    "너는 중앙일보 산업부 기자의 취재 준비를 돕는 보조자다. 사용자가 준 자료(실적·재무, 최근 주요 공시 제목, 배당, 자사주 결정 공시, 임원 변동)만 근거로 쓴다. "
+    "너는 중앙일보 산업부 기자의 취재 준비를 돕는 보조자다. 사용자가 준 자료(실적·재무, 최근 주요 공시 제목, 임원 변동)만 근거로 쓴다. "
     "자료에 없는 숫자·사실·원인·전망·시장 반응·뉴스 내용은 절대 만들지 않는다. 숫자는 자료 표기 그대로 옮기고 새로 계산하지 않는다. "
     "공시 제목만으로는 내용을 알 수 없으니 제목에서 읽히는 것까지만 말하고, 내용은 원문 확인이 필요하다고 적는다. "
     "원인·배경은 단정하지 말고 '확인 필요'로 표시한다. 한국어, 짧고 명확한 기사체로 쓴다."
@@ -6407,10 +6380,6 @@ def brief_ai_prompt(b):
     parts = [fin_ai_text(b["corp"], b["records"], "연도별")] if b.get("records") else [f"기업: {b['corp']}\n(실적 자료 없음)"]
     if b.get("disc") is not None and not b["disc"].empty:
         parts.append("[최근 3개월 주요 공시 제목]\n" + "\n".join(df_lines(b["disc"], ["접수일", "보고서명"])))
-    if b.get("div") is not None and not b["div"].empty:
-        parts.append("[배당·자사주 (최근 3개년 사업보고서)]\n" + "\n".join(df_lines(b["div"].drop(columns=["원문"] + KRX_DIV_COLS, errors="ignore"))))
-    if b.get("tsk"):
-        parts.append("[최근 1년 자사주 결정 공시]\n" + "\n".join(f"{r['접수일']} | {r['구분']} | {r['주식 수']} | {r['금액']} | {r['보고서명']}" for r in b["tsk"][:10]))
     if b.get("exctv") and b["exctv"].get("diff") is not None:
         d = b["exctv"]
         lines = df_lines(d["diff"], ["변동", "성명", "직위", "구분"]) if not d["diff"].empty else ["변동 없음"]
@@ -6419,7 +6388,7 @@ def brief_ai_prompt(b):
         "\n\n".join(parts)
         + "\n\n위 자료만 근거로, 이 기업을 취재하는 산업부 기자를 위해 아래 형식으로 써라. 자료가 부족한 항목은 건너뛴다.\n"
         "**한 줄 요약**: 지금 이 기업을 어떻게 봐야 하는지 한 문장\n"
-        "**취재 포인트 3가지**: 각 항목은 '- 포인트: 한 문장 (근거: 자료의 숫자·공시명)' 형식. 근거가 어느 자료(실적·공시·배당·자사주·임원)인지 밝혀라\n"
+        "**취재 포인트 3가지**: 각 항목은 '- 포인트: 한 문장 (근거: 자료의 숫자·공시명)' 형식. 근거가 어느 자료(실적·공시·임원)인지 밝혀라\n"
         "**물어볼 것**: 자료만으로 알 수 없어 회사나 취재원에게 확인해야 할 질문 2~3개 (- 로 시작)"
     )
 
@@ -6448,28 +6417,11 @@ def collect_brief(name, code, progress):
     def disclosures():
         rows, total, _ = collect_disclosures(code, TODAY - timedelta(days=BRIEF_DISC_DAYS), TODAY, "")
         b["disc_total"] = total
-        major = match_preset(rows, "주요 전체") + [r for r in match_preset(rows, "정기공시") if r not in match_preset(rows, "주요 전체")]
+        major = match_preset(rows, "주요 전체")
         major.sort(key=lambda r: str(r.get("rcept_no", "")), reverse=True)
         return disclosure_table(major[:BRIEF_DISC_MAX]) if major else pd.DataFrame()
 
     b["disc"] = step("최근 공시를 불러오는 중...", "disc", disclosures)
-
-    def dividend():
-        years = [y for y in range(end - 2, end + 1) if y >= 2015]
-        got = collect_div_years(corps, years, "11011")
-        px = None
-        if KRX_KEY:
-            try:
-                px = dividend_prices(corps, years, "11011")
-            except KrxError as e:
-                b["errors"]["quote_div"] = str(e)
-        table, dps = div_trend_table(got, corps, years, px)
-        b["dps"] = dps.get(name, [])
-        return table
-
-    b["div"] = step("배당·자사주를 불러오는 중...", "div", dividend)
-    tsk = step("자사주 결정 공시를 찾는 중...", "tsk", lambda: collect_tsk_decisions(corps, 1))
-    b["tsk"], b["tsk_truncated"] = (tsk if tsk else ([], False))
 
     def execs():
         for y in (end, end - 1):
@@ -6497,7 +6449,7 @@ def collect_brief(name, code, progress):
 
 def render_brief_result(b):
     st.markdown(f"#### {b['corp']} 브리핑")
-    st.caption(f"{b['asof']:%Y.%m.%d %H:%M} 기준 · 연결 기준 · 항목마다 따로 불러와서 일부가 비어 있을 수 있어요")
+    st.caption(f"{b['asof']:%Y.%m.%d %H:%M} 기준 · 연결 기준")
     errs = b["errors"]
 
     if b.get("quote") is False:
@@ -6520,8 +6472,6 @@ def render_brief_result(b):
         if not bs.empty:
             st.dataframe(bs, hide_index=True, height=(len(bs) + 1) * 35 + 3,
                          column_config={"기간": st.column_config.TextColumn("기간", width=95)})
-        if st.toggle("그래프", key="brief_chart"):
-            render_fin_charts(b["records"], "억원")
 
     st.markdown("##### 최근 3개월 주요 공시")
     if errs.get("disc"):
@@ -6532,28 +6482,6 @@ def render_brief_result(b):
         st.caption(f"최근 3개월 공시 {b.get('disc_total', 0):,}건 중 주요 공시 · 최신순")
         st.dataframe(b["disc"], hide_index=True, column_config={"원문": LINK_COLUMN, "보고서명": st.column_config.TextColumn("보고서명", width="large")},
                      height=min(len(b["disc"]) + 1, 14) * 35 + 3)
-
-    st.markdown("##### 배당·자사주")
-    if errs.get("div"):
-        st.warning(errs["div"])
-    elif b["div"] is None or b["div"].empty:
-        st.info("최근 3개년 사업보고서에 배당·자사주 공시가 없어요.")
-    else:
-        st.caption("사업보고서 기준 · 오래된 해가 위 · 배당성향은 연결 기준 · 주당 배당금·시가배당률은 보통주 · 자사주는 보통주(주)")
-        st.dataframe(b["div"].style.map(change_style, subset=["총액 전년比", "자사주 취득", "자사주 소각"]), hide_index=True,
-                     column_config={"원문": LINK_COLUMN}, height=(len(b["div"]) + 1) * 35 + 3)
-        streak = dps_streak(b.get("dps", []))
-        if streak:
-            n, word = streak
-            st.caption(f"주당 배당금 " + (f"직전 해보다 {word}" if n == 1 else f"{n}년 연속 {word}"))
-    if errs.get("tsk"):
-        st.warning(errs["tsk"])
-    elif b["tsk"]:
-        st.markdown("**최근 1년 자사주 결정 공시**")
-        shown = pd.DataFrame(b["tsk"][:8])[["접수일", "구분", "주식 수", "금액", "예정 기간", "보고서명", "원문"]]
-        st.dataframe(shown, hide_index=True, column_config={"원문": LINK_COLUMN}, height=(len(shown) + 1) * 35 + 3)
-        if len(b["tsk"]) > 8:
-            st.caption(f"전체 {len(b['tsk'])}건 중 최신 8건 · 나머지는 정기보고서 탭의 배당·자사주에서 볼 수 있어요")
 
     st.markdown("##### 임원 변동 (등기임원)")
     ex = b.get("exctv")
@@ -6579,7 +6507,6 @@ def render_brief_result(b):
         st.info("최근 한 달 동안 제목에 [단독]이 붙은 기사가 없어요.")
     else:
         st.markdown(news_html(b["news"]), unsafe_allow_html=True)
-        st.caption("뉴스는 네이버 약관상 AI 분석에 쓰지 않고 제목만 보여드려요.")
 
     st.markdown("##### AI 취재 포인트")
     if not AI_PROVIDER:
@@ -6598,17 +6525,16 @@ def render_brief_result(b):
     saved = st.session_state.get("brief_ai")
     if saved and saved["sig"] == sig:
         st.markdown(saved["text"])
-        st.caption(f"AI 분석({saved['model']}) · 위 실적·공시·배당·임원 자료만 근거로 한 해석이에요. 공시는 제목만 보고 판단한 것이라 원문 확인이 필요해요")
+        st.caption(f"AI 분석({saved['model']}) · 위 실적·공시·임원 자료만 근거로 한 해석이에요. 공시는 제목만 보고 판단한 것이라 원문 확인이 필요해요")
     else:
-        st.caption("누르면 위 실적·공시·배당·자사주·임원 자료를 종합해 취재 포인트와 확인할 질문을 정리해 줘요. (뉴스는 포함하지 않아요)")
+        st.caption("누르면 위 실적·공시·임원 자료를 종합해 취재 포인트와 확인할 질문을 정리해 줘요. (뉴스는 포함하지 않아요)")
 
 
 def render_brief():
-    """탭: 기업 브리핑 - 회사 하나의 실적·공시·배당·임원·뉴스를 한 화면에."""
+    """탭: 기업 브리핑 - 회사 하나의 실적·공시·임원·뉴스를 한 화면에."""
     with st.form("brief_search"):
         corp_text = st.text_input("기업명 또는 종목코드", key="brief_corp", placeholder="예: 삼성전자 또는 005930")
         submitted = st.form_submit_button("브리핑 만들기", type="primary") or st.session_state.pop("brief_run", False)
-    st.caption("취재 전에 훑어보는 한 장짜리 자료예요. 최근 5년 실적, 최근 3개월 주요 공시, 배당·자사주, 등기임원 변동, 최근 한 달 단독 뉴스를 모아 보여줍니다.")
 
     if submitted:
         corp = canonical_corp(corp_text.strip())
@@ -6628,7 +6554,7 @@ def render_brief():
 
                 def progress(label):
                     steps[0] += 1
-                    bar.progress(min(steps[0] / 7, 1.0), text=label)
+                    bar.progress(min(steps[0] / 5, 1.0), text=label)
 
                 try:
                     st.session_state["brief"] = collect_brief(corp, code, progress)
@@ -6710,5 +6636,4 @@ _COL_LOCK_JS = """
 """
 run_js(_COL_LOCK_JS)
 
-render_krx_check()
 st.caption(f"updated/{LAST_UPDATED}")  # 맨 아래
