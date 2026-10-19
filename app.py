@@ -6075,7 +6075,7 @@ def render_overseas():
     table, rates, no_rate = ovs_table(res, view, unit, mode, overrides)
     when = f"{res['year']}년 " + ("연간" if res["period"] == "연간" else f"{res['period'][0]}분기")
     with body:
-        st.caption(f"{when} (달력 기준에 가장 가까운 결산 기간) · 연결 기준 · 증감률은 현지 통화 기준이라 환율 영향이 없어요")
+        st.caption(f"{when} (달력 기준에 가장 가까운 결산 기간) · 연결 기준")
         if no_rate:
             st.warning("환율을 자동으로 구하지 못해 원화로 바꾸지 못한 회사: " + ", ".join(no_rate) + ". 아래 '적용 환율 보기·직접 입력'을 열어 환율을 넣어주세요.")
         st.dataframe(
@@ -6125,9 +6125,9 @@ html, body, [class*="st-"], button, input, textarea {
 [data-testid="stHeader"] { background: transparent; }
 footer { visibility: hidden; }
 .mode-lbl { font-size: 0.9rem; font-weight: 600; color: #334155; white-space: nowrap; }
-.st-key-fin_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
-.st-key-fin_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
-.st-key-fin_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
+.st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
+.st-key-fin_mode_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
+.st-key-fin_mode_bar [data-testid="stColumn"]:first-child, .st-key-disc_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
 .st-key-ovs_fx_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.75rem !important; }  /* 모바일에서도 한 줄 */
 .st-key-ovs_fx_bar [data-testid="stColumn"] { min-width: 0 !important; }
 
@@ -6746,6 +6746,242 @@ def render_brief():
 
 
 
+# ------------------------------------------------------------
+# 실적 일정 (국내 기업)
+# ------------------------------------------------------------
+DART_COMPANY_URL = "https://opendart.fss.or.kr/api/company.json"  # 기업 개황 (결산월)
+CAL_RANGES = {"앞으로 2주": (0, 14), "앞으로 1개월": (0, 31), "지난 2주": (-14, 0)}
+MAX_CAL_CORPS = 10
+WEEKDAYS = "월화수목금토일"
+CAL_KINDS_HELP = (
+    "**발표 완료**: DART에 올라온 영업(잠정)실적 공시\n\n"
+    "**IR 개최**: 기업이 공시한 IR(기업설명회) 일정. 원문에서 날짜를 읽어 와요\n\n"
+    "**전년 기준 예상**: 작년 같은 시기 잠정실적 공시일을 올해로 옮긴 추정이에요. 확정이 아니에요\n\n"
+    "**법정 제출기한**: 분기·반기보고서는 결산 후 45일, 사업보고서는 90일이에요. 잠정실적은 보통 이보다 먼저 나와요"
+)
+IR_DATE_RE = re.compile(r"(20\d\d)\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})")
+
+
+def cal_day(d):
+    return f"{d.month}/{d.day}({WEEKDAYS[d.weekday()]})"
+
+
+def cal_fiscal_month(session, store, corp_code):
+    """결산월 (못 받으면 12월로 본다)"""
+    key = ("company", corp_code)
+    cached = cache_lookup(store, key, 24 * 3600)
+    if cached is not _MISSING and cached:
+        return cached
+    try:
+        jo = call_dart(session, DART_COMPANY_URL, {"crtfc_key": API_KEY, "corp_code": corp_code})
+    except DartApiError:
+        return 12
+    try:
+        month = int((jo or {}).get("acc_mt"))
+    except (TypeError, ValueError):
+        month = 12
+    month = month if 1 <= month <= 12 else 12
+    cache_save(store, key, month)
+    return month
+
+
+def cal_deadlines(fy_month, lo, hi):
+    """lo~hi 사이에 있는 정기보고서 제출기한 -> [(기한, 보고서 이름)]. 분기·반기는 결산 후 45일, 사업보고서는 90일."""
+    out = []
+    for fy in range(lo.year - 1, hi.year + 2):  # fy = 회계연도가 끝나는 해
+        for i, label in enumerate(("1분기보고서", "반기보고서", "3분기보고서", "사업보고서")):
+            m = fy_month - 9 + 3 * i
+            yy, mm = fy + (m - 1) // 12, (m - 1) % 12 + 1
+            end = date(yy + (mm == 12), mm % 12 + 1, 1) - timedelta(days=1)  # 그 달 말일
+            deadline = end + timedelta(days=90 if i == 3 else 45)
+            if lo <= deadline <= hi:
+                out.append((deadline, label))
+    return out
+
+
+def cal_list_rows(session, store, code, start, end):
+    """기간 내 거래소공시(공정공시 포함) 목록. DART 오류는 DartApiError."""
+    rows, bgn, fin = [], start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+    for page in range(1, 6):
+        jo = fetch_disclosure_page(session, store, code, bgn, fin, page, "I")
+        if not jo:
+            break
+        rows.extend(jo.get("list", []))
+        if page >= int(jo.get("total_page", 1)):
+            break
+    return rows
+
+
+def cal_ir_date(session, store, rcept_no):
+    """IR 개최 공시 원문에서 개최일을 읽는다. 못 읽으면 None."""
+    try:
+        text = fetch_document_text(session, store, rcept_no)
+    except Exception:
+        return None
+    pos = text.find("일시")
+    for chunk in ([text[pos:pos + 200]] if pos >= 0 else []) + [text[:1500]]:
+        m = IR_DATE_RE.search(chunk)
+        if m:
+            try:
+                return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except ValueError:
+                continue
+    return None
+
+
+def cal_move_weekday(d):
+    return d + timedelta(days=(7 - d.weekday()) if d.weekday() >= 5 else 0)  # 주말이면 다음 월요일
+
+
+def cal_company(session, store, name, code, ws, we, today):
+    """회사 하나의 일정 -> {"events": [...], "deadlines": [...], "unread": [...]}"""
+    fy = cal_fiscal_month(session, store, code)
+    events, unread = [], []
+    recent = cal_list_rows(session, store, code, min(ws, today) - timedelta(days=30), today)
+    actual, irs = [], []
+    for r in recent:
+        key = disclosure_key(r.get("report_nm", ""))
+        if "정정" in key:
+            continue
+        try:
+            d = datetime.strptime(str(r.get("rcept_dt", "")), "%Y%m%d").date()
+        except ValueError:
+            continue
+        if "잠정" in key and "실적" in key:
+            actual.append(d)
+            if ws <= d <= we:
+                events.append({"date": d, "corp": name, "kind": "발표 완료", "text": str(r["report_nm"]).strip(), "no": r.get("rcept_no")})
+        elif "기업설명회" in key:
+            irs.append((d, r))
+    ir_days = []
+    for filed, r in sorted(irs, key=lambda x: x[0], reverse=True)[:3]:
+        held = cal_ir_date(session, store, r["rcept_no"])
+        if held is None:
+            unread.append((name, filed, r.get("rcept_no")))
+        elif ws <= held <= we:
+            ir_days.append(held)
+            events.append({"date": held, "corp": name, "kind": "IR 개최", "text": "기업설명회(IR) 개최 · " + f"{filed.month}/{filed.day} 공시", "no": r.get("rcept_no")})
+    if we >= today:  # 앞으로의 날짜: 작년 같은 시기 발표일을 올해로 옮겨 예상
+        for r in cal_list_rows(session, store, code, ws - timedelta(days=372), we - timedelta(days=357)):
+            key = disclosure_key(r.get("report_nm", ""))
+            if "정정" in key or not ("잠정" in key and "실적" in key):
+                continue
+            try:
+                last = datetime.strptime(str(r.get("rcept_dt", "")), "%Y%m%d").date()
+            except ValueError:
+                continue
+            est = cal_move_weekday(last + timedelta(days=364))
+            if not (max(ws, today) <= est <= we):
+                continue
+            if any(abs((est - a).days) <= 45 for a in actual) or any(abs((est - h).days) <= 5 for h in ir_days):
+                continue  # 올해 이미 발표했거나 IR 일정이 잡힌 회차
+            if any(e["corp"] == name and e["kind"] == "전년 기준 예상" and e["date"] == est for e in events):
+                continue
+            events.append({"date": est, "corp": name, "kind": "전년 기준 예상", "text": f"전년 {last.month}/{last.day} 발표", "no": None})
+    return {"events": events, "deadlines": cal_deadlines(fy, ws, we), "unread": unread}
+
+
+def collect_calendar(corps, ws, we):
+    """corps: [(회사명, 고유번호)] -> {"events": [...], "deadlines": {(기한, 보고서): [회사]}, "unread": [...]}"""
+    session, store = get_session(), get_cache_store()
+    today = TODAY
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        results = list(pool.map(lambda c: cal_company(session, store, c[0], c[1], ws, we, today), corps))
+    out = {"events": [], "deadlines": {}, "unread": []}
+    for (name, _), res in zip(corps, results):
+        out["events"].extend(res["events"])
+        out["unread"].extend(res["unread"])
+        for key in res["deadlines"]:
+            out["deadlines"].setdefault(key, []).append(name)
+    kind_order = {"발표 완료": 0, "IR 개최": 1, "전년 기준 예상": 2}
+    out["events"].sort(key=lambda e: (e["date"], kind_order[e["kind"]], e["corp"]))
+    return out
+
+
+def fill_calendar():
+    group = st.session_state.get("cal_group")
+    if group in INDUSTRY_GROUPS:
+        st.session_state["cal_corps"] = ", ".join(INDUSTRY_GROUPS[group])
+
+
+def render_calendar():
+    """탭: 실적 일정 - 업종별 국내 기업의 잠정실적·IR 일정과 정기보고서 제출기한."""
+    groups = list(INDUSTRY_GROUPS) + ["직접 입력"]
+    st.session_state.setdefault("cal_corps", ", ".join(INDUSTRY_GROUPS[groups[0]]))
+    st.selectbox("업종", groups, key="cal_group", on_change=fill_calendar)
+    with st.form("cal_search"):
+        corp_text = st.text_input("기업 (쉼표로 구분)", key="cal_corps", placeholder="예: 삼성전자, SK하이닉스",
+                                  help=f"업종을 고르면 대표 기업이 채워져요. 빼거나 더해서 최대 {MAX_CAL_CORPS}곳까지 볼 수 있어요.")
+        span = st.radio("기간", list(CAL_RANGES), horizontal=True, key="cal_span", help=CAL_KINDS_HELP)
+        submitted = st.form_submit_button("일정 조회")
+
+    if submitted:
+        names = []
+        for part in re.split(NEWS_SPLIT, corp_text):
+            part = canonical_corp(part)
+            if part and name_key(part) not in {name_key(n) for n in names}:
+                names.append(part)
+        if not names:
+            st.error("기업명을 입력해주세요.")
+        elif len(names) > MAX_CAL_CORPS:
+            st.error(f"기업은 한 번에 {MAX_CAL_CORPS}곳까지 넣을 수 있어요. (지금 {len(names)}곳)")
+        else:
+            st.session_state.pop("calendar", None)
+            corps, missing = [], []
+            with st.spinner("기업 정보를 확인하는 중입니다..."):
+                for n in names:
+                    code = resolve_corp_code(n)
+                    (corps if code else missing).append((n, code) if code else n)
+            for n in missing:
+                hint = [label for label, _ in suggest_corps(n, limit=3)]
+                st.warning(f'"{n}" 기업을 찾지 못해 뺐어요.' + (f" 혹시: {', '.join(hint)}" if hint else ""))
+            if corps:
+                lo, hi = CAL_RANGES[span]
+                ws, we = TODAY + timedelta(days=lo), TODAY + timedelta(days=hi)
+                with st.spinner("DART 공시를 확인하는 중입니다..."):
+                    try:
+                        data = collect_calendar(corps, ws, we)
+                    except DartApiError as e:
+                        st.error(str(e))
+                    else:
+                        st.session_state["calendar"] = {"data": data, "ws": ws, "we": we, "span": span, "n": len(corps)}
+
+    res = st.session_state.get("calendar")
+    if not res:
+        return
+    data, ws, we = res["data"], res["ws"], res["we"]
+    st.caption(f"{ws.month}/{ws.day}~{we.month}/{we.day} · {res['n']}개 기업 · DART 공시 기준")
+    events = data["events"]
+    if events:
+        table = pd.DataFrame([{
+            "날짜": cal_day(e["date"]), "기업": e["corp"], "구분": e["kind"], "내용": e["text"],
+            "원문": DART_VIEW_URL.format(e["no"]) if e.get("no") else None,
+        } for e in events])
+        st.dataframe(table, hide_index=True, height=(len(table) + 1) * 35 + 3,
+                     column_config={"날짜": st.column_config.TextColumn("날짜", width=80), "기업": st.column_config.TextColumn("기업", width=110),
+                                    "구분": st.column_config.TextColumn("구분", width=100), "원문": LINK_COLUMN})
+    else:
+        st.info("이 기간에 잡힌 실적 일정이 없어요. 기업이 IR 일정을 공시하면 나타나고, 작년 발표일이 이 기간이면 예상으로 나타나요.")
+    for (deadline, label), who in sorted(data["deadlines"].items()):
+        names = who[0] if len(who) == 1 else f"{who[0]} 외 {len(who) - 1}곳"
+        st.caption(f"법정 제출기한 · {cal_day(deadline)} {label} — {names}")
+    if data["unread"]:
+        st.caption("IR 개최 공시는 있으나 날짜를 읽지 못한 기업: " + ", ".join(
+            f"[{n}]({DART_VIEW_URL.format(no)})" if no else n for n, _, no in data["unread"]))
+
+
+def render_disclosure_hub():
+    """탭: 공시 - 오늘의 공시(시장 전체) / 기업별 목록 중 방식을 고른다."""
+    with st.container(key="disc_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
+        c1, c2 = st.columns([1, 4], vertical_alignment="center")
+        c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
+        mode = c2.radio("조회 방식", ["오늘의 공시", "기업별 목록"], horizontal=True, key="disc_mode", label_visibility="collapsed")
+    if mode == "오늘의 공시":
+        render_feed()
+    else:
+        render_disclosures()
+
+
 def run_js(code):
     """높이 없는 iframe으로 짧은 스크립트를 실행한다. 새 Streamlit은 st.iframe, 옛 버전은 components.html. 실패해도 앱은 계속."""
     try:
@@ -6757,14 +6993,14 @@ def run_js(code):
         pass
 
 
-TAB_NAMES = ["기업 브리핑", "재무 조회", "해외 기업", "단독 뉴스", "오늘의 공시", "공시 목록", "정기보고서", "재계 순위"]
+TAB_NAMES = ["기업 브리핑", "재무 조회", "해외 기업", "단독 뉴스", "공시", "실적 일정", "정기보고서", "재계 순위"]
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
 first_tab = "단독 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_brief, tab_fin, tab_overseas, tab_news, tab_feed, tab_list, tab_periodic, tab_chaebol = tabs
+tab_brief, tab_fin, tab_overseas, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = tabs
 with tab_brief:
     render_brief()
 with tab_fin:
@@ -6773,12 +7009,12 @@ with tab_overseas:
     render_overseas()
 with tab_news:
     render_news()
-with tab_feed:
-    render_feed()
-with tab_list:
-    render_disclosures()
+with tab_disc:
+    render_disclosure_hub()
 with tab_periodic:
     render_periodic()
+with tab_cal:
+    render_calendar()
 with tab_chaebol:
     render_chaebol()
 # 모바일에서 표를 옆으로 밀 때 열 순서가 바뀌는 것을 막는다(Streamlit에 끄는 옵션이 없어 JS로 처리).
