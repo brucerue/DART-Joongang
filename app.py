@@ -5809,6 +5809,7 @@ def collect_overseas(items, year, period):
                           else "해당 기간 자료 없음 - 아직 공시 전이거나 EDGAR에 반영 전일 수 있어요" + found)
         else:
             r["fx"] = fx_range(co["cur"], now["start"], now["end"])
+            r["fx_usd"] = r["fx"] if co["cur"] == "USD" else fx_range("USD", now["start"], now["end"])
             if cik == "YF":
                 r["link"] = yf_link(ticker)
                 return r
@@ -5834,6 +5835,31 @@ def ovs_rate(entry, mode, override):
     return None, ""
 
 
+def ovs_factor(entry, view, mode, overrides):
+    """표시 통화로 바꾸는 곱셈 값 -> (값 또는 None, 구분). 현지 통화는 1, 원화 환산은 원/통화, 달러 환산은 달러/통화."""
+    cur = entry["co"]["cur"]
+    if view == "현지 통화":
+        return 1.0, ""
+    rate, how = ovs_rate(entry, mode, overrides.get(cur))
+    if view == "원화 환산":
+        return rate, how
+    if cur == "USD":
+        return 1.0, "자동"
+    if rate is None:
+        return None, ""
+    usd, how_usd = ovs_rate({"fx": entry.get("fx_usd")}, mode, overrides.get("USD"))
+    if not usd:
+        return None, ""
+    return rate / usd, ("직접 입력" if "직접 입력" in (how, how_usd) else "자동")
+
+
+def ovs_unit_label(cur, view, unit):
+    """표의 '단위' 칸에 적을 글자"""
+    if view == "원화 환산":
+        return unit
+    return "억 " + (CURRENCY_NAMES["USD"] if view == "달러 환산" else CURRENCY_NAMES.get(cur, cur))
+
+
 def ovs_table(res, view, unit, mode, overrides):
     """조회 결과 -> (표, 환율 표, 환율이 없어 원화로 못 바꾼 회사)"""
     rows, rate_rows, no_rate = [], [], []
@@ -5844,27 +5870,31 @@ def ovs_table(res, view, unit, mode, overrides):
         if not now:
             continue
         cur = co["cur"]
-        rate, how = ovs_rate(entry, mode, overrides.get(cur))
-        if krw and rate is None:
+        mult, how = ovs_factor(entry, view, mode, overrides)
+        if view != "현지 통화" and mult is None:
             no_rate.append(label)
-        if rate is not None and cur != "KRW":
-            rate_rows.append({"통화": f"{cur} ({CURRENCY_NAMES.get(cur, cur)})", "적용 환율(원)": f"{rate:,.2f}", "구분": how,
+        if mult is not None and view != "현지 통화" and cur != ("KRW" if krw else "USD"):
+            fx_ref = entry.get("fx") or {}
+            rate_rows.append({"통화": f"{cur} ({CURRENCY_NAMES.get(cur, cur)})",
+                              f"적용 환율({'원' if krw else '달러'})": f"{mult:,.2f}" if krw else f"{mult:,.4f}", "구분": how,
                               "기준": (f"{now['start']:%Y.%m.%d}~{now['end']:%Y.%m.%d} 평균" if mode == "기간 평균" and how == "자동"
-                                     else (f"{entry['fx']['last_date']:%Y.%m.%d} 종가" if how == "자동" else "직접 입력")),
+                                     else (f"{fx_ref['last_date']:%Y.%m.%d} 종가" if how == "자동" and fx_ref else "직접 입력")),
                               "회사": label})
 
         def show(v):
             if v is None:
                 return "-"
-            if krw:
-                return "-" if rate is None else fmt_amount(v * rate, unit)
-            return f"{round(v / 1e8) + 0.0:,.0f}"
+            if view == "현지 통화":
+                return f"{round(v / 1e8) + 0.0:,.0f}"
+            if mult is None:
+                return "-"
+            return fmt_amount(v * mult, unit) if krw else f"{round(v * mult / 1e8) + 0.0:,.0f}"
 
         pv = prev or {}
         margin = now["op"] / now["rev"] * 100 if now["op"] is not None and now["rev"] else None
         period_note = "4분기 계산" if now.get("derived") else ""
         rows.append({
-            "회사": label, "결산 종료일": f"{now['end']:%Y-%m-%d}" + (f" ({period_note})" if period_note else ""),
+            "회사": label, "단위": ovs_unit_label(cur, view, unit), "결산 종료일": f"{now['end']:%Y-%m-%d}" + (f" ({period_note})" if period_note else ""),
             "매출액": show(now["rev"]), "매출 전년比": fmt_change(pct_change(now["rev"], pv.get("rev"))),
             "영업이익": show(now["op"]), "영업이익 전년比": fmt_change(op_change(now["op"], pv.get("op"))),
             "영업이익률": f"{margin:.1f}%" if margin is not None else "-",
@@ -5895,26 +5925,30 @@ def ovs_extra_table(res, view, unit, mode, overrides):
         now, prev, co = entry.get("now"), entry.get("prev"), entry.get("co")
         if not now:
             continue
-        rate, _ = ovs_rate(entry, mode, overrides.get(co["cur"]))
+        mult, _ = ovs_factor(entry, view, mode, overrides)
 
         def amt(v):
             if v is None:
                 return "-"
-            if krw:
-                return "-" if rate is None else fmt_amount(v * rate, unit)
-            return f"{round(v / 1e8) + 0.0:,.0f}"
+            if view == "현지 통화":
+                return f"{round(v / 1e8) + 0.0:,.0f}"
+            if mult is None:
+                return "-"
+            return fmt_amount(v * mult, unit) if krw else f"{round(v * mult / 1e8) + 0.0:,.0f}"
 
         def eps_text(v):
             if v is None:
                 return "-"
-            if krw:
-                return "-" if rate is None else f"{v * rate:,.0f}원"
-            return f"{v:,.2f}"
+            if view == "현지 통화":
+                return f"{v:,.2f}"
+            if mult is None:
+                return "-"
+            return f"{v * mult:,.0f}원" if krw else f"{v * mult:,.2f}"
 
         pv = prev or {}
         gm = now["gp"] / now["rev"] * 100 if now.get("gp") is not None and now.get("rev") else None
         rows.append({
-            "회사": f"{res['names'][ticker]} ({ticker})",
+            "회사": f"{res['names'][ticker]} ({ticker})", "단위": ovs_unit_label(co["cur"], view, unit),
             "주당순이익(희석)": eps_text(now.get("eps")), "주당순이익 전년比": fmt_change(op_change(now.get("eps"), pv.get("eps"))),
             "매출총이익률": f"{gm:.1f}%" if gm is not None else "-",
             "EBITDA": amt(ovs_ebitda(now)), "EBITDA 전년比": fmt_change(op_change(ovs_ebitda(now), ovs_ebitda(pv))),
@@ -6012,56 +6046,47 @@ def render_overseas():
         st.caption(ovs_missing_line(res) or "표시할 실적이 없어요.")
         return
 
-    t1, t2 = st.columns(2)
-    krw_on = t1.toggle("원화로 환산", key="ovs_krw", help="켜면 환율로 원화 환산해 보여주고, 단위와 환율 기준을 고를 수 있어요.")
-    more_on = t2.toggle("지표 더 보기", key="ovs_more", help="주당순이익, 매출총이익률, EBITDA, 영업현금흐름, 잉여현금흐름을 표 아래에 더 보여줘요.")
-    view = "원화 환산" if krw_on else "현지 통화"
+    view = st.radio("표시 통화", ["현지 통화", "달러 환산", "원화 환산"], horizontal=True, key="ovs_view",
+                    help="현지 통화는 각사가 보고하는 통화(달러·엔·대만달러·위안 등) 그대로, 환산은 환율로 한 통화로 맞춰 보여줘요. 단위는 표의 '단위' 칸에 적혀 있어요.")
+    krw_on = view == "원화 환산"
+    fx_on = view != "현지 통화"
     unit, mode = list(UNITS)[1], "기간 평균"
-    if krw_on:
+    if fx_on:
         c1, c2 = st.columns(2)
-        unit = c1.radio("단위", list(UNITS), index=list(UNITS).index("조원"), horizontal=True, key="ovs_unit")
+        if krw_on:
+            unit = c1.radio("단위", list(UNITS), index=list(UNITS).index("조원"), horizontal=True, key="ovs_unit")
         mode = c2.radio("환율 기준", ["기간 평균", "기간 말"], horizontal=True, key="ovs_fxmode",
                         help="손익은 한 기간 동안 번 돈이라 보통 기간 평균 환율로 바꿔요. 기간 말은 결산일 환율이에요.")
-    currencies = sorted({e["co"]["cur"] for e in res["data"].values() if e.get("now")} - {"KRW"})
+    cur_set = {e["co"]["cur"] for e in res["data"].values() if e.get("now")}
+    currencies = sorted(cur_set - {"KRW"}) if krw_on else (sorted(cur_set | {"USD"}) if fx_on and cur_set - {"USD"} else [])
     overrides = {}
     body = st.container()  # 표 영역. 적용 환율 칸이 표·안내 줄 바로 밑에 오도록 자리를 먼저 잡는다
-    fx_box = st.expander("적용 환율 보기·직접 입력") if krw_on else None
+    fx_box = st.expander("적용 환율 보기·직접 입력") if fx_on else None
     if fx_box is not None:
         with fx_box:
-            st.caption("자동 환율은 유럽중앙은행 기준환율(Frankfurter)로 계산한 원화 환율이에요. 한국은행 매매기준율과 조금 다를 수 있어요. "
-                       "기사에 쓸 환율이 따로 있으면 아래에 입력하면 그 값으로 바꿔요 (0이면 자동).")
+            st.caption("자동 환율은 유럽중앙은행 기준환율(Frankfurter, 없는 통화는 야후 파이낸스)로 계산한 원화 환율이에요. 한국은행 매매기준율과 조금 다를 수 있어요. "
+                       "기사에 쓸 환율이 따로 있으면 아래에 입력하면 그 값으로 바꿔요 (0이면 자동)."
+                       + (" 달러 환산은 '통화→원 ÷ 달러→원'으로 계산해요." if not krw_on else ""))
             cols = st.columns(max(len(currencies), 1))
             for col, cur in zip(cols, currencies):
                 overrides[cur] = col.number_input(f"{cur} 1{CURRENCY_NAMES.get(cur, '')} = ? 원", min_value=0.0, value=0.0, step=1.0,
                                                   key=f"ovs_fx_{cur}")
     table, rates, no_rate = ovs_table(res, view, unit, mode, overrides)
     when = f"{res['year']}년 " + ("연간" if res["period"] == "연간" else f"{res['period'][0]}분기")
-    used = sorted({e["co"]["cur"] for e in res["data"].values() if e.get("now")})
-    if krw_on:
-        unit_label = f"{unit} · 환율 {mode}"
-    else:
-        # 외국 기업은 USD가 아니라 보고 통화(대만달러·엔·유로 등) 그대로 나오므로, 다른 통화인 회사는 따로 적는다
-        cur_of = {t: e["co"]["cur"] for t, e in res["data"].items() if e.get("now")}
-        main = max(set(cur_of.values()), key=lambda c: (list(cur_of.values()).count(c), c == "USD"))
-        unit_label = f"억 {CURRENCY_NAMES.get(main, main)}"
-        other = [f"{res['names'][t]}는 억 {CURRENCY_NAMES.get(c, c)}" for t, c in cur_of.items() if c != main]
-        if other:
-            unit_label += " (" + ", ".join(other) + ")"
     with body:
-        st.markdown(f'<div style="font-weight:800; font-size:0.875rem; color:#1c7ed6; margin:0.3rem 0 0.1rem">단위: {html.escape(unit_label)}</div>',
-                    unsafe_allow_html=True)
         st.caption(f"{when} (달력 기준에 가장 가까운 결산 기간) · 연결 기준 · 증감률은 현지 통화 기준이라 환율 영향이 없어요")
         if no_rate:
             st.warning("환율을 자동으로 구하지 못해 원화로 바꾸지 못한 회사: " + ", ".join(no_rate) + ". 아래 '적용 환율 보기·직접 입력'을 열어 환율을 넣어주세요.")
         st.dataframe(
             table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
             hide_index=True, height=(len(table) + 1) * 35 + 3,
-            column_config={"회사": st.column_config.TextColumn("회사", width=150), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
+            column_config={"회사": st.column_config.TextColumn("회사", width=150), "단위": st.column_config.TextColumn("단위", width=80), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
                            "원문": st.column_config.LinkColumn("원문", display_text="보기")},
         )
         miss = ovs_missing_line(res)
         if miss:
             st.caption(miss)
+        more_on = st.toggle("지표 더 보기", key="ovs_more", help="주당순이익, 매출총이익률, EBITDA, 영업현금흐름, 잉여현금흐름을 표 아래에 더 보여줘요.")
     if fx_box is not None and not rates.empty:
         with fx_box:
             st.markdown("**적용 환율**")
@@ -6071,10 +6096,10 @@ def render_overseas():
         st.markdown("##### 추가 지표", help=(
             "EBITDA = 영업이익 + 감가상각비 (회사가 발표하는 조정 EBITDA와 다를 수 있어요)\n\n"
             "잉여현금흐름 = 영업현금흐름 - 설비투자\n\n"
-            "주당순이익은 1주당 금액(" + ("원화 환산 시 원" if krw_on else "현지 통화") + ")이고, 4분기 계산 기간은 비워요\n\n"
+            "주당순이익은 1주당 금액(" + ("원화 환산 시 원" if krw_on else ("달러 환산 시 달러" if fx_on else "현지 통화")) + ")이고, 4분기 계산 기간은 비워요\n\n"
             "조정(Non-GAAP) 실적과 가이던스는 SEC 데이터에 없어요. 첫 표의 '원문'(실적 발표 8-K)에서 확인하세요"))
         st.dataframe(extra.style.map(amount_style, subset=["EBITDA", "영업현금흐름", "잉여현금흐름"]), hide_index=True,
-                     height=(len(extra) + 1) * 35 + 3, column_config={"회사": st.column_config.TextColumn("회사", width=150)})
+                     height=(len(extra) + 1) * 35 + 3, column_config={"회사": st.column_config.TextColumn("회사", width=150), "단위": st.column_config.TextColumn("단위", width=80)})
     st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"해외기업_{res['year']}_{res['period']}.csv", mime="text/csv", key="ovs_csv")
     st.caption("자료: 미국 SEC EDGAR(XBRL), 환율: 유럽중앙은행 기준환율(Frankfurter) · 4분기는 '연간 - 3분기 누적'으로 계산한 값이에요 · "
