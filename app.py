@@ -6080,7 +6080,7 @@ def render_overseas():
         st.dataframe(
             table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
             hide_index=True, height=(len(table) + 1) * 35 + 3,
-            column_config={"회사": st.column_config.TextColumn("회사", width=105), "단위": st.column_config.TextColumn("단위", width=60), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
+            column_config={"회사": st.column_config.TextColumn("회사", width=105), "단위": st.column_config.TextColumn("단위", width=60), "매출액": st.column_config.TextColumn("매출액", width=100), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
                            "원문": st.column_config.LinkColumn("원문", display_text="보기")},
         )
         miss = ovs_missing_line(res)
