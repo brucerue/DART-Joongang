@@ -6583,8 +6583,8 @@ BRIEF_BIZ_BLOCKS = [("biz_overview", 6000), ("biz_products", 12000), ("biz_sales
 
 AI_TREND_SYSTEM = (
     "너는 중앙일보 산업부 기자의 취재 준비를 돕는 보조자다. 사용자가 준 공시 제목과 기사 제목만 근거로 쓴다. "
-    "제목에 적힌 내용 밖의 숫자·원인·배경·전망·시장 반응을 절대 만들지 않는다. 기사 본문과 공시 내용은 보지 못했으니 제목에서 읽히는 것까지만 말하고, "
-    "단정이 어려운 것은 '확인 필요'로 표시한다. 같은 사안의 공시·기사는 하나의 이슈로 묶는다. 한국어, 짧고 명확한 기사체로 쓴다."
+    "제목에 적힌 내용 밖의 숫자·원인·배경·전망·시장 반응을 절대 만들지 않는다. 기사 본문과 공시 내용은 보지 못했으니 제목에서 읽히는 것까지만 말하되 \"확인이 필요하다\" 같은 단서 문구는 쓰지 않는다. "
+    "같은 사안의 공시·기사는 하나의 이슈로 묶는다. 한국어, 짧고 명확한 기사체로 쓴다."
 )
 
 
@@ -6667,7 +6667,7 @@ def brief_trend_prompt(b):
         f"기업: {b['corp']}\n\n" + "\n\n".join(parts)
         + "\n\n위 제목들만 근거로 아래 형식으로 써라.\n"
         "**이번 분기 이슈 3가지**: 각 항목은 '- 이슈 이름: 한두 문장 (근거: 공시명 또는 기사 제목 일부)' 형식. 공시와 기사가 같은 사안이면 한 이슈로 묶고, 중요도 순으로 쓴다\n"
-        "**더 확인할 것**: 제목만으로는 알 수 없어 원문·취재로 확인해야 할 점 1~2개 (- 로 시작)"
+        "'제목만으로는 알 수 없다', '확인이 필요하다' 같은 단서·면책 문구는 쓰지 않는다. 제목에서 읽히는 사실만 담백하게 쓴다."
     )
 
 
@@ -6796,7 +6796,7 @@ def render_brief_overview(b):
     saved = st.session_state.get("brief_ov")
     if saved and saved["rno"] == rno:
         st.markdown(saved["text"])
-        st.caption(f"AI 요약({saved['model']}) · [{strip_correction(row.get('report_nm'))}]({DART_VIEW_URL.format(rno)}) 발췌만 근거 · 읽은 부분: {', '.join(saved['read'])}. 숫자는 원문 확인이 필요해요")
+        st.caption(f"AI 요약({saved['model']}) · [{strip_correction(row.get('report_nm'))}]({DART_VIEW_URL.format(rno)}) 발췌만 근거 · 읽은 부분: {', '.join(saved['read'])}")
     else:
         st.caption(f"누르면 {strip_correction(row.get('report_nm'))}의 '사업의 내용'을 읽어 회사 소개·주력 제품·부문별 매출 비중을 정리해 줘요.")
 
