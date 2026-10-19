@@ -5316,6 +5316,29 @@ OVERSEAS_NAMES = {
     "VZ": "버라이즌", "T": "AT&T", "TMUS": "T모바일",
     "LLY": "일라이릴리", "JNJ": "존슨앤드존슨", "PFE": "화이자", "MRK": "머크", "ABBV": "애브비",
 }
+# 대만·일본 상장사는 야후 파이낸스로 조회한다 (코드 -> (이름, 보고 통화, 영문·한글 별칭))
+ASIA_COMPANIES = {
+    "2330.TW": ("TSMC", "TWD", ("tsmc", "taiwansemiconductor", "대만tsmc", "티에스엠씨")),
+    "2454.TW": ("미디어텍", "TWD", ("mediatek", "미디어텍")),
+    "2303.TW": ("UMC", "TWD", ("umc", "unitedmicroelectronics", "유나이티드마이크로")),
+    "285A.T": ("키옥시아", "JPY", ("kioxia", "키옥시아")),
+    "7203.T": ("도요타", "JPY", ("toyota", "도요타도요다", "토요타", "도요다")),
+    "7267.T": ("혼다", "JPY", ("honda", "혼다")),
+    "7201.T": ("닛산", "JPY", ("nissan", "닛산")),
+    "7269.T": ("스즈키", "JPY", ("suzuki", "스즈키")),
+    "7270.T": ("스바루", "JPY", ("subaru", "스바루")),
+    "7261.T": ("마쓰다", "JPY", ("mazda", "마쓰다", "마즈다")),
+    "7211.T": ("미쓰비시자동차", "JPY", ("mitsubishimotors", "미쓰비시자동차", "미쓰비시모터스")),
+    "688825.SS": ("창신메모리", "CNY", ("cxmt", "changxinmemory", "창신메모리", "창신메모리테크놀로지", "长鑫科技")),
+    "688981.SS": ("SMIC", "CNY", ("smic", "중신궈지", "중芯국제", "중신국제")),
+    "688347.SS": ("화홍반도체", "CNY", ("huahong", "huahongsemiconductor", "화홍반도체", "화홍")),
+    "002594.SZ": ("BYD", "CNY", ("byd", "비야디")),
+    "0175.HK": ("지리자동차", "CNY", ("geely", "지리", "지리자동차", "길리")),
+    "601633.SS": ("창청자동차", "CNY", ("greatwall", "greatwallmotor", "창청자동차", "장성자동차")),
+    "600104.SS": ("상하이자동차", "CNY", ("saic", "saicmotor", "상하이자동차", "상기집단")),
+    "300750.SZ": ("CATL", "CNY", ("catl", "닝더스다이", "寧德時代", "영덕시대")),
+}
+OVERSEAS_NAMES.update({k: v[0] for k, v in ASIA_COMPANIES.items()})
 OVERSEAS_GROUPS = {
     "반도체": ["NVDA", "AMD", "MU", "INTC", "QCOM", "AVGO", "TSM", "ASML"],
     "빅테크": ["AAPL", "MSFT", "GOOGL", "AMZN", "META", "NVDA", "TSLA"],
@@ -5325,6 +5348,10 @@ OVERSEAS_GROUPS = {
     "철강": ["NUE", "STLD", "MT"],
     "통신": ["VZ", "T", "TMUS"],
     "제약·바이오": ["LLY", "JNJ", "PFE", "MRK", "ABBV"],
+    "대만·일본 반도체": ["2330.TW", "2454.TW", "2303.TW", "285A.T"],
+    "중국 반도체": ["688825.SS", "688981.SS", "688347.SS"],
+    "중국 자동차·배터리": ["002594.SZ", "0175.HK", "601633.SS", "600104.SS", "300750.SZ"],
+    "일본 자동차": ["7203.T", "7267.T", "7201.T", "7269.T", "7270.T", "7261.T", "7211.T"],
 }
 KOREAN_TO_TICKER = {re.sub(r"\s+", "", v).lower(): k for k, v in OVERSEAS_NAMES.items()}
 CURRENCY_NAMES = {"USD": "달러", "EUR": "유로", "JPY": "엔", "GBP": "파운드", "CNY": "위안", "TWD": "대만달러", "CHF": "프랑",
@@ -5538,6 +5565,124 @@ def sec_parse(data):
     return {"name": data.get("entityName"), "cur": cur, "annual": mk(ann, True), "quarter": mk(qtr, False)}
 
 
+def asia_resolve(text):
+    """대만·일본 상장사 입력(코드 2330·285A·2330.TW, 한글·영문 이름) -> (코드, "YF", 이름) 또는 None"""
+    t = re.sub(r"[\s\-_.()]", "", text).lower()
+    if not t:
+        return None
+    for code, (name, _, aliases) in ASIA_COMPANIES.items():
+        base = code.split(".")[0].lower()
+        suffix_ok = t.startswith(base) and t[len(base):] in ("", "ss", "sh", "sz", "hk", "tw", "t")  # 688825, 688825.SH 등
+        if suffix_ok or t == name.lower().replace(" ", "") or t in aliases:
+            return code, "YF", name
+    return None
+
+
+YF_TTL = 6 * 3600
+YF_PARSE_VER = 1
+YF_ROWS = {
+    "rev": ("Total Revenue", "Operating Revenue"),
+    "op": ("Operating Income",),
+    "net": ("Net Income Common Stockholders", "Net Income"),
+    "gp": ("Gross Profit",),
+    "eps": ("Diluted EPS",),
+    "ocf": ("Operating Cash Flow", "Cash Flow From Continuing Operating Activities"),
+    "capex": ("Capital Expenditure",),
+    "da": ("Depreciation And Amortization", "Depreciation Amortization Depletion", "Reconciled Depreciation"),
+}
+
+
+def yf_frames(code):
+    """야후 파이낸스에서 (분기 손익, 연간 손익, 분기 현금흐름, 연간 현금흐름) DataFrame을 받는다. 실패하면 SecError."""
+    try:
+        import yfinance as yf
+    except ImportError:
+        raise SecError("yfinance 패키지가 설치되어 있지 않아요 (requirements.txt에 yfinance 추가 필요)")
+    try:
+        tk = yf.Ticker(code)
+        return tk.quarterly_income_stmt, tk.income_stmt, tk.quarterly_cashflow, tk.cashflow
+    except Exception as e:
+        msg = str(e)
+        if "Too Many" in msg or "RateLimit" in type(e).__name__ or "429" in msg:
+            raise SecError("야후 파이낸스가 접속을 일시 제한했어요 - 잠시 뒤 다시 시도해주세요")
+        raise SecError(f"야후 파이낸스 조회 실패: {msg[:80]}")
+
+
+def _yf_cell(df, names, col):
+    if df is None or getattr(df, "empty", True) or col not in df.columns:
+        return None
+    for n in names:
+        if n in df.index:
+            v = df.loc[n, col]
+            if isinstance(v, pd.Series):
+                v = v.iloc[0]
+            if pd.notna(v):
+                return float(v)
+    return None
+
+
+def yf_parse(code, frames):
+    """야후 표 -> sec_parse와 같은 모양 {"name", "cur", "annual", "quarter"}"""
+    qi, ai, qc, ac = frames
+    name, cur = ASIA_COMPANIES[code][0], ASIA_COMPANIES[code][1]
+
+    def build(inc, cf, days):
+        out = []
+        if inc is None or getattr(inc, "empty", True):
+            return out
+        for col in inc.columns:
+            try:
+                end = pd.Timestamp(col).date()
+            except Exception:
+                continue
+            rec = {m: _yf_cell(inc, YF_ROWS[m], col) for m in ("rev", "op", "net", "gp", "eps")}
+            if all(rec[m] is None for m in ("rev", "op", "net")):
+                continue
+            cfc = None
+            if cf is not None and not getattr(cf, "empty", True):
+                cfc = next((c for c in cf.columns if abs((pd.Timestamp(c).date() - end).days) <= 5), None)
+            for m in ("ocf", "capex", "da"):
+                rec[m] = _yf_cell(cf, YF_ROWS[m], cfc) if cfc is not None else None
+            if rec["capex"] is not None:
+                rec["capex"] = abs(rec["capex"])
+            out.append({"start": end - timedelta(days=days), "end": end, "derived": False, **rec, "accn": ""})
+        return sorted(out, key=lambda p: p["end"])
+
+    return {"name": name, "cur": cur, "annual": build(ai, ac, 364), "quarter": build(qi, qc, 91)}
+
+
+def yf_company(code):
+    """대만·일본 회사 하나의 재무 (6시간 저장). 자료가 없으면 SecError."""
+    s = _sec_store()
+    ck = ("yf", code, YF_PARSE_VER)
+    with s["lock"]:
+        hit = s["facts"].get(ck)
+    if hit and time.time() - hit[0] < YF_TTL:
+        return hit[1]
+    co = yf_parse(code, yf_frames(code))
+    if not co["annual"] and not co["quarter"]:
+        raise SecError("야후 파이낸스에 매출·이익 자료 없음")
+    with s["lock"]:
+        s["facts"][ck] = (time.time(), co)
+    return co
+
+
+def yf_fx(cur, start, end):
+    """야후 파이낸스 환율(통화->원)로 기간 평균·기간 말을 구한다. 못 받으면 None."""
+    try:
+        import yfinance as yf
+        h = yf.Ticker(f"{cur}KRW=X").history(start=start.isoformat(), end=(end + timedelta(days=1)).isoformat())["Close"].dropna()
+    except Exception:
+        return None
+    if len(h) == 0:
+        return None
+    return {"avg": float(h.mean()), "last": float(h.iloc[-1]), "last_date": pd.Timestamp(h.index[-1]).date()}
+
+
+def yf_link(code):
+    return f"https://finance.yahoo.com/quote/{code}/financials/"
+
+
 def sec_release_link(cik, end):
     """결산 종료일 뒤 90일 안에 낸 실적 발표 8-K(항목 2.02)의 공시 목록 주소. 못 찾으면 None. (실적 발표 자료는 이 공시에 첨부돼요)"""
     s = _sec_store()
@@ -5629,7 +5774,8 @@ def fx_range(cur, start, end):
         except Exception:
             continue
         if res.status_code in (404, 422):
-            break  # 지원하지 않는 통화 (예: 대만달러)
+            out = yf_fx(cur, start, end)  # 지원하지 않는 통화 (예: 대만달러)는 야후 환율로
+            break
         if res.status_code != 200:
             continue
         try:
@@ -5651,11 +5797,14 @@ def collect_overseas(items, year, period):
     def one(item):
         ticker, cik, title = item
         try:
-            co = sec_company(cik)
+            co = yf_company(ticker) if cik == "YF" else sec_company(cik)
         except SecError as e:
             return {"error": str(e)}
         now, prev = sec_pick(co, year, period)
         r = {"co": co, "now": now, "prev": prev, "fx": None, "error": None}
+        if now is None and cik == "YF":
+            last = max((p["end"] for p in co["quarter"] + co["annual"]), default=None)
+            return {"error": "해당 기간 자료 없음 - 야후 파이낸스는 최근 4~5개 분기, 연간 4년까지만 제공해요" + (f" (가장 최근 {last:%Y-%m-%d} 종료분)" if last else "")}
         if now is None:
             have = sorted({approx_end(p["end"]).year for p in co["annual"]})
             last_q = max((p["end"] for p in co["quarter"]), default=None)
@@ -5664,6 +5813,9 @@ def collect_overseas(items, year, period):
                           else "해당 기간 자료 없음 - 아직 공시 전이거나 EDGAR에 반영 전일 수 있어요" + found)
         else:
             r["fx"] = fx_range(co["cur"], now["start"], now["end"])
+            if cik == "YF":
+                r["link"] = yf_link(ticker)
+                return r
             try:
                 r["link"] = sec_release_link(cik, now["end"])
             except SecError:
@@ -5816,7 +5968,8 @@ def render_overseas():
         period = c2.radio("기간", OVS_PERIODS, index=OVS_PERIODS.index(lp), horizontal=True, key="ovs_period",
                           help="분기는 달력 분기에 가장 가까운 회사별 결산 분기를 골라요. 연간은 회계연도 종료일이 그 해에 있는 해예요.")
         submitted = st.form_submit_button("해외 기업 조회")
-    st.caption("미국 SEC에 공시하는 기업의 실적이에요 (연결 기준, 각사 결산월 기준). 연 1회만 공시하는 외국 기업(TSMC·도요타 등)은 연간만 나와요.")
+    st.caption("미국 SEC에 공시하는 기업의 실적이에요 (연결 기준, 각사 결산월 기준). 연 1회만 공시하는 외국 기업은 연간만 나와요. "
+               "대만·일본·중국 상장사(TSMC·도요타·BYD 등)는 야후 파이낸스 자료라 최근 4~5개 분기, 연간 4년까지만 조회돼요.")
 
     if submitted:
         names, items, notes, missing = [], [], [], []
@@ -5832,9 +5985,10 @@ def render_overseas():
             try:
                 with st.spinner("회사를 확인하는 중입니다..."):
                     for n in names:
-                        hit, alts, by_name = sec_resolve(n)
+                        asia = asia_resolve(n)
+                        hit, alts, by_name = (asia, [], False) if asia else sec_resolve(n)
                         if not hit:
-                            missing.append((n, "SEC 목록에 없음 - 티커(예: NVDA)로 입력해보세요"))
+                            missing.append((n, "SEC 목록에 없음 - 티커(예: NVDA)로 입력해보세요. 대만·일본·중국은 2330, 7203, 688825처럼 종목 코드도 돼요"))
                         elif hit[0] not in [i[0] for i in items]:
                             items.append(hit)
                             if by_name:
@@ -5907,7 +6061,7 @@ def render_overseas():
             table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
             hide_index=True, height=(len(table) + 1) * 35 + 3,
             column_config={"회사": st.column_config.TextColumn("회사", width=150), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
-                           "원문": st.column_config.LinkColumn("원문", display_text="실적 발표")},
+                           "원문": st.column_config.LinkColumn("원문", display_text="보기")},
         )
         miss = ovs_missing_line(res)
         if miss:
@@ -5928,7 +6082,8 @@ def render_overseas():
     st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"해외기업_{res['year']}_{res['period']}.csv", mime="text/csv", key="ovs_csv")
     st.caption("자료: 미국 SEC EDGAR(XBRL), 환율: 유럽중앙은행 기준환율(Frankfurter) · 4분기는 '연간 - 3분기 누적'으로 계산한 값이에요 · "
-               "'원문'은 실적 발표 8-K 공시로 연결하고, 찾지 못하면 분기·연간 보고서 공시로 연결해요")
+               "'원문'은 실적 발표 8-K 공시로 연결하고, 찾지 못하면 분기·연간 보고서 공시로 연결해요 · "
+               "대만·일본·중국 기업은 야후 파이낸스(비공식 집계) 재무 페이지로 연결되며, 기사에 쓰기 전 각사 실적 발표로 확인하세요")
 
 
 STYLE = """
