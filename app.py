@@ -6080,7 +6080,7 @@ def render_overseas():
         st.dataframe(
             table.style.map(amount_style, subset=["매출액", "영업이익", "순이익"]).apply(total_row_style, axis=1),
             hide_index=True, height=(len(table) + 1) * 35 + 3,
-            column_config={"회사": st.column_config.TextColumn("회사", width=105), "단위": st.column_config.TextColumn("단위", width=80), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
+            column_config={"회사": st.column_config.TextColumn("회사", width=105), "단위": st.column_config.TextColumn("단위", width=60), "결산 종료일": st.column_config.TextColumn("결산 종료일", width=130),
                            "원문": st.column_config.LinkColumn("원문", display_text="보기")},
         )
         miss = ovs_missing_line(res)
@@ -6099,7 +6099,7 @@ def render_overseas():
             "주당순이익은 1주당 금액(" + ("원화 환산 시 원" if krw_on else ("달러 환산 시 달러" if fx_on else "현지 통화")) + ")이고, 4분기 계산 기간은 비워요\n\n"
             "조정(Non-GAAP) 실적과 가이던스는 SEC 데이터에 없어요. 첫 표의 '원문'(실적 발표 8-K)에서 확인하세요"))
         st.dataframe(extra.style.map(amount_style, subset=["EBITDA", "영업현금흐름", "잉여현금흐름"]), hide_index=True,
-                     height=(len(extra) + 1) * 35 + 3, column_config={"회사": st.column_config.TextColumn("회사", width=105), "단위": st.column_config.TextColumn("단위", width=80)})
+                     height=(len(extra) + 1) * 35 + 3, column_config={"회사": st.column_config.TextColumn("회사", width=105), "단위": st.column_config.TextColumn("단위", width=60)})
     st.download_button("CSV 다운로드", table.to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"해외기업_{res['year']}_{res['period']}.csv", mime="text/csv", key="ovs_csv")
     st.caption("자료: 미국 SEC EDGAR(XBRL), 환율: 유럽중앙은행 기준환율(Frankfurter) · 4분기는 '연간 - 3분기 누적'으로 계산한 값이에요 · "
