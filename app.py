@@ -6619,13 +6619,18 @@ def brief_holder(code, end_year):
     return None
 
 
-def brief_report_row(code):
-    """사업 설명을 읽을 보고서: 가장 최근 사업보고서 (없으면 가장 최근 정기보고서)."""
+def brief_report_rows(code, limit=5):
+    """사업 설명을 읽을 보고서 후보 (먼저 읽어 볼 순서): 정정 아닌 사업보고서 최신순 -> 정정 사업보고서 -> 반기·분기보고서.
+    앞의 것이 원문을 못 받으면 다음 것으로 넘어가려고 여러 개를 돌려준다."""
     rows = [r for r in periodic_reports(code) if report_period_of(r.get("report_nm"))]  # 이름에 (2025.12) 같은 기간이 있는 것만
-    for r in rows:
-        if strip_correction(r.get("report_nm")).startswith("사업보고서"):
-            return r
-    return rows[0] if rows else None
+
+    def rank(r):
+        name = str(r.get("report_nm") or "")
+        annual = strip_correction(name).startswith("사업보고서")
+        return (0 if annual and strip_correction(name) == name.strip() else 1 if annual else 2)
+
+    rows = sorted(rows, key=lambda r: (rank(r), "".join(chr(255 - ord(c)) for c in str(r.get("rcept_dt", "")))))  # 같은 순위 안에서는 접수일 최신순
+    return rows[:limit]
 
 
 def brief_overview_excerpt(blocks):
@@ -6715,7 +6720,7 @@ def collect_brief(name, code, progress):
 
     b["profile"] = step("기업 개황을 불러오는 중...", "profile", lambda: brief_profile(code))
     b["holder"] = step("최대주주를 확인하는 중...", "holder", lambda: brief_holder(code, end))
-    b["biz_row"] = step("사업보고서를 찾는 중...", "biz_row", lambda: brief_report_row(code))
+    b["biz_rows"] = step("사업보고서를 찾는 중...", "biz_row", lambda: brief_report_rows(code))
     if KRX_KEY:
         stock = stock_code_of(code)
         b["quote"] = step("시세를 불러오는 중...", "quote", lambda: collect_quote(stock) if stock else None)
@@ -6798,7 +6803,8 @@ def render_brief_overview(b):
     else:
         st.info("기업 개황을 찾지 못했어요.")
 
-    row = b.get("biz_row")
+    rows = b.get("biz_rows") or []
+    row = rows[0] if rows else None
     if not AI_PROVIDER:
         st.caption("사업 개요·매출 구성 요약을 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude) 또는 GEMINI_API_KEY(Gemini)를 추가해주세요.")
         return
@@ -6811,20 +6817,32 @@ def render_brief_overview(b):
     rno = str(row["rcept_no"]).strip()
     if st.button("사업 개요·매출 구성 보기 (AI)", key="brief_ov_go"):
         with st.spinner("사업보고서를 읽는 중입니다... (처음엔 30초 안팎)"):
-            try:
-                blocks = periodic_blocks(rno)
-                excerpt, read = brief_overview_excerpt(blocks)
-                if not excerpt:
-                    raise AiError("보고서에서 사업의 내용 부분을 찾지 못했어요. 원문 링크로 확인해주세요.")
-                (text, used) = ai_cached(("briefov", rno), lambda: ai_generate(brief_overview_prompt(b["corp"], row, excerpt), system=AI_PERIODIC_SYSTEM))
-            except (AiError, DartApiError) as e:
-                st.error(str(e))
+            last_err, done = None, None
+            for cand in rows:  # 앞의 보고서 원문을 못 받으면(정정본 등) 다음 후보로
+                crno = str(cand["rcept_no"]).strip()
+                try:  # 1) 보고서 원문 받기: 실패하면 다음 후보로
+                    blocks = periodic_blocks(crno)
+                    excerpt, read = brief_overview_excerpt(blocks)
+                    if not excerpt:
+                        raise AiError("보고서에서 사업의 내용 부분을 찾지 못했어요. 원문 링크로 확인해주세요.")
+                except (AiError, DartApiError) as e:
+                    last_err = e
+                    continue
+                try:  # 2) AI 요약: 실패 원인(키·한도)은 보고서를 바꿔도 같으니 멈춘다
+                    (text, used) = ai_cached(("briefov", crno), lambda: ai_generate(brief_overview_prompt(b["corp"], cand, excerpt), system=AI_PERIODIC_SYSTEM))
+                except AiError as e:
+                    last_err = e
+                    break
+                done = {"rno": rno, "used_rno": crno, "name": strip_correction(cand.get("report_nm")), "text": text, "model": used, "read": read}
+                break
+            if done:
+                st.session_state["brief_ov"] = done
             else:
-                st.session_state["brief_ov"] = {"rno": rno, "text": text, "model": used, "read": read}
+                st.error(str(last_err))
     saved = st.session_state.get("brief_ov")
     if saved and saved["rno"] == rno:
         st.markdown(saved["text"])
-        st.caption(f"AI 요약({saved['model']}) · [{strip_correction(row.get('report_nm'))}]({DART_VIEW_URL.format(rno)}) 발췌만 근거 · 읽은 부분: {', '.join(saved['read'])}")
+        st.caption(f"AI 요약({saved['model']}) · [{saved['name']}]({DART_VIEW_URL.format(saved['used_rno'])}) 발췌만 근거 · 읽은 부분: {', '.join(saved['read'])}")
     else:
         st.caption(f"누르면 {strip_correction(row.get('report_nm'))}의 '사업의 내용'을 읽어 회사 소개·주력 제품·부문별 매출 비중을 정리해 줘요.")
 
