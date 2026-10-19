@@ -6867,7 +6867,7 @@ def cal_company(session, store, name, code, ws, we, today):
             unread.append((name, filed, r.get("rcept_no")))
         elif ws <= held <= we:
             ir_days.append(held)
-            events.append({"date": held, "corp": name, "kind": "IR 개최", "text": "기업설명회(IR) 개최" + (f" ({purpose})" if purpose else "") + f" · {filed.month}/{filed.day} 공시", "no": r.get("rcept_no")})
+            events.append({"date": held, "corp": name, "kind": "IR 개최", "purpose": purpose or "", "text": f"기업설명회(IR) 개최 · {filed.month}/{filed.day} 공시", "no": r.get("rcept_no")})
     if we >= today:  # 앞으로의 날짜: 작년 같은 시기 발표일을 올해로 옮겨 예상
         for r in cal_list_rows(session, store, code, ws - timedelta(days=372), we - timedelta(days=357)):
             key = disclosure_key(r.get("report_nm", ""))
@@ -6961,7 +6961,7 @@ def render_calendar():
     events = data["events"]
     if events:
         table = pd.DataFrame([{
-            "날짜": cal_day(e["date"]), "기업": e["corp"], "구분": e["kind"], "내용": e["text"],
+            "날짜": cal_day(e["date"]), "기업": e["corp"], "구분": e["kind"], "개최 목적": e.get("purpose") or "-", "내용": e["text"],
             "원문": DART_VIEW_URL.format(e["no"]) if e.get("no") else None,
         } for e in events])
         st.dataframe(table, hide_index=True, height=(len(table) + 1) * 35 + 3,
