@@ -6229,10 +6229,10 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 </style>
 """
 
-st.set_page_config(page_title="산업부 취재 도우미", layout="wide")
+st.set_page_config(page_title="산업 취재 도우미", layout="wide")
 st.markdown(STYLE, unsafe_allow_html=True)
-st.title("산업부 취재 도우미")
-st.caption("credit/중앙일보 나상현")
+st.title("산업 취재 도우미")
+st.caption("credit.중앙일보 나상현")
 
 if not API_KEY:
     st.error(
