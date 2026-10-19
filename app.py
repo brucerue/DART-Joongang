@@ -6751,7 +6751,7 @@ def render_brief():
 # ------------------------------------------------------------
 DART_COMPANY_URL = "https://opendart.fss.or.kr/api/company.json"  # 기업 개황 (결산월)
 CAL_RANGES = {"앞으로 2주": (0, 14), "앞으로 1개월": (0, 31), "지난 2주": (-14, 0)}
-MAX_CAL_CORPS = 10
+MAX_CAL_CORPS = 30
 WEEKDAYS = "월화수목금토일"
 CAL_KINDS_HELP = (
     "**발표 완료**: DART에 올라온 영업(잠정)실적 공시\n\n"
@@ -6906,19 +6906,22 @@ def collect_calendar(corps, ws, we):
 
 
 def fill_calendar():
-    group = st.session_state.get("cal_group")
-    if group in INDUSTRY_GROUPS:
-        st.session_state["cal_corps"] = ", ".join(INDUSTRY_GROUPS[group])
+    """고른 업종들의 기업을 중복 없이 입력칸에 채운다 (입력칸은 그 뒤에 자유롭게 고칠 수 있다)."""
+    names = []
+    for g in st.session_state.get("cal_groups") or []:
+        names += [n for n in INDUSTRY_GROUPS.get(g, []) if n not in names]
+    st.session_state["cal_corps"] = ", ".join(names)
 
 
 def render_calendar():
     """탭: 실적 일정 - 업종별 국내 기업의 잠정실적·IR 일정과 정기보고서 제출기한."""
-    groups = list(INDUSTRY_GROUPS) + ["직접 입력"]
-    st.session_state.setdefault("cal_corps", ", ".join(INDUSTRY_GROUPS[groups[0]]))
-    st.selectbox("업종", groups, key="cal_group", on_change=fill_calendar)
+    first = list(INDUSTRY_GROUPS)[0]
+    st.session_state.setdefault("cal_groups", [first])
+    st.session_state.setdefault("cal_corps", ", ".join(INDUSTRY_GROUPS[first]))
+    st.multiselect("업종 (여러 개 선택 가능)", list(INDUSTRY_GROUPS), key="cal_groups", on_change=fill_calendar, placeholder="업종을 고르세요")
     with st.form("cal_search"):
         corp_text = st.text_input("기업 (쉼표로 구분)", key="cal_corps", placeholder="예: 삼성전자, SK하이닉스",
-                                  help=f"업종을 고르면 대표 기업이 채워져요. 빼거나 더해서 최대 {MAX_CAL_CORPS}곳까지 볼 수 있어요.")
+                                  help=f"고른 업종의 대표 기업이 채워져요. 기업을 직접 빼거나 더해서 최대 {MAX_CAL_CORPS}곳까지 볼 수 있어요.")
         span = st.radio("기간", list(CAL_RANGES), horizontal=True, key="cal_span", help=CAL_KINDS_HELP)
         submitted = st.form_submit_button("일정 조회")
 
@@ -6958,7 +6961,12 @@ def render_calendar():
         return
     data, ws, we = res["data"], res["ws"], res["we"]
     st.caption(f"{ws.month}/{ws.day}~{we.month}/{we.day} · {res['n']}개 기업 · DART 공시 기준")
-    events = data["events"]
+    est_n = sum(e["kind"] == "전년 기준 예상" for e in data["events"])
+    show_est = False
+    if est_n:  # 확정이 아닌 예상은 눌러야 보인다 (기사에 확정 일정처럼 쓰이는 것을 막기 위해)
+        show_est = st.toggle(f"전년 기준 예상 일정도 보기 ({est_n}건)", key="cal_est",
+                             help="작년 같은 시기 잠정실적 공시일을 올해로 옮긴 추정이에요. 확정된 일정이 아니에요.")
+    events = [e for e in data["events"] if show_est or e["kind"] != "전년 기준 예상"]
     if events:
         table = pd.DataFrame([{
             "날짜": cal_day(e["date"]), "기업": e["corp"], "구분": e["kind"], "개최 목적": e.get("purpose") or "-", "내용": e["text"],
@@ -6968,7 +6976,7 @@ def render_calendar():
                      column_config={"날짜": st.column_config.TextColumn("날짜", width=80), "기업": st.column_config.TextColumn("기업", width=110),
                                     "구분": st.column_config.TextColumn("구분", width=100), "원문": LINK_COLUMN})
     else:
-        st.info("이 기간에 잡힌 실적 일정이 없어요. 기업이 IR 일정을 공시하면 나타나고, 작년 발표일이 이 기간이면 예상으로 나타나요.")
+        st.info("이 기간에 확인된 실적 일정이 없어요. 기업이 IR 일정을 공시하면 나타나요." + (" 위 스위치를 켜면 전년 기준 예상을 볼 수 있어요." if est_n else ""))
     for (deadline, label), who in sorted(data["deadlines"].items()):
         names = who[0] if len(who) == 1 else f"{who[0]} 외 {len(who) - 1}곳"
         st.caption(f"법정 제출기한 · {cal_day(deadline)} {label} — {names}")
