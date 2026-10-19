@@ -6751,7 +6751,7 @@ def render_brief():
 # ------------------------------------------------------------
 DART_COMPANY_URL = "https://opendart.fss.or.kr/api/company.json"  # 기업 개황 (결산월)
 CAL_RANGES = {"앞으로 2주": (0, 14), "앞으로 1개월": (0, 31), "지난 2주": (-14, 0)}
-MAX_CAL_CORPS = 30
+MAX_CAL_CORPS = 100
 WEEKDAYS = "월화수목금토일"
 CAL_KINDS_HELP = (
     "**발표 완료**: DART에 올라온 영업(잠정)실적 공시\n\n"
@@ -6921,7 +6921,7 @@ def render_calendar():
     st.multiselect("업종 (여러 개 선택 가능)", list(INDUSTRY_GROUPS), key="cal_groups", on_change=fill_calendar, placeholder="업종을 고르세요")
     with st.form("cal_search"):
         corp_text = st.text_input("기업 (쉼표로 구분)", key="cal_corps", placeholder="예: 삼성전자, SK하이닉스",
-                                  help=f"고른 업종의 대표 기업이 채워져요. 기업을 직접 빼거나 더해서 최대 {MAX_CAL_CORPS}곳까지 볼 수 있어요.")
+                                  help=f"고른 업종의 대표 기업이 채워져요. 기업을 직접 빼거나 더해서 최대 {MAX_CAL_CORPS}곳까지 볼 수 있어요. 많으면 조회가 오래 걸려요.")
         span = st.radio("기간", list(CAL_RANGES), horizontal=True, key="cal_span", help=CAL_KINDS_HELP)
         submitted = st.form_submit_button("일정 조회")
 
@@ -6948,7 +6948,7 @@ def render_calendar():
             if corps:
                 lo, hi = CAL_RANGES[span]
                 ws, we = TODAY + timedelta(days=lo), TODAY + timedelta(days=hi)
-                with st.spinner("DART 공시를 확인하는 중입니다..."):
+                with st.spinner(f"DART 공시를 확인하는 중입니다... ({len(corps)}곳, 기업이 많으면 몇 분 걸릴 수 있어요)"):
                     try:
                         data = collect_calendar(corps, ws, we)
                     except DartApiError as e:
@@ -6974,7 +6974,7 @@ def render_calendar():
         } for e in events])
         st.dataframe(table, hide_index=True, height=(len(table) + 1) * 35 + 3,
                      column_config={"날짜": st.column_config.TextColumn("날짜", width=80), "기업": st.column_config.TextColumn("기업", width=110),
-                                    "구분": st.column_config.TextColumn("구분", width=100), "원문": LINK_COLUMN})
+                                    "구분": st.column_config.TextColumn("구분", width=80), "원문": LINK_COLUMN})
     else:
         st.info("이 기간에 확인된 실적 일정이 없어요. 기업이 IR 일정을 공시하면 나타나요." + (" 위 스위치를 켜면 전년 기준 예상을 볼 수 있어요." if est_n else ""))
     for (deadline, label), who in sorted(data["deadlines"].items()):
