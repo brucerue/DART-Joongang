@@ -341,7 +341,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.20 17:38"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.20 17:41"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -6146,9 +6146,8 @@ def latest_overseas_period(today=None):
 
 def render_overseas():
     """탭: 해외 기업 - 미국 SEC 공시로 해외 기업 실적을 보고, 환율로 원화 환산."""
-    groups = list(OVERSEAS_GROUPS) + ["직접 입력"]
-    st.session_state.setdefault("ovs_corps", ", ".join(OVERSEAS_GROUPS[groups[0]]))
-    st.radio("섹터", groups, horizontal=True, key="ovs_group", on_change=fill_overseas)
+    st.session_state.setdefault("ovs_corps", "")  # 처음엔 섹터도 기업도 비워 둔다
+    st.radio("섹터", list(OVERSEAS_GROUPS), index=None, horizontal=True, key="ovs_group", on_change=fill_overseas)
     ly, lp = latest_overseas_period()
     years = list(range(TODAY.year, 2014, -1))
     with st.form("ovs_search"):
