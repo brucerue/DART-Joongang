@@ -4388,7 +4388,7 @@ def gnews_term(corp):
     return GNEWS_NAMES.get(name) or GNEWS_NAMES.get(corp) or corp
 
 
-def gnews_fetch(session, term, days, domains):
+def gnews_fetch(session, term, days, domains, in_title=True):
     """검색어 하나 -> [{"title","url","publisher","domain","dt"}] 최신순. 선택한 언론사 도메인만 남긴다."""
     sites = " OR ".join(f"site:{d}" for d in domains)
     query = f'"{term}" ({sites}) when:{days}d'
@@ -4419,24 +4419,24 @@ def gnews_fetch(session, term, days, domains):
         title = (it.findtext("title") or "").strip()
         if publisher and title.endswith(" - " + publisher):
             title = title[: -len(publisher) - 3].strip()
-        if not any(k in title.casefold() for k in keys):  # 제목에 기업명이 없는 기사는 뺀다
+        if in_title and not any(k in title.casefold() for k in keys):  # 제목에 기업명이 없는 기사는 뺀다
             continue
         out.append({"title": title, "url": (it.findtext("link") or "").strip(), "publisher": publisher, "domain": domain, "dt": when})
     out.sort(key=lambda x: x["dt"], reverse=True)
     return out
 
 
-def gnews_search(terms, days, domains):
+def gnews_search(terms, days, domains, in_title=True):
     """-> {검색어: 기사 목록}. 같은 검색은 30분 저장."""
     session, store = get_session(), get_cache_store()
     doms = tuple(sorted(domains))
 
     def one(term):
-        key = ("gnews", term, days, doms, TODAY.isoformat())
+        key = ("gnews", term, days, doms, in_title, TODAY.isoformat())
         hit = cache_lookup(store, key, NEWS_TTL)
         if hit is not _MISSING:
             return hit
-        value = gnews_fetch(session, term, days, doms)
+        value = gnews_fetch(session, term, days, doms, in_title)
         cache_save(store, key, value)
         return value
 
@@ -4446,12 +4446,12 @@ def gnews_search(terms, days, domains):
 
 def render_global_news():
     """뉴스 탭 > 해외 언론: 영문 기업명으로 WSJ·Bloomberg 등의 최근 기사 제목과 링크를 보여준다."""
-    st.caption("Google News 검색으로 미국 주요 언론의 제목·링크만 가져와요 (본문은 가져오지 않아요). 제목에 기업명이 들어간 기사만 보여주며, 기업은 영문 이름이 가장 잘 잡혀요.")
     with st.form("gn_search"):
         corp_text = st.text_input("기업명 (여러 곳은 쉼표로)", key="gn_corp", placeholder="예: 삼성전자, SK하이닉스, Tesla",
                                   help=f"한글 이름은 알려진 기업이면 영문으로 바꿔 검색해요. 최대 {MAX_GNEWS_CORPS}곳까지 한 번에 검색해요.")
         outlets = st.multiselect("언론사", list(GNEWS_OUTLETS), default=list(GNEWS_OUTLETS), key="gn_outlets")
         period = st.radio("기간", list(GNEWS_PERIODS), index=1, horizontal=True, key="gn_period")
+        in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key="gn_title")
         submitted = st.form_submit_button("해외 뉴스 조회")
     if submitted:
         st.session_state.pop("gn_res", None)
@@ -4470,7 +4470,7 @@ def render_global_news():
             terms = {gnews_term(p): p for p in parts}  # 영문 검색어 -> 입력한 이름
             with st.spinner("해외 뉴스를 찾는 중입니다..."):
                 try:
-                    got = gnews_search(list(terms), GNEWS_PERIODS[period], [GNEWS_OUTLETS[o] for o in outlets])
+                    got = gnews_search(list(terms), GNEWS_PERIODS[period], [GNEWS_OUTLETS[o] for o in outlets], in_title)
                 except NewsApiError as e:
                     st.error(str(e))
                 except requests.exceptions.RequestException:
