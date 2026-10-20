@@ -341,7 +341,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.20 17:41"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.20 18:28"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -2793,7 +2793,22 @@ NAME_READINGS = {
     "케이티": ["KT"],  # DART 등록명은 '케이티'. KT로 쳐도 바로 인식
     "삼성전자": ["삼전"],
     "LG에너지솔루션": ["LG엔솔", "엔솔"],
-    "SK하이닉스": ["SK하닉"],
+    "SK하이닉스": ["SK하닉", "하닉"],
+    "삼성바이오로직스": ["삼바", "삼성바이오"],
+    "한국전력공사": ["한전", "한국전력"],
+    "현대모비스": ["모비스"],
+    "SK이노베이션": ["SK이노"],
+    "LG유플러스": ["LG유플"],
+    "에이치디현대오일뱅크": ["오일뱅크", "HD현대오일뱅크"],
+    "HD한국조선해양": ["한국조선해양", "한조"],
+    "삼성화재해상보험": ["삼성화재"],
+    "신한지주": ["신한금융", "신한금융지주"],
+    "하나금융지주": ["하나금융"],
+    "우리금융지주": ["우리금융"],
+    "KB금융": ["KB금융지주", "KB금융그룹"],
+    "아모레퍼시픽": ["아모레"],
+    "한국타이어앤테크놀로지": ["한국타이어"],
+    "기업은행": ["IBK기업은행", "IBK"],
     "SK텔레콤": ["SKT"],
     "에스케이온": ["SK온"],
     "한화에어로스페이스": ["한화에어로"],
@@ -2807,6 +2822,10 @@ NAME_READINGS = {
     "SOOP": ["숲", "아프리카TV"],
     "JYP Ent.": ["JYP엔터", "제이와이피", "JYP엔터테인먼트"],
 }
+# 위 별명은 단독 뉴스 검색에도 그대로 쓰인다 (기사 제목에 줄임말이 나오므로 함께 검색). 별명은 NAME_READINGS 한 곳에만 추가하면 된다.
+for _name, _readings in NAME_READINGS.items():
+    _al = NEWS_ALIASES.setdefault(_name, [])
+    _al.extend(r for r in _readings if r not in _al)
 SUGGEST_LIMIT = 12
 
 # 추천 순서에서 먼저 보여줄 이름난 기업 (대략 유명한 순서). 목록에 없는 이름은 뒤로 밀릴 뿐 추천에서 빠지지는 않는다.
@@ -4388,7 +4407,13 @@ GNEWS_NAMES = {
 def gnews_term(corp):
     """입력한 기업명 -> 영문 검색어 (모르는 이름은 그대로)."""
     name = canonical_corp(corp)
-    return GNEWS_NAMES.get(name) or GNEWS_NAMES.get(corp) or corp
+    if GNEWS_NAMES.get(name) or GNEWS_NAMES.get(corp):
+        return GNEWS_NAMES.get(name) or GNEWS_NAMES.get(corp)
+    key = re.sub(r"\s+", "", corp).lower()
+    ticker = KOREAN_TO_TICKER.get(key) or next((c for c, v in ASIA_COMPANIES.items() if key in v[2] or key == v[0].lower()), None)
+    if ticker is None and corp.upper() in FOREIGN_ENGLISH:  # NVDA, MU처럼 티커로 쳤을 때
+        ticker = corp.upper()
+    return FOREIGN_ENGLISH.get(ticker) or corp
 
 
 def gnews_fetch(session, term, days, domains, in_title=True):
@@ -5472,6 +5497,19 @@ OVERSEAS_NAMES = {
     "NUE": "뉴코", "STLD": "스틸다이내믹스", "MT": "아르셀로미탈",
     "VZ": "버라이즌", "T": "AT&T", "TMUS": "T모바일",
     "LLY": "일라이릴리", "JNJ": "존슨앤드존슨", "PFE": "화이자", "MRK": "머크", "ABBV": "애브비",
+}
+# 외신 검색용 영문 이름 (한글 이름 -> 영문 검색어). 해외 기업 탭에 있는 회사는 여기서 영문으로 바꿔 검색한다.
+FOREIGN_ENGLISH = {
+    "NVDA": "Nvidia", "AMD": "AMD", "MU": "Micron", "INTC": "Intel", "QCOM": "Qualcomm", "AVGO": "Broadcom", "TSM": "TSMC", "ASML": "ASML",
+    "AAPL": "Apple", "MSFT": "Microsoft", "GOOGL": "Alphabet", "AMZN": "Amazon", "META": "Meta", "TSLA": "Tesla", "GM": "General Motors",
+    "F": "Ford", "TM": "Toyota", "LMT": "Lockheed Martin", "RTX": "RTX", "NOC": "Northrop Grumman", "GD": "General Dynamics", "BA": "Boeing",
+    "XOM": "Exxon Mobil", "CVX": "Chevron", "COP": "ConocoPhillips", "MPC": "Marathon Petroleum", "VLO": "Valero", "NUE": "Nucor",
+    "STLD": "Steel Dynamics", "MT": "ArcelorMittal", "VZ": "Verizon", "T": "AT&T", "TMUS": "T-Mobile", "LLY": "Eli Lilly",
+    "JNJ": "Johnson & Johnson", "PFE": "Pfizer", "MRK": "Merck", "ABBV": "AbbVie",
+    "2330.TW": "TSMC", "2454.TW": "MediaTek", "2303.TW": "UMC", "285A.T": "Kioxia", "7203.T": "Toyota", "7267.T": "Honda", "7201.T": "Nissan",
+    "7269.T": "Suzuki", "7270.T": "Subaru", "7261.T": "Mazda", "7211.T": "Mitsubishi Motors", "688825.SS": "CXMT", "688981.SS": "SMIC",
+    "688347.SS": "Hua Hong Semiconductor", "002594.SZ": "BYD", "0175.HK": "Geely", "601633.SS": "Great Wall Motor", "600104.SS": "SAIC Motor",
+    "300750.SZ": "CATL",
 }
 # 대만·일본 상장사는 야후 파이낸스로 조회한다 (코드 -> (이름, 보고 통화, 영문·한글 별칭))
 ASIA_COMPANIES = {
@@ -7327,10 +7365,8 @@ def fill_calendar():
 
 def render_calendar():
     """탭: 실적 캘린더 - 업종별 국내 기업의 잠정실적·IR 일정과 정기보고서 제출기한."""
-    first = list(CAL_GROUPS)[0]
-    st.session_state.setdefault("cal_groups", [first])
-    st.session_state.setdefault("cal_corps", ", ".join(CAL_GROUPS[first]))
-    st.multiselect("섹터 (여러 개 선택 가능)", list(CAL_GROUPS), key="cal_groups", on_change=fill_calendar, placeholder="섹터를 고르세요")
+    st.session_state.setdefault("cal_corps", "")  # 처음엔 섹터도 기업도 비워 둔다
+    st.pills("섹터 (여러 개 선택 가능)", list(CAL_GROUPS), selection_mode="multi", key="cal_groups", on_change=fill_calendar)
     with st.form("cal_search"):
         corp_text = st.text_input("기업 (쉼표로 구분)", key="cal_corps", placeholder="예: 삼성전자, SK하이닉스",
                                   help=f"고른 섹터의 대표 기업이 채워져요. 기업을 직접 빼거나 더해서 최대 {MAX_CAL_CORPS}곳까지 볼 수 있어요. 많으면 조회가 오래 걸려요.")
