@@ -4401,6 +4401,8 @@ def gnews_fetch(session, term, days, domains):
     except ET.ParseError as e:
         raise NewsApiError("Google News 응답을 읽지 못했어요. 잠시 후 다시 시도해주세요.") from e
     cutoff = datetime.now(KST) - timedelta(days=days)
+    first = term.split()[0] if term.split() else term
+    keys = {term.casefold()} | ({first.casefold()} if len(first) >= 2 else set())  # 'Samsung Electronics'는 'Samsung'만 있는 제목도 통과
     out = []
     for it in root.iter("item"):
         src = it.find("source")
@@ -4417,6 +4419,8 @@ def gnews_fetch(session, term, days, domains):
         title = (it.findtext("title") or "").strip()
         if publisher and title.endswith(" - " + publisher):
             title = title[: -len(publisher) - 3].strip()
+        if not any(k in title.casefold() for k in keys):  # 제목에 기업명이 없는 기사는 뺀다
+            continue
         out.append({"title": title, "url": (it.findtext("link") or "").strip(), "publisher": publisher, "domain": domain, "dt": when})
     out.sort(key=lambda x: x["dt"], reverse=True)
     return out
@@ -4442,7 +4446,7 @@ def gnews_search(terms, days, domains):
 
 def render_global_news():
     """뉴스 탭 > 해외 언론: 영문 기업명으로 WSJ·Bloomberg 등의 최근 기사 제목과 링크를 보여준다."""
-    st.caption("Google News 검색으로 미국 주요 언론의 제목·링크만 가져와요 (본문은 가져오지 않아요). 기업은 영문 이름이 가장 잘 잡혀요.")
+    st.caption("Google News 검색으로 미국 주요 언론의 제목·링크만 가져와요 (본문은 가져오지 않아요). 제목에 기업명이 들어간 기사만 보여주며, 기업은 영문 이름이 가장 잘 잡혀요.")
     with st.form("gn_search"):
         corp_text = st.text_input("기업명 (여러 곳은 쉼표로)", key="gn_corp", placeholder="예: 삼성전자, SK하이닉스, Tesla",
                                   help=f"한글 이름은 알려진 기업이면 영문으로 바꿔 검색해요. 최대 {MAX_GNEWS_CORPS}곳까지 한 번에 검색해요.")
