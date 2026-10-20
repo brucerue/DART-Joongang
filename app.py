@@ -74,14 +74,16 @@ INDUSTRY_GROUPS = {
     "반도체": ["삼성전자", "SK하이닉스", "한미반도체"],
     "자동차": ["현대자동차", "기아", "현대모비스"],
     "배터리": ["LG에너지솔루션", "삼성SDI", "에스케이온", "포스코퓨처엠", "엘앤에프", "에코프로비엠"],
-    "조선": ["HD한국조선해양", "HD현대중공업", "한화오션", "삼성중공업"],
+    "조선·해운": ["HD한국조선해양", "HD현대중공업", "한화오션", "삼성중공업", "HMM", "팬오션"],
     "방산": ["한화에어로스페이스", "한국항공우주", "LIG디펜스앤에어로스페이스", "현대로템"],
     "철강": ["POSCO홀딩스", "현대제철", "동국제강"],
     "정유·석화": ["SK이노베이션", "S-Oil", "GS칼텍스", "에이치디현대오일뱅크", "롯데케미칼", "LG화학", "한화솔루션", "금호석유화학"],
-    "전자부품·디스플레이": ["LG전자", "삼성전기", "LG이노텍", "LG디스플레이"],
-    "통신": ["SK텔레콤", "KT", "LG유플러스"],
-    "IT": ["NAVER", "카카오"],
+    "IT·통신": ["SK텔레콤", "KT", "LG유플러스", "NAVER", "카카오"],
 }
+# 실적 캘린더의 섹터: 자동차와 배터리는 한 섹터로 묶는다
+CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("반도체", "조선·해운", "방산", "철강", "정유·석화", "IT·통신")}
+CAL_GROUPS["자동차·배터리"] = INDUSTRY_GROUPS["자동차"] + INDUSTRY_GROUPS["배터리"]
+CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("반도체", "자동차·배터리", "조선·해운", "방산", "철강", "정유·석화", "IT·통신")}
 INDUSTRY_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
 
 # 주요사항보고서: 보고서명(공백·괄호 무시)에 들어 있는 말 -> (DART 주요정보 API, 칸 목록).
@@ -321,6 +323,7 @@ NEWS_SECTORS = {
         "키워드": ["통신"],
     },
 }
+NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("반도체", "자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "IT·통신")}  # 화면에 나오는 순서
 PUBLISHERS = {
     # 종합일간지
     "joongang.co.kr": ("중앙일보", "종합일간지"), "chosun.com": ("조선일보", "종합일간지"),
@@ -338,7 +341,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.19"  # 화면 아래 크레딧의 updated 날짜. 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.20 17:02"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3347,7 +3350,7 @@ def render_fin_hub():
 
 def render_industry():
     """탭: 업종 합산 - 여러 회사의 같은 기간 실적을 모으고 합계를 낸다."""
-    groups = list(INDUSTRY_GROUPS) + ["직접 입력"]
+    groups = list(INDUSTRY_GROUPS)
     st.session_state.setdefault("ind_corps", ", ".join(INDUSTRY_GROUPS[groups[0]]))
     st.radio("섹터", groups, horizontal=True, key="ind_group", on_change=fill_industry)  # 폼 밖: 고르면 아래 기업 칸이 바뀜
     ly, lp = latest_period()
@@ -3355,7 +3358,7 @@ def render_industry():
     with st.form("ind_search"):
         corp_text = st.text_input(
             "기업 (쉼표로 구분)", key="ind_corps", placeholder="예: 삼성전자, SK하이닉스",
-            help=f"업종을 고르면 대표 기업이 채워져요. 빼거나 더해서 최대 {MAX_INDUSTRY_CORPS}곳까지 합산할 수 있어요.",
+            help=f"섹터를 고르면 대표 기업이 채워져요. 빼거나 더해서 최대 {MAX_INDUSTRY_CORPS}곳까지 합산할 수 있어요.",
         )
         c1, c2 = st.columns(2)
         year = c1.selectbox("연도", years, index=years.index(ly), key="ind_year")
@@ -7316,22 +7319,22 @@ def collect_calendar(corps, ws, we):
 
 
 def fill_calendar():
-    """고른 업종들의 기업을 중복 없이 입력칸에 채운다 (입력칸은 그 뒤에 자유롭게 고칠 수 있다)."""
+    """고른 섹터들의 기업을 중복 없이 입력칸에 채운다 (입력칸은 그 뒤에 자유롭게 고칠 수 있다)."""
     names = []
     for g in st.session_state.get("cal_groups") or []:
-        names += [n for n in INDUSTRY_GROUPS.get(g, []) if n not in names]
+        names += [n for n in CAL_GROUPS.get(g, []) if n not in names]
     st.session_state["cal_corps"] = ", ".join(names)
 
 
 def render_calendar():
     """탭: 실적 캘린더 - 업종별 국내 기업의 잠정실적·IR 일정과 정기보고서 제출기한."""
-    first = list(INDUSTRY_GROUPS)[0]
+    first = list(CAL_GROUPS)[0]
     st.session_state.setdefault("cal_groups", [first])
-    st.session_state.setdefault("cal_corps", ", ".join(INDUSTRY_GROUPS[first]))
-    st.multiselect("업종 (여러 개 선택 가능)", list(INDUSTRY_GROUPS), key="cal_groups", on_change=fill_calendar, placeholder="업종을 고르세요")
+    st.session_state.setdefault("cal_corps", ", ".join(CAL_GROUPS[first]))
+    st.multiselect("섹터 (여러 개 선택 가능)", list(CAL_GROUPS), key="cal_groups", on_change=fill_calendar, placeholder="섹터를 고르세요")
     with st.form("cal_search"):
         corp_text = st.text_input("기업 (쉼표로 구분)", key="cal_corps", placeholder="예: 삼성전자, SK하이닉스",
-                                  help=f"고른 업종의 대표 기업이 채워져요. 기업을 직접 빼거나 더해서 최대 {MAX_CAL_CORPS}곳까지 볼 수 있어요. 많으면 조회가 오래 걸려요.")
+                                  help=f"고른 섹터의 대표 기업이 채워져요. 기업을 직접 빼거나 더해서 최대 {MAX_CAL_CORPS}곳까지 볼 수 있어요. 많으면 조회가 오래 걸려요.")
         span = st.radio("기간", list(CAL_RANGES), horizontal=True, key="cal_span", help=CAL_KINDS_HELP)
         submitted = st.form_submit_button("일정 조회")
 
