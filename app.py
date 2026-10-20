@@ -7480,4 +7480,4 @@ _COL_LOCK_JS = """
 """
 run_js(_COL_LOCK_JS)
 
-st.caption(f"updated/{LAST_UPDATED}")  # 맨 아래
+st.caption(f"updated {LAST_UPDATED}")  # 맨 아래
