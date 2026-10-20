@@ -5,7 +5,7 @@ DART 매출액 / 영업이익 조회 (Streamlit)
       흑자전환/적자전환/적자지속 표시, 금액은 억원 단위,
       CSV·엑셀 다운로드, 공시 원문 링크,
       공시 목록(유형 필터·주요 공시 버튼·보고서명 검색), 오늘의 공시(전 상장사 주요 공시 모아보기),
-      단독 뉴스(기업명·섹터 검색, 비슷한 기사 묶기)
+      산업 뉴스(통신·단독·외신, 섹터·검색어 검색, 비슷한 기사 묶기)
 
 [설치]   pip install -r requirements.txt
 [실행]   streamlit run app.py
@@ -213,7 +213,6 @@ NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7}
 
 # 뉴스에 보여줄 언론사. 기사 주소(도메인) -> (언론사 이름, 구분). 여기 없는 매체의 기사는 보이지 않는다.
 NEWS_CATEGORIES = ["종합일간지", "경제지", "통신사"]
-MAX_NEWS_CORPS = 5  # 기업명 칸에 한 번에 넣을 수 있는 기업 수 (많을수록 조회가 느려짐)
 NEWS_SPLIT = r"[,，、/;\n]+"  # 여러 기업을 나누는 기호: 쉼표, 슬래시 등 (띄어쓰기는 'LG 에너지솔루션'처럼 이름 안에 있을 수 있어 제외)
 NEWS_KEYWORD = "단독"  # 뉴스 탭은 항상 이 표기가 제목에 있는 기사만 보여준다 (화면에는 드러내지 않고 내부에서 적용)
 # 이 기업명을 입력하면 아래 별칭도 함께 검색한다 (제목에 줄임말로 쓰이는 경우를 잡기 위함). 자유롭게 추가·수정하세요.
@@ -341,7 +340,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.20 18:36"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.21 08:26"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -2722,7 +2721,7 @@ def news_html(clusters, now=None):
 def news_copy_text(res, now=None):
     """결과 목록을 메모·메신저에 붙여 넣기 좋은 글로. 묶음마다 대표 기사 한 건."""
     now = now or datetime.now(KST)
-    lines = [f"[단독 뉴스] {res['corp']} · 최근 {res['period']} ({now:%m.%d %H:%M} 기준)", ""]
+    lines = [f"[{res.get('kind', '단독')} 뉴스] {res['corp']} · 최근 {res['period']} ({now:%m.%d %H:%M} 기준)", ""]
     for c in res["clusters"]:
         it = c["rep"]
         tags = f" ({', '.join(it['tags'])})" if it.get("tags") else ""
@@ -2733,34 +2732,27 @@ def news_copy_text(res, now=None):
 
 
 def apply_watchlist():
-    """주소 뒤 관심 목록(?news=삼성전자,현대차 / ?sector=반도체)을 처음 한 번만 입력칸에 채우고 자동 조회.
-    단독 뉴스 탭을 먼저 열어야 하면 True."""
+    """주소 뒤 관심 검색어(?news=삼성전자,현대차&nmode=통신)를 처음 한 번만 입력칸에 채우고 자동 조회.
+    산업 뉴스 탭을 먼저 열어야 하면 True."""
     qp = st.query_params
-    corps, sector = qp.get("news", "").strip(), qp.get("sector", "").strip()
+    terms, kind = qp.get("news", "").strip(), qp.get("nmode", "").strip()
     if st.session_state.get("watch_applied"):
         return False
     st.session_state["watch_applied"] = True
-    if corps:
-        st.session_state["news_mode"] = "기업"
-        st.session_state["news_corp"] = corps
-    elif sector in NEWS_SECTORS:
-        st.session_state["news_mode"] = "섹터"
-        st.session_state["news_sector"] = sector
-    else:
+    if not terms:
         return False
+    kind = kind if kind in NEWS_KINDS else "단독"
+    st.session_state["news_mode"] = kind
+    st.session_state[f"nw_{kind}_terms"] = terms
     st.session_state["news_run"] = True
     return True
 
 
 def save_watchlist(res):
-    """조회한 기업(섹터)을 주소 뒤에 붙여 둔다 -> 그 주소를 북마크하면 다음에 바로 조회."""
+    """조회한 검색어를 주소 뒤에 붙여 둔다 -> 그 주소를 북마크하면 다음에 바로 조회."""
     try:
-        if res["mode"] == "섹터":
-            st.query_params.pop("news", None)
-            st.query_params["sector"] = res["corp"]
-        else:
-            st.query_params.pop("sector", None)
-            st.query_params["news"] = res["corp"]
+        st.query_params["news"] = res["corp"]
+        st.query_params["nmode"] = res["kind"]
     except Exception:  # 주소를 못 바꾸는 환경이어도 조회 결과는 그대로 보여준다
         pass
 
@@ -4519,133 +4511,119 @@ def render_global_news():
         st.markdown("\n".join(lines), unsafe_allow_html=True)
 
 
-def render_news():
-    """탭 3: 기업 관련 단독 뉴스 (비슷한 기사는 한 묶음으로)"""
-    with st.container(key="news_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에 (재무 조회와 같은 모양)
-        c1, c2 = st.columns([1, 4], vertical_alignment="center")
-        c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["기업", "섹터", "외신"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
-    if mode == "외신":
-        render_global_news()
-        return
-    if not (NAVER_ID and NAVER_SECRET):
-        st.info(
-            "뉴스 기능을 쓰려면 네이버 검색 API 키를 등록해야 합니다. "
-            "Streamlit Secrets에 NAVER_CLIENT_ID, NAVER_CLIENT_SECRET 두 줄을 추가해주세요."
-        )
-        return
+MAX_NEWS_TERMS = 40  # 검색어 칸에 넣을 수 있는 검색어 수 (섹터를 여러 개 고르면 많아짐)
+NEWS_ALIAS_LIMIT = 5  # 검색어가 이 수 이하일 때만 줄임말(별칭)도 따로 검색 (그 이상이면 호출이 너무 많아져 제목 확인에만 씀)
+NEWS_KINDS = {  # 조회 방식 -> 검색 때 붙이는 말(None=단독), 보여줄 언론사 구분
+    "통신": {"keyword": "", "need_exclusive": False},
+    "단독": {"keyword": None, "need_exclusive": True},
+}
 
-    st.session_state.setdefault("news_corp", "")  # 처음엔 빈칸 (관심 목록 주소로 들어오면 그 기업들)
-    with st.form("news_search"):
-        if mode == "기업":
-            corp_text = st.text_input(
-                "기업명 (여러 곳은 쉼표로)", key="news_corp",
-                placeholder="예: 삼성전자, SK하이닉스, 현대차",
-                help=f"쉼표(,)나 슬래시(/)로 나눠 최대 {MAX_NEWS_CORPS}곳까지 한 번에 검색해요.",
-            )
-        else:
-            sector = st.radio("섹터", list(NEWS_SECTORS), horizontal=True, key="news_sector")
-        period = st.radio("기간", list(NEWS_PERIODS), index=list(NEWS_PERIODS).index("3일"), horizontal=True, key="news_period")
-        in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key="news_title")
+
+def fill_news_terms(kind):
+    """고른 섹터들의 기업·키워드를 중복 없이 검색어 칸에 채운다 (그 뒤에 자유롭게 고칠 수 있다)."""
+    terms, skip = [], set()
+    for g in st.session_state.get(f"nw_{kind}_groups") or []:
+        for f in NEWS_SECTORS[g]["기업"]:
+            if name_key(f) in skip or f in terms:  # 앞에서 검색하는 기업의 줄임말이면 건너뜀
+                continue
+            terms.append(f)
+            skip.update(name_key(a) for a in NEWS_ALIASES.get(f, []))
+        terms += [k for k in NEWS_SECTORS[g]["키워드"] if k not in terms]
+    st.session_state[f"nw_{kind}_terms"] = ", ".join(terms)
+
+
+def parse_news_terms(text):
+    """검색어 칸 글 -> 검색어 목록 (대소문자 통일, 종목코드는 기업명으로, 중복 제외)."""
+    out = []
+    for part in re.split(NEWS_SPLIT, text or ""):
+        part = canonical_corp(part)
+        if part.isdigit() and len(part) == 6:
+            idx = get_name_index()
+            hit = idx[idx["stock_code"] == part]
+            if not hit.empty:
+                part = hit.iloc[0]["corp_name"]
+        if part and name_key(part) not in {name_key(c) for c in out}:
+            out.append(part)
+    return out
+
+
+def render_news_search(kind):
+    """통신/단독 공통 화면: 섹터 고르기 + 검색어 + 기간 -> 기사 묶음 목록."""
+    cfg = NEWS_KINDS[kind]
+    k = f"nw_{kind}"
+    st.session_state.setdefault(f"{k}_terms", "")  # 처음엔 섹터도 검색어도 비워 둔다
+    st.pills("섹터 (여러 개 선택 가능)", list(NEWS_SECTORS), selection_mode="multi", key=f"{k}_groups",
+             on_change=fill_news_terms, args=(kind,))
+    with st.form(f"{k}_form"):
+        text = st.text_input(
+            "검색어 (쉼표로 구분)", key=f"{k}_terms", placeholder="예: 삼성전자, SK하이닉스, HBM",
+            help=f"고른 섹터의 대표 기업·키워드가 채워져요. 직접 빼거나 더해서 최대 {MAX_NEWS_TERMS}개까지 검색할 수 있어요. 많으면 조회가 오래 걸려요.",
+        )
+        period = st.radio("기간", list(NEWS_PERIODS), index=list(NEWS_PERIODS).index("3일"), horizontal=True, key=f"{k}_period")
+        in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key=f"{k}_title")
         submitted = st.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False)
 
     if submitted:
-        corps = []
-        if mode == "기업":
-            for part in re.split(NEWS_SPLIT, corp_text):
-                part = canonical_corp(part)  # 대소문자 무시 (sk하이닉스 -> SK하이닉스)
-                if part.isdigit() and len(part) == 6:  # 종목코드를 넣었다면 기업명으로 바꿔서 검색
-                    idx = get_name_index()
-                    hit = idx[idx["stock_code"] == part]
-                    if not hit.empty:
-                        part = hit.iloc[0]["corp_name"]
-                if part and name_key(part) not in {name_key(c) for c in corps}:  # 빈칸·중복 제외
-                    corps.append(part)
-            label = ", ".join(corps)
+        terms = parse_news_terms(text)
+        if not terms:
+            st.error("섹터를 고르거나 검색어를 입력해주세요.")
+        elif len(terms) > MAX_NEWS_TERMS:
+            st.error(f"검색어는 한 번에 {MAX_NEWS_TERMS}개까지 넣을 수 있어요. (지금 {len(terms)}개)")
         else:
-            label = sector
-        if not label:
-            st.error("기업명을 입력해주세요.")
-        elif len(corps) > MAX_NEWS_CORPS:
-            st.error(f"기업은 한 번에 {MAX_NEWS_CORPS}곳까지 넣을 수 있어요. (지금 {len(corps)}곳)")
-        else:
-            st.session_state.pop("news", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
-            match_extra = []  # 섹터 모드에서 검색하지 않는 줄임말 (제목 확인용)
-            owner = {}  # 검색어 -> 어느 기업 것인지 (여러 기업 검색 때 기사에 기업명 꼬리표를 달기 위해)
-            if mode == "기업":
-                terms = []
-                for c in corps:
-                    for t in news_names(c):  # 입력한 이름 + 별칭
-                        if t not in owner:
-                            owner[t] = c
-                            terms.append(t)
-            else:
-                # 섹터: 줄임말(별칭)은 따로 검색하지 않는다 (호출 수 절약). 예: 삼성전자·삼전 -> 삼성전자만 검색
-                kept, skip = [], set()
-                for f in NEWS_SECTORS[sector]["기업"]:
-                    if name_key(f) in skip:  # 앞에서 검색하는 기업의 줄임말이면 건너뜀
-                        continue
-                    kept.append(f)
-                    skip.update(name_key(a) for a in NEWS_ALIASES.get(f, []))
-                terms = kept + NEWS_SECTORS[sector]["키워드"]
-                for t in NEWS_SECTORS[sector]["기업"] + NEWS_SECTORS[sector]["키워드"]:
-                    match_extra.append(t)  # 검색은 안 해도, 제목에 줄임말이 있으면 걸러내지 않고 꼬리표도 단다
-            multi = len(corps) > 1
+            st.session_state.pop(f"news_res_{kind}", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+            owner = {}  # 검색어·줄임말 -> 어느 검색어 것인지 (제목 확인과 꼬리표용)
+            search = []
+            for t in terms:
+                for n in news_names(t):
+                    if n not in owner:
+                        owner[n] = t
+                        if n == t or len(terms) <= NEWS_ALIAS_LIMIT:
+                            search.append(n)  # 검색어가 적을 때만 줄임말도 따로 검색
             with st.spinner("뉴스를 불러오는 중입니다..."):
                 try:
-                    items, capped, since = search_news(terms, NEWS_PERIODS[period])
+                    items, capped, since = search_news(search, NEWS_PERIODS[period], keyword=cfg["keyword"])
                 except NewsApiError as e:
                     st.error(str(e))
                 else:
                     total = len(items)
-                    items = [i for i in items if i["category"]]  # 목록에 있는 언론사만
-                    keys = {t: name_key(t) for t in list(terms) + match_extra}
+                    want = "통신사" if kind == "통신" else None  # 통신: 연합뉴스·뉴시스·뉴스1만 / 단독: 목록에 있는 언론사 모두
+                    items = [i for i in items if (i["category"] == want if want else i["category"])]
+                    keys = {t: name_key(t) for t in owner}
                     tagged = []
                     for i in items:
                         tk = name_key(i["title"])
-                        hits = [t for t, k in keys.items() if k in tk]  # 제목에 들어 있는 검색어
+                        hits = [t for t, nk in keys.items() if nk in tk]  # 제목에 들어 있는 검색어(줄임말 포함)
                         if in_title and not hits:
                             continue
-                        if mode == "섹터":
-                            tags = hits
-                        elif multi:  # 여러 기업 검색: 별칭 대신 기업명으로 꼬리표
-                            tags = list(dict.fromkeys(owner[t] for t in hits))
-                        else:
-                            tags = []
+                        tags = list(dict.fromkeys(owner[t] for t in hits)) if len(terms) > 1 else []
                         tagged.append(dict(i, tags=tags))  # 저장된 원본은 건드리지 않음
-                    # 검색은 제목·요약 어디든 '단독'이 있으면 잡으므로, 제목에 단독 표기가 있는 것만 남긴다
-                    items = [i for i in tagged if is_exclusive(i["title"])]
-                    clusters = cluster_news(items)  # 비슷한 기사끼리 묶어 최신순으로
-                    st.session_state["news"] = {
-                        "corp": label, "mode": mode, "names": terms, "corps": corps, "period": period, "total": total,
-                        "kept": len(items), "clusters": clusters, "capped": capped, "oldest": since,
+                    if cfg["need_exclusive"]:  # 검색은 제목·요약 어디든 '단독'이 있으면 잡으므로, 제목에 단독 표기가 있는 것만 남긴다
+                        tagged = [i for i in tagged if is_exclusive(i["title"])]
+                    clusters = cluster_news(tagged)  # 비슷한 기사끼리 묶어 최신순으로
+                    st.session_state[f"news_res_{kind}"] = {
+                        "corp": ", ".join(terms), "kind": kind, "terms": terms, "names": search, "period": period,
+                        "total": total, "kept": len(tagged), "clusters": clusters, "capped": capped, "oldest": since,
                     }
-                    save_watchlist(st.session_state["news"])
+                    save_watchlist(st.session_state[f"news_res_{kind}"])
 
-    res = st.session_state.get("news")
+    res = st.session_state.get(f"news_res_{kind}")
     if not res:
         return
-
     clusters = res["clusters"]
     if not clusters:
         st.warning(
             "조건에 맞는 기사가 없습니다. '제목에 검색어' 조건을 끄거나 기간을 늘려보세요."
             if res["total"]
-            else "조회된 기사가 없습니다. 기업명을 확인하거나 기간을 늘려보세요."
+            else "조회된 기사가 없습니다. 검색어를 확인하거나 기간을 늘려보세요."
         )
         return
 
     now = datetime.now(KST)
-    notes = [res["corp"], f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(clusters):,}건"]
+    notes = [f"최근 {res['period']}", f"기사 {res['kept']:,}건 → 묶음 {len(clusters):,}건"]
     fresh = sum(is_new(c["rep"], now) for c in clusters)
     if fresh:
         notes.append(f"NEW {fresh}건 (어제·오늘)")
-    if res.get("mode") == "섹터":
-        notes.append(f"검색어 {len(res['names'])}개: {', '.join(res['names'])}")
-    else:
-        extra = [n for n in res["names"] if n not in res.get("corps", [res["corp"]])]  # 별칭만
-        if extra:
-            notes.append(f"함께 검색: {', '.join(extra)}")
+    notes.append(f"검색어 {len(res['terms'])}개")
     st.caption(" · ".join(notes))
     if res["capped"]:
         since = f"{res['oldest']:%m.%d %H:%M}" if res.get("oldest") else "?"
@@ -4658,7 +4636,27 @@ def render_news():
         st.caption("오른쪽 위 복사 아이콘을 누르면 전체가 복사돼요.")
         st.code(news_copy_text(res, now), language=None, wrap_lines=True, height=320)  # 길면 상자 안에서 스크롤
     st.markdown(news_html(clusters, now), unsafe_allow_html=True)
-    st.caption("지금 주소를 북마크(또는 홈 화면에 추가)하면 다음에 열 때 같은 기업으로 바로 조회돼요.")
+    st.caption("지금 주소를 북마크(또는 홈 화면에 추가)하면 다음에 열 때 같은 검색어로 바로 조회돼요.")
+
+
+def render_news():
+    """탭: 산업 뉴스 - 통신(연합뉴스·뉴시스·뉴스1) / 단독 / 외신"""
+    with st.container(key="news_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에 (재무 조회와 같은 모양)
+        c1, c2 = st.columns([1, 4], vertical_alignment="center")
+        c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
+        mode = c2.radio("조회 방식", ["통신", "단독", "외신"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
+    if mode == "외신":
+        render_global_news()
+        return
+    if not (NAVER_ID and NAVER_SECRET):
+        st.info(
+            "뉴스 기능을 쓰려면 네이버 검색 API 키를 등록해야 합니다. "
+            "Streamlit Secrets에 NAVER_CLIENT_ID, NAVER_CLIENT_SECRET 두 줄을 추가해주세요."
+        )
+        return
+    if mode == "통신":
+        st.caption("연합뉴스·뉴시스·뉴스1에서 검색어가 들어간 기사를 모두 찾아요. (단독 여부와 무관)")
+    render_news_search(mode)
 
 
 # ------------------------------------------------------------
@@ -7428,9 +7426,9 @@ def run_js(code):
         pass
 
 
-TAB_NAMES = ["기업 브리핑", "재무 조회", "해외 기업", "단독 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
-# 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 단독 뉴스 탭을 먼저 연다
-first_tab = "단독 뉴스" if apply_watchlist() else None
+TAB_NAMES = ["기업 브리핑", "재무 조회", "해외 기업", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
+# 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 산업 뉴스 탭을 먼저 연다
+first_tab = "산업 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
