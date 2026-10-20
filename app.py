@@ -341,7 +341,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.20 17:02"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.20 17:38"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -4362,7 +4362,7 @@ def render_feed():
 
 
 # ------------------------------------------------------------
-# 해외 언론 뉴스 (Google News RSS) - 시험용. 문제가 있으면 이 블록과 render_news 첫머리의 '해외 언론' 분기를 지우면 된다.
+# 외신 뉴스 (Google News RSS) - 시험용. 문제가 있으면 이 블록과 render_news 첫머리의 '외신' 분기를 지우면 된다.
 #  - 공식 API가 아니라 비공식 RSS라 문법이 바뀌거나 막힐 수 있다. 제목·링크·매체·시각만 가져온다 (본문은 가져오지 않는다).
 # ------------------------------------------------------------
 GNEWS_URL = "https://news.google.com/rss/search"
@@ -4448,9 +4448,9 @@ def gnews_search(terms, days, domains, in_title=True):
 
 
 def render_global_news():
-    """뉴스 탭 > 해외 언론: 영문 기업명으로 WSJ·Bloomberg 등의 최근 기사 제목과 링크를 보여준다."""
+    """뉴스 탭 > 외신: 영문 기업명으로 WSJ·Bloomberg 등의 최근 기사 제목과 링크를 보여준다."""
     with st.form("gn_search"):
-        corp_text = st.text_input("기업명 (여러 곳은 쉼표로)", key="gn_corp", placeholder="예: 삼성전자, SK하이닉스, Tesla",
+        corp_text = st.text_input("기업명 (여러 곳은 쉼표로)", key="gn_corp", placeholder="예: Samsung, TSMC, Tesla",
                                   help=f"한글 이름은 알려진 기업이면 영문으로 바꿔 검색해요. 최대 {MAX_GNEWS_CORPS}곳까지 한 번에 검색해요.")
         period = st.radio("기간", list(GNEWS_PERIODS), index=1, horizontal=True, key="gn_period")
         in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key="gn_title")
@@ -4499,8 +4499,8 @@ def render_news():
     with st.container(key="news_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에 (재무 조회와 같은 모양)
         c1, c2 = st.columns([1, 4], vertical_alignment="center")
         c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["기업", "섹터", "해외 언론"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
-    if mode == "해외 언론":
+        mode = c2.radio("조회 방식", ["기업", "섹터", "외신"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
+    if mode == "외신":
         render_global_news()
         return
     if not (NAVER_ID and NAVER_SECRET):
@@ -6148,7 +6148,7 @@ def render_overseas():
     """탭: 해외 기업 - 미국 SEC 공시로 해외 기업 실적을 보고, 환율로 원화 환산."""
     groups = list(OVERSEAS_GROUPS) + ["직접 입력"]
     st.session_state.setdefault("ovs_corps", ", ".join(OVERSEAS_GROUPS[groups[0]]))
-    st.selectbox("업종", groups, key="ovs_group", on_change=fill_overseas)
+    st.radio("섹터", groups, horizontal=True, key="ovs_group", on_change=fill_overseas)
     ly, lp = latest_overseas_period()
     years = list(range(TODAY.year, 2014, -1))
     with st.form("ovs_search"):
