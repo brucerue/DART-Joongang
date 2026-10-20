@@ -341,7 +341,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.20 18:28"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.20 18:36"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -2793,7 +2793,7 @@ NAME_READINGS = {
     "케이티": ["KT"],  # DART 등록명은 '케이티'. KT로 쳐도 바로 인식
     "삼성전자": ["삼전"],
     "LG에너지솔루션": ["LG엔솔", "엔솔"],
-    "SK하이닉스": ["SK하닉", "하닉"],
+    "SK하이닉스": ["SK하닉", "하닉", "하이닉스"],
     "삼성바이오로직스": ["삼바", "삼성바이오"],
     "한국전력공사": ["한전", "한국전력"],
     "현대모비스": ["모비스"],
@@ -6731,7 +6731,7 @@ def render_periodic():
 
 
 # ------------------------------------------------------------
-# 기업 브리핑 (회사 하나의 실적·공시·배당·임원·뉴스를 한 화면에)
+# 기업 브리핑 (회사 하나의 실적·공시·뉴스를 한 화면에)
 # ------------------------------------------------------------
 BRIEF_YEARS = 5  # 실적 표에 보여줄 연수
 BRIEF_DISC_DAYS = 92  # 최근 공시: 약 3개월
@@ -6740,7 +6740,7 @@ BRIEF_NEWS_MAX = 8  # 보여줄 뉴스 묶음 수
 BRIEF_DISC_MAX = 12  # 보여줄 주요 공시 수
 
 AI_BRIEF_SYSTEM = (
-    "너는 중앙일보 산업부 기자의 취재 준비를 돕는 보조자다. 사용자가 준 자료(실적·재무, 최근 주요 공시 제목, 임원 변동)만 근거로 쓴다. "
+    "너는 중앙일보 산업부 기자의 취재 준비를 돕는 보조자다. 사용자가 준 자료(실적·재무, 최근 주요 공시 제목)만 근거로 쓴다. "
     "자료에 없는 숫자·사실·원인·전망·시장 반응·뉴스 내용은 절대 만들지 않는다. 숫자는 자료 표기 그대로 옮기고 새로 계산하지 않는다. "
     "공시 제목만으로는 내용을 알 수 없으니 제목에서 읽히는 것까지만 말하고, 내용은 원문 확인이 필요하다고 적는다. "
     "원인·배경은 단정하지 말고 '확인 필요'로 표시한다. 한국어, 짧고 명확한 기사체로 쓴다."
@@ -6759,15 +6759,11 @@ def brief_ai_prompt(b):
     parts = [fin_ai_text(b["corp"], b["records"], "연도별")] if b.get("records") else [f"기업: {b['corp']}\n(실적 자료 없음)"]
     if b.get("disc") is not None and not b["disc"].empty:
         parts.append("[최근 3개월 주요 공시 제목]\n" + "\n".join(df_lines(b["disc"], ["접수일", "보고서명"])))
-    if b.get("exctv") and b["exctv"].get("diff") is not None:
-        d = b["exctv"]
-        lines = df_lines(d["diff"], ["변동", "성명", "직위", "구분"]) if not d["diff"].empty else ["변동 없음"]
-        parts.append(f"[등기임원 변동: {d['year'] - 1}년 → {d['year']}년 사업보고서]\n" + "\n".join(lines[:20]))
     return (
         "\n\n".join(parts)
         + "\n\n위 자료만 근거로, 이 기업을 취재하는 산업부 기자를 위해 아래 형식으로 써라. 자료가 부족한 항목은 건너뛴다.\n"
         "**한 줄 요약**: 지금 이 기업을 어떻게 봐야 하는지 한 문장\n"
-        "**취재 포인트 3가지**: 각 항목은 '- 포인트: 한 문장 (근거: 자료의 숫자·공시명)' 형식. 근거가 어느 자료(실적·공시·임원)인지 밝혀라\n"
+        "**취재 포인트 3가지**: 각 항목은 '- 포인트: 한 문장 (근거: 자료의 숫자·공시명)' 형식. 근거가 어느 자료(실적·공시)인지 밝혀라\n"
         "**물어볼 것**: 자료만으로 알 수 없어 회사나 취재원에게 확인해야 할 질문 2~3개 (- 로 시작)"
     )
 
@@ -6933,16 +6929,6 @@ def collect_brief(name, code, progress):
 
     b["disc"] = step("최근 공시를 불러오는 중...", "disc", disclosures)
 
-    def execs():
-        for y in (end, end - 1):
-            cur, _, _ = rt_exctv(corps, y, "11011", with_unreg=False)
-            if not cur.empty:
-                prev, _, _ = rt_exctv(corps, y - 1, "11011", with_unreg=False)
-                return {"year": y, "count": len(cur), "diff": exctv_diff(cur, prev) if not prev.empty else None}
-        return None
-
-    b["exctv"] = step("임원 변동을 확인하는 중...", "exctv", execs)
-
     if NAVER_ID and NAVER_SECRET:
         def news():
             names = news_names(name)
@@ -7096,7 +7082,7 @@ def render_brief_result(b):
         st.dataframe(style_table(table), hide_index=True, height=(len(table) + 1) * 35 + 3,
                      column_config={"기간": st.column_config.TextColumn("기간", width=95), "원문": LINK_COLUMN})
         bs = build_bs_table(b["records"], "연도별", unit="억원")
-        if not bs.empty:
+        if not bs.empty and st.toggle("재무상태 보기 (부채비율·현금성자산·재고자산·CAPEX·순차입금·잉여현금흐름)", key="brief_bs"):
             st.dataframe(bs, hide_index=True, height=(len(bs) + 1) * 35 + 3,
                          column_config={"기간": st.column_config.TextColumn("기간", width=95)})
 
@@ -7109,21 +7095,6 @@ def render_brief_result(b):
         st.caption(f"최근 3개월 공시 {b.get('disc_total', 0):,}건 중 주요 공시 · 최신순")
         st.dataframe(b["disc"], hide_index=True, column_config={"원문": LINK_COLUMN, "보고서명": st.column_config.TextColumn("보고서명", width="large")},
                      height=min(len(b["disc"]) + 1, 14) * 35 + 3)
-
-    st.markdown("##### 임원 변동 (등기임원)")
-    ex = b.get("exctv")
-    if errs.get("exctv"):
-        st.warning(errs["exctv"])
-    elif not ex:
-        st.info("임원 현황을 찾지 못했어요.")
-    elif ex["diff"] is None:
-        st.info(f"{ex['year']}년 사업보고서 등기임원은 {ex['count']}명이에요. 전년 보고서가 없어 비교하지 못했어요.")
-    else:
-        st.caption(f"{ex['year'] - 1}년 → {ex['year']}년 사업보고서 · 등기임원 {ex['count']}명 · 미등기임원까지 보려면 정기보고서 탭의 임직원을 이용하세요")
-        if ex["diff"].empty:
-            st.info("두 보고서의 등기임원 명단이 같아요.")
-        else:
-            st.dataframe(ex["diff"], hide_index=True, height=min(len(ex["diff"]) + 1, 14) * 35 + 3)
 
     st.markdown("##### 최근 한 달 단독 뉴스")
     if b.get("news") is None and "news" not in errs:
@@ -7154,13 +7125,13 @@ def render_brief_result(b):
     saved = st.session_state.get("brief_ai")
     if saved and saved["sig"] == sig:
         st.markdown(saved["text"])
-        st.caption(f"AI 분석({saved['model']}) · 위 실적·공시·임원 자료만 근거로 한 해석이에요. 공시는 제목만 보고 판단한 것이라 원문 확인이 필요해요")
+        st.caption(f"AI 분석({saved['model']}) · 위 실적·공시 자료만 근거로 한 해석이에요. 공시는 제목만 보고 판단한 것이라 원문 확인이 필요해요")
     else:
-        st.caption("누르면 위 실적·공시·임원 자료를 종합해 취재 포인트와 확인할 질문을 정리해 줘요. (뉴스는 포함하지 않아요)")
+        st.caption("누르면 위 실적·공시 자료를 종합해 취재 포인트와 확인할 질문을 정리해 줘요. (뉴스는 포함하지 않아요)")
 
 
 def render_brief():
-    """탭: 기업 브리핑 - 회사 하나의 실적·공시·임원·뉴스를 한 화면에."""
+    """탭: 기업 브리핑 - 회사 하나의 실적·공시·뉴스를 한 화면에."""
     with st.form("brief_search"):
         corp_text = st.text_input("기업명 또는 종목코드", key="brief_corp", placeholder="예: 삼성전자 또는 005930")
         submitted = st.form_submit_button("브리핑 만들기", type="primary") or st.session_state.pop("brief_run", False)
@@ -7185,7 +7156,7 @@ def render_brief():
 
                 def progress(label):
                     steps[0] += 1
-                    bar.progress(min(steps[0] / 9, 1.0), text=label)
+                    bar.progress(min(steps[0] / 8, 1.0), text=label)
 
                 try:
                     st.session_state["brief"] = collect_brief(corp, code, progress)
