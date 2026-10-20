@@ -3349,7 +3349,7 @@ def render_industry():
     """탭: 업종 합산 - 여러 회사의 같은 기간 실적을 모으고 합계를 낸다."""
     groups = list(INDUSTRY_GROUPS) + ["직접 입력"]
     st.session_state.setdefault("ind_corps", ", ".join(INDUSTRY_GROUPS[groups[0]]))
-    st.selectbox("섹터", groups, key="ind_group", on_change=fill_industry)  # 폼 밖: 고르면 아래 기업 칸이 바뀜
+    st.radio("섹터", groups, horizontal=True, key="ind_group", on_change=fill_industry)  # 폼 밖: 고르면 아래 기업 칸이 바뀜
     ly, lp = latest_period()
     years = list(range(TODAY.year, 2014, -1))
     with st.form("ind_search"):
@@ -4449,7 +4449,6 @@ def render_global_news():
     with st.form("gn_search"):
         corp_text = st.text_input("기업명 (여러 곳은 쉼표로)", key="gn_corp", placeholder="예: 삼성전자, SK하이닉스, Tesla",
                                   help=f"한글 이름은 알려진 기업이면 영문으로 바꿔 검색해요. 최대 {MAX_GNEWS_CORPS}곳까지 한 번에 검색해요.")
-        outlets = st.multiselect("언론사", list(GNEWS_OUTLETS), default=list(GNEWS_OUTLETS), key="gn_outlets")
         period = st.radio("기간", list(GNEWS_PERIODS), index=1, horizontal=True, key="gn_period")
         in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key="gn_title")
         submitted = st.form_submit_button("해외 뉴스 조회")
@@ -4464,23 +4463,21 @@ def render_global_news():
             st.error("기업명을 입력해주세요.")
         elif len(parts) > MAX_GNEWS_CORPS:
             st.error(f"기업은 한 번에 {MAX_GNEWS_CORPS}곳까지 넣을 수 있어요. (지금 {len(parts)}곳)")
-        elif not outlets:
-            st.error("언론사를 하나 이상 골라주세요.")
         else:
             terms = {gnews_term(p): p for p in parts}  # 영문 검색어 -> 입력한 이름
             with st.spinner("해외 뉴스를 찾는 중입니다..."):
                 try:
-                    got = gnews_search(list(terms), GNEWS_PERIODS[period], [GNEWS_OUTLETS[o] for o in outlets], in_title)
+                    got = gnews_search(list(terms), GNEWS_PERIODS[period], list(GNEWS_OUTLETS.values()), in_title)
                 except NewsApiError as e:
                     st.error(str(e))
                 except requests.exceptions.RequestException:
                     st.error("Google News에 연결하지 못했어요. 잠시 후 다시 시도해주세요.")
                 else:
-                    st.session_state["gn_res"] = {"got": got, "labels": terms, "period": period, "outlets": outlets}
+                    st.session_state["gn_res"] = {"got": got, "labels": terms, "period": period}
     res = st.session_state.get("gn_res")
     if not res:
         return
-    st.caption(f"최근 {res['period']} · {', '.join(res['outlets'])} · 최신순")
+    st.caption(f"최근 {res['period']} · 최신순")
     for term, items in res["got"].items():
         label = res["labels"].get(term, term)
         st.markdown(f"##### {label}" + (f" ({term})" if label.casefold() != term.casefold() else ""))
@@ -5967,6 +5964,9 @@ def collect_overseas(items, year, period):
         else:
             r["fx"] = fx_range(co["cur"], now["start"], now["end"])
             r["fx_usd"] = r["fx"] if co["cur"] == "USD" else fx_range("USD", now["start"], now["end"])
+            recent = TODAY - timedelta(days=10)  # 현재(오늘) 환율: 최근 10일 중 가장 늦은 날 값 (주말·휴일이면 직전 영업일)
+            r["fx_now"] = fx_range(co["cur"], recent, TODAY)
+            r["fx_usd_now"] = r["fx_now"] if co["cur"] == "USD" else fx_range("USD", recent, TODAY)
             if cik == "YF":
                 r["link"] = yf_link(ticker)
                 return r
@@ -5986,6 +5986,9 @@ def ovs_rate(entry, mode, override):
     """표시에 쓸 환율 (원/통화 1단위). 직접 입력이 있으면 그것, 없으면 자동값, 둘 다 없으면 None."""
     if override and override > 0:
         return override, "직접 입력"
+    if mode == "현재":
+        fx = entry.get("fx_now")
+        return (fx["last"], "자동") if fx else (None, "")
     fx = entry.get("fx")
     if fx:
         return fx["avg" if mode == "기간 평균" else "last"], "자동"
@@ -6004,7 +6007,7 @@ def ovs_factor(entry, view, mode, overrides):
         return 1.0, "자동"
     if rate is None:
         return None, ""
-    usd, how_usd = ovs_rate({"fx": entry.get("fx_usd")}, mode, overrides.get("USD"))
+    usd, how_usd = ovs_rate({"fx": entry.get("fx_usd"), "fx_now": entry.get("fx_usd_now")}, mode, overrides.get("USD"))
     if not usd:
         return None, ""
     return rate / usd, ("직접 입력" if "직접 입력" in (how, how_usd) else "자동")
@@ -6031,11 +6034,11 @@ def ovs_table(res, view, unit, mode, overrides):
         if view != "현지 통화" and mult is None:
             no_rate.append(label)
         if mult is not None and view != "현지 통화" and cur != ("KRW" if krw else "USD"):
-            fx_ref = entry.get("fx") or {}
+            fx_ref = (entry.get("fx_now") if mode == "현재" else entry.get("fx")) or {}
             rate_rows.append({"통화": f"{cur} ({CURRENCY_NAMES.get(cur, cur)})",
                               f"적용 환율({'원' if krw else '달러'})": f"{mult:,.2f}" if krw else f"{mult:,.4f}", "구분": how,
                               "기준": (f"{now['start']:%Y.%m.%d}~{now['end']:%Y.%m.%d} 평균" if mode == "기간 평균" and how == "자동"
-                                     else (f"{fx_ref['last_date']:%Y.%m.%d} 종가" if how == "자동" and fx_ref else "직접 입력")),
+                                     else (f"{fx_ref['last_date']:%Y.%m.%d} 종가" + (" (현재)" if mode == "현재" else "") if how == "자동" and fx_ref else "직접 입력")),
                               "회사": label})
 
         def show(v):
@@ -6213,8 +6216,8 @@ def render_overseas():
             c1, c2 = st.columns([2, 3]) if krw_on else (st.container(), st.container())
             if krw_on:
                 unit = c1.radio("단위", list(UNITS), index=list(UNITS).index("조원"), horizontal=True, key="ovs_unit")
-            mode = c2.radio("환율 기준", ["기간 평균", "기간 말"], horizontal=True, key="ovs_fxmode",
-                            help="손익은 한 기간 동안 번 돈이라 보통 기간 평균 환율로 바꿔요. 기간 말은 결산일 환율이에요.")
+            mode = c2.radio("환율 기준", ["기간 평균", "기간 말", "현재"], horizontal=True, key="ovs_fxmode",
+                            help="손익은 한 기간 동안 번 돈이라 보통 기간 평균 환율로 바꿔요. 기간 말은 결산일 환율, 현재는 오늘(가장 최근 영업일) 환율이에요.")
     cur_set = {e["co"]["cur"] for e in res["data"].values() if e.get("now")}
     currencies = sorted(cur_set - {"KRW"}) if krw_on else (sorted(cur_set | {"USD"}) if fx_on and cur_set - {"USD"} else [])
     overrides = {}
