@@ -41,7 +41,7 @@ SEEN_FILE = os.path.join(HERE, "digest_seen.json")
 SECTORS = ["자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재"]
 MODES = ["통신", "단독"]
 LOOKBACK_HOURS = 36  # 이 시간 안에 올라온 기사만 (이미 보낸 기사는 기록으로 걸러냄)
-MAX_PER_SECTOR = 12  # 섹터마다 메시지에 싣는 최대 묶음 수 (넘으면 '외 N건')
+MAX_PER_SECTOR = 100  # 섹터마다 메시지에 싣는 최대 묶음 수 (넘으면 '외 N건'). 길면 텔레그램 메시지가 여러 통으로 나뉨
 NAVER_MIN = 5  # 단독 모드: 구글에서 찾은 단독 기사가 이보다 적으면 네이버로 보충
 WIRE_DOMAINS = ("yna.co.kr", "newsis.com", "news1.kr")
 SITE_CHUNK = 8
@@ -238,35 +238,39 @@ def collect(mode, sector, cutoff):
 
 # ---------- 메시지 ----------
 def build_messages(mode, now, sections):
-    """sections: [(섹터, [묶음...], 숨겨진 묶음 수)] -> 텔레그램 메시지 목록(각 4,000자 이하)"""
+    """sections: [(섹터, [묶음...], 숨겨진 묶음 수)] -> 텔레그램 메시지 목록(각 3,800자 이하, 넘으면 여러 통으로 나눔)"""
+    limit = 3800
     head = f"<b>📰 산업 뉴스 · {mode} · {now:%m/%d %H:%M}</b>"
-    blocks = []
+    cont = head + " (이어서)"
+    msgs, cur = [], head
+
+    def flush():
+        nonlocal cur
+        msgs.append(cur)
+        cur = cont
+
     for sector, clusters, hidden in sections:
-        lines = [f"\n<b>[{html.escape(sector)}]</b>"]
+        title = f"<b>[{html.escape(sector)}]</b>"
+        lines = []
         for c in clusters:
             it = c["rep"]
             more = f" (+{len(c['others'])}건)" if c["others"] else ""
             lines.append(f'• <a href="{html.escape(it["url"], quote=True)}">{html.escape(it["title"])}</a> · {html.escape(it["publisher"])}{more}')
         if hidden:
             lines.append(f"  … 외 {hidden}건")
-        blocks.append("\n".join(lines))
-    msgs, cur = [], head
-    for b in blocks:
-        if len(cur) + len(b) > 3800 and cur != head:
-            msgs.append(cur)
-            cur = head + " (이어서)"
-        while len(cur) + len(b) > 3800:  # 한 섹터만으로 넘치면 줄 단위로 자름
-            lines = b.split("\n")
-            keep = [lines[0]]
-            for ln in lines[1:]:
-                if len(cur) + len("\n".join(keep + [ln])) > 3800:
-                    break
-                keep.append(ln)
-            msgs.append(cur + "\n".join(keep))
-            b = "\n".join([lines[0] + " (이어서)"] + lines[len(keep):])
-            cur = head + " (이어서)"
-        cur += b
-    if cur != head:
+        head_line = title
+        for ln in lines:  # 줄 단위로 채우고, 넘치면 새 메시지에서 섹터 제목을 다시 붙여 이어간다
+            if head_line is not None:
+                need = len(head_line) + 1 + len(ln) + (2 if cur not in (head, cont) else 1)
+                if len(cur) + need > limit and cur not in (head, cont):
+                    flush()
+                cur += ("\n\n" if cur not in (head, cont) else "\n") + head_line
+                head_line = None
+            if len(cur) + 1 + len(ln) > limit:
+                flush()
+                cur += "\n" + title + " (이어서)"
+            cur += "\n" + ln
+    if cur not in (head, cont):
         msgs.append(cur)
     return msgs
 
