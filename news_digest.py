@@ -343,6 +343,11 @@ def main():
             raise SystemExit("TELEGRAM_BOT_TOKEN이 필요해요.")
         return show_chats(token)
     subs = load_subscribers()
+    print(f"설정 확인: 봇 토큰 {'있음' if token else '없음'} / DIGEST_SUBSCRIBERS {'있음' if os.environ.get('DIGEST_SUBSCRIBERS', '').strip() else '없음'} "
+          f"/ TELEGRAM_CHAT_ID {'있음' if os.environ.get('TELEGRAM_CHAT_ID') else '없음'} / 받는 사람 {len(subs)}명")
+    if not subs:
+        print("※ 받는 사람 목록이 비어 있어요. GitHub Secrets에 DIGEST_SUBSCRIBERS(또는 TELEGRAM_CHAT_ID)가 등록돼 있는지, "
+              "이름 철자가 같은지, 'Repository secrets'에 넣었는지 확인하세요.", file=sys.stderr)
     dry = args.dry_run or not (token and subs)
     if dry:
         print("(시험 모드: 텔레그램으로 보내지 않고 출력만 합니다)")
@@ -350,7 +355,7 @@ def main():
     if args.only:
         subs = [x for x in subs if args.only in (x["name"], x["chat_id"])]
         if not subs:
-            raise SystemExit(f"받는 사람 목록에 '{args.only}'이(가) 없어요.")
+            raise SystemExit(f"받는 사람 목록에 '{args.only}'이(가) 없어요. (위 '설정 확인' 줄에서 받는 사람이 0명이면 Secrets 문제예요)")
     for s in (args.sectors.split(",") if args.sectors else []):
         if s not in A["NEWS_SECTORS"]:
             raise SystemExit(f"없는 섹터: {s}")
