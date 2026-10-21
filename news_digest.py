@@ -237,12 +237,20 @@ def collect(mode, sector, cutoff):
 
 
 # ---------- 메시지 ----------
+def vlen(text):
+    """텔레그램 글자 수 한도(4,096자)는 화면에 보이는 글자만 센다(링크 주소·HTML 태그는 제외)."""
+    return len(html.unescape(re.sub(r"<[^>]+>", "", text)))
+
+
 def build_messages(mode, now, sections):
-    """sections: [(섹터, [묶음...], 숨겨진 묶음 수)] -> 텔레그램 메시지 목록(각 3,800자 이하, 넘으면 여러 통으로 나눔)"""
-    limit = 3800
+    """sections: [(섹터, [묶음...], 숨겨진 묶음 수)] -> 텔레그램 메시지 목록(보이는 글자 기준 4,000자 이하, 넘으면 여러 통)"""
+    limit = 4000
     head = f"<b>📰 산업 뉴스 · {mode} · {now:%m/%d %H:%M}</b>"
     cont = head + " (이어서)"
     msgs, cur = [], head
+
+    def fresh():
+        return cur in (head, cont)
 
     def flush():
         nonlocal cur
@@ -261,16 +269,15 @@ def build_messages(mode, now, sections):
         head_line = title
         for ln in lines:  # 줄 단위로 채우고, 넘치면 새 메시지에서 섹터 제목을 다시 붙여 이어간다
             if head_line is not None:
-                need = len(head_line) + 1 + len(ln) + (2 if cur not in (head, cont) else 1)
-                if len(cur) + need > limit and cur not in (head, cont):
+                if not fresh() and vlen(cur) + 2 + vlen(head_line) + 1 + vlen(ln) > limit:
                     flush()
-                cur += ("\n\n" if cur not in (head, cont) else "\n") + head_line
+                cur += ("\n" if fresh() else "\n\n") + head_line
                 head_line = None
-            if len(cur) + 1 + len(ln) > limit:
+            if vlen(cur) + 1 + vlen(ln) > limit:
                 flush()
                 cur += "\n" + title + " (이어서)"
             cur += "\n" + ln
-    if cur not in (head, cont):
+    if not fresh():
         msgs.append(cur)
     return msgs
 
