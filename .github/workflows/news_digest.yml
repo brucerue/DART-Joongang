@@ -1,0 +1,67 @@
+name: 산업 뉴스 텔레그램 발송
+
+on:
+  schedule:
+    # GitHub 예약은 UTC 기준: 한국 07:00 / 13:00 / 17:00 = UTC 22:00(전날) / 04:00 / 08:00
+    - cron: "0 22,4,8 * * *"
+  workflow_dispatch: # Actions 탭의 'Run workflow' 버튼으로 원할 때 바로 실행 (아래 항목을 골라 시험 발송 가능)
+    inputs:
+      only:
+        description: "이 사람에게만 보내기 (받는 사람 이름 또는 chat id, 비우면 전체)"
+        required: false
+        default: ""
+      mode:
+        description: "조회 방식"
+        type: choice
+        options: ["전체", "통신", "단독"]
+        default: "전체"
+      sectors:
+        description: "섹터 (쉼표로, 예: 자동차,배터리 / 비우면 각자 설정대로)"
+        required: false
+        default: ""
+      force:
+        description: "이미 보낸 기사도 다시 보내기 (보낸 기록은 남기지 않음)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: news-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      # 이미 보낸 기사 기록을 회차 사이에 이어 쓰기 위한 저장소
+      - uses: actions/cache@v4
+        with:
+          path: digest_seen.json
+          key: digest-seen-${{ github.run_id }}
+          restore-keys: digest-seen-
+      - name: 뉴스 조회 후 텔레그램 발송
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DIGEST_SUBSCRIBERS: ${{ secrets.DIGEST_SUBSCRIBERS }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          IN_ONLY: ${{ inputs.only }}
+          IN_MODE: ${{ inputs.mode }}
+          IN_SECTORS: ${{ inputs.sectors }}
+          IN_FORCE: ${{ inputs.force }}
+        run: |
+          args=()
+          [ -n "$IN_ONLY" ] && args+=(--only "$IN_ONLY")
+          [ -n "$IN_MODE" ] && [ "$IN_MODE" != "전체" ] && args+=(--mode "$IN_MODE")
+          [ -n "$IN_SECTORS" ] && args+=(--sectors "$IN_SECTORS")
+          [ "$IN_FORCE" = "true" ] && args+=(--force)
+          python news_digest.py "${args[@]}"
