@@ -340,7 +340,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.21 09:41"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.21 11:26"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -2647,28 +2647,44 @@ def search_news(terms, days, keyword=None, suffixes=("",)):
 
 
 WIRE_DOMAINS = ("yna.co.kr", "newsis.com", "news1.kr")  # 통신 모드의 언론사: 연합뉴스·뉴시스·뉴스1
+GNEWS_SITE_CHUNK = 8  # 구글 검색어에 한 번에 넣는 site: 개수 (검색어가 너무 길면 구글이 잘라내므로 언론사를 나눠 검색)
+NEWS_GOOGLE_MIN = 5  # 단독 모드: 구글 뉴스에서 찾은 단독 기사가 이보다 적으면 네이버로 보충
 
 
-def wire_google(terms, days):
-    """구글 뉴스로 통신 3사(연합뉴스·뉴시스·뉴스1) 기사를 찾는다. -> (기사 목록, 오류 메시지 또는 None)"""
+def _chunks(seq, n):
+    seq = list(seq)
+    return [tuple(seq[i:i + n]) for i in range(0, len(seq), n)]
+
+
+def google_news(terms, days, domains, keyword=""):
+    """구글 뉴스(한국어)로 지정 언론사 도메인의 기사를 찾는다. -> (기사 목록, 오류 메시지 또는 None)
+
+    언론사가 많으면 GNEWS_SITE_CHUNK개씩 나눠 검색한다. 일부만 실패하면 받은 것만 쓰고, 전부 실패했을 때만 오류.
+    """
     session, store, today = get_session(), get_cache_store(), TODAY.isoformat()
+    groups = _chunks(domains, GNEWS_SITE_CHUNK)
 
-    def one(term):
-        key = ("gwire", term, days, today)
+    def one(job):
+        term, group = job
+        key = ("gnk", term, keyword, days, group, today)
         hit = cache_lookup(store, key, NEWS_TTL_TODAY if days <= 1 else NEWS_TTL)
         if hit is not _MISSING:
-            return hit
-        value = gnews_fetch(session, term, days, WIRE_DOMAINS, in_title=False, ko=True)
+            return hit, None
+        try:
+            value = gnews_fetch(session, term, days, group, in_title=False, ko=True, extra=keyword)
+        except Exception as e:
+            return [], (str(e) if isinstance(e, NewsApiError) else "구글 뉴스에서 기사를 받지 못했어요. 잠시 후 다시 시도해주세요.")
         cache_save(store, key, value)
-        return value
+        return value, None
 
-    try:
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            got = list(pool.map(one, terms))
-    except Exception as e:
-        return [], str(e) if isinstance(e, NewsApiError) else "구글 뉴스에서 기사를 받지 못했어요. 잠시 후 다시 시도해주세요."
+    jobs = [(t, g) for t in terms for g in groups]
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        got = list(pool.map(one, jobs))
+    errs = [e for _, e in got if e]
+    if errs and len(errs) == len(got):
+        return [], errs[0]
     out, seen = [], set()
-    for lst in got:
+    for lst, _ in got:
         for it in lst:
             if it["url"] in seen:
                 continue
@@ -4441,10 +4457,10 @@ def gnews_term(corp):
     return FOREIGN_ENGLISH.get(ticker) or corp
 
 
-def gnews_fetch(session, term, days, domains, in_title=True, ko=False):
+def gnews_fetch(session, term, days, domains, in_title=True, ko=False, extra=""):
     """검색어 하나 -> [{"title","url","publisher","domain","dt"}] 최신순. 선택한 언론사 도메인만 남긴다."""
     sites = " OR ".join(f"site:{d}" for d in domains)
-    query = f'"{term}" ({sites}) when:{days}d'
+    query = f'"{term}" {extra} ({sites}) when:{days}d'.replace("  ", " ")
     locale = {"hl": "ko", "gl": "KR", "ceid": "KR:ko"} if ko else {"hl": "en-US", "gl": "US", "ceid": "US:en"}
     res = session.get(GNEWS_URL, params={"q": query, "hl": locale["hl"], "gl": locale["gl"], "ceid": locale["ceid"]}, timeout=REQUEST_TIMEOUT,
                       headers={"User-Agent": "Mozilla/5.0"})
@@ -4615,14 +4631,31 @@ def render_news_search(kind):
                             search.append(n)  # 검색어가 적을 때만 줄임말도 따로 검색
             with st.spinner("뉴스를 불러오는 중입니다..."):
                 try:
-                    g_err = None
+                    g_err = naver_note = None
+                    capped, since = False, None
                     if kind == "통신":  # 통신: 구글 뉴스(연합뉴스·뉴시스·뉴스1 도메인만)로만 검색 -> 네이버 키·한도와 무관
-                        items, g_err = wire_google(search, NEWS_PERIODS[period])
+                        items, g_err = google_news(search, NEWS_PERIODS[period], WIRE_DOMAINS)
                         if g_err:
                             raise NewsApiError(g_err)
-                        capped, since = False, None
-                    else:
-                        items, capped, since = search_news(search, NEWS_PERIODS[period], keyword=cfg["keyword"])
+                        source = "구글 뉴스"
+                    else:  # 단독: 구글 뉴스를 먼저 쓰고, 실패하거나 단독 기사가 너무 적으면 네이버로 보충
+                        items, g_err = google_news(search, NEWS_PERIODS[period], list(PUBLISHERS), "단독")
+                        source = "구글 뉴스"
+                        n_excl = sum(is_exclusive(i["title"]) for i in items)
+                        few = n_excl < NEWS_GOOGLE_MIN
+                        if (g_err or few) and NAVER_ID and NAVER_SECRET:
+                            try:
+                                n_items, capped, since = search_news(search, NEWS_PERIODS[period], keyword=cfg["keyword"])
+                            except NewsApiError as e:
+                                if g_err or not n_excl:  # 보여줄 단독 기사가 하나도 없으면 네이버 오류를 그대로 알림
+                                    raise
+                                naver_note = str(e)
+                            else:
+                                have = {title_key(i["title"]) for i in items}
+                                items = items + [n for n in n_items if title_key(n["title"]) not in have]
+                                source = "네이버 뉴스(구글 뉴스 실패)" if g_err else "구글 뉴스 + 네이버 뉴스(보충)"
+                        elif g_err:
+                            raise NewsApiError(g_err)
                 except NewsApiError as e:
                     st.error(str(e))
                 else:
@@ -4643,7 +4676,7 @@ def render_news_search(kind):
                     clusters = cluster_news(tagged)  # 비슷한 기사끼리 묶어 최신순으로
                     st.session_state[f"news_res_{kind}"] = {
                         "corp": ", ".join(terms), "kind": kind, "terms": terms, "names": search, "period": period,
-                        "total": total, "kept": len(tagged), "clusters": clusters, "capped": capped, "oldest": since, "g_err": g_err,
+                        "total": total, "kept": len(tagged), "clusters": clusters, "capped": capped, "oldest": since, "source": source, "naver_note": naver_note,
                     }
                     save_watchlist(st.session_state[f"news_res_{kind}"])
 
@@ -4665,7 +4698,10 @@ def render_news_search(kind):
     if fresh:
         notes.append(f"NEW {fresh}건 (어제·오늘)")
     notes.append(f"검색어 {len(res['terms'])}개")
+    notes.append(res.get("source", ""))
     st.caption(" · ".join(notes))
+    if res.get("naver_note"):
+        st.caption(f"구글 뉴스 결과가 적어 네이버로 보충하려 했지만 실패했어요: {res['naver_note']}")
     if res["capped"]:
         since = f"{res['oldest']:%m.%d %H:%M}" if res.get("oldest") else "?"
         st.warning(
@@ -4688,12 +4724,6 @@ def render_news():
         mode = c2.radio("조회 방식", ["통신", "단독", "외신"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     if mode == "외신":
         render_global_news()
-        return
-    if mode == "단독" and not (NAVER_ID and NAVER_SECRET):
-        st.info(
-            "뉴스 기능을 쓰려면 네이버 검색 API 키를 등록해야 합니다. "
-            "Streamlit Secrets에 NAVER_CLIENT_ID, NAVER_CLIENT_SECRET 두 줄을 추가해주세요."
-        )
         return
     if mode == "통신":
         st.caption("연합뉴스·뉴시스·뉴스1에서 검색어가 들어간 기사를 모두 찾아요. (단독 여부와 무관, 구글 뉴스로 검색)")
