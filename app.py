@@ -355,7 +355,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.22 00:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.22 07:01"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -473,8 +473,26 @@ class DartApiError(Exception):
 
 @st.cache_resource
 def get_dart():
-    """기업명 → 고유번호 변환용. (처음 한 번 기업 목록을 내려받느라 몇 초 걸릴 수 있음)"""
-    return OpenDartReader(API_KEY)
+    """기업명 → 고유번호 변환용. (처음 한 번 기업 목록을 내려받느라 몇 초 걸릴 수 있음)
+    DART 서버가 응답하지 않으면 라이브러리는 몇 분씩 기다리므로, 접속 시간을 제한하고 몇 번 다시 시도한다."""
+    original_get = requests.get
+
+    def get_with_timeout(*args, **kwargs):
+        kwargs.setdefault("timeout", (10, 90))  # (연결 10초, 응답 90초)
+        return original_get(*args, **kwargs)
+
+    last_error = None
+    requests.get = get_with_timeout
+    try:
+        for attempt in range(3):
+            try:
+                return OpenDartReader(API_KEY)
+            except Exception as e:  # 연결 시간 초과 등
+                last_error = e
+                time.sleep(2 * (attempt + 1))
+    finally:
+        requests.get = original_get
+    raise RuntimeError("DART 서버에 연결하지 못했어요 (기업 목록을 받지 못함). 잠시 후 다시 시도하거나 앱을 새로고침해 주세요.") from last_error
 
 
 @st.cache_resource
