@@ -213,7 +213,7 @@ SIMILAR_TITLE = 0.8  # 제목이 이 정도(0~1) 이상 비슷하면 같은 기�
 NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7}
 
 # 뉴스에 보여줄 언론사. 기사 주소(도메인) -> (언론사 이름, 구분). 여기 없는 매체의 기사는 보이지 않는다.
-NEWS_CATEGORIES = ["종합일간지", "경제지", "통신사"]
+NEWS_CATEGORIES = ["종합일간지", "경제지", "방송사", "통신사"]
 NEWS_SPLIT = r"[,，、/;\n]+"  # 여러 기업을 나누는 기호: 쉼표, 슬래시 등 (띄어쓰기는 'LG 에너지솔루션'처럼 이름 안에 있을 수 있어 제외)
 NEWS_KEYWORD = "단독"  # 뉴스 탭은 항상 이 표기가 제목에 있는 기사만 보여준다 (화면에는 드러내지 않고 내부에서 적용)
 # 이 기업명을 입력하면 아래 별칭도 함께 검색한다 (제목에 줄임말로 쓰이는 경우를 잡기 위함). 자유롭게 추가·수정하세요.
@@ -341,11 +341,21 @@ PUBLISHERS = {
     "mt.co.kr": ("머니투데이", "경제지"), "fnnews.com": ("파이낸셜뉴스", "경제지"),
     "heraldcorp.com": ("헤럴드경제", "경제지"), "asiae.co.kr": ("아시아경제", "경제지"),
     "etnews.com": ("전자신문", "경제지"), "biz.chosun.com": ("조선비즈", "경제지"),  # biz.chosun.com이 chosun.com보다 우선
+    "thebell.co.kr": ("더벨", "경제지"), "newspim.com": ("뉴스핌", "경제지"),
+    "bloter.net": ("블로터", "경제지"), "etoday.co.kr": ("이투데이", "경제지"),
+    "zdnet.co.kr": ("지디넷코리아", "경제지"),
+    # 방송사 (도메인은 '뒤쪽 일치'라 news.kbs.co.kr 같은 하위 주소도 잡힌다)
+    "kbs.co.kr": ("KBS", "방송사"), "sbs.co.kr": ("SBS", "방송사"),
+    "imbc.com": ("MBC", "방송사"), "mbc.co.kr": ("MBC", "방송사"),
+    "tvchosun.com": ("TV조선", "방송사"), "jtbc.co.kr": ("JTBC", "방송사"),
+    "ichannela.com": ("채널A", "방송사"), "mbn.co.kr": ("MBN", "방송사"),
+    "ytn.co.kr": ("YTN", "방송사"), "yonhapnewstv.co.kr": ("연합뉴스TV", "방송사"),
+    "nocutnews.co.kr": ("노컷뉴스", "방송사"),
     # 통신사
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.21 18:09"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.21 22:51"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -4568,7 +4578,7 @@ def render_global_news():
 
 
 NEWS_ALWAYS_SEARCH = {"엘에스일렉트릭": ["LS일렉트릭"]}
-MAX_NEWS_TERMS = 40  # 검색어 칸에 넣을 수 있는 검색어 수 (섹터를 여러 개 고르면 많아짐)
+MAX_NEWS_TERMS = {"통신": 100, "단독": 40}  # 검색어 칸에 넣을 수 있는 검색어 수 (섹터를 여러 개 고르면 많아짐). 통신은 구글 뉴스라 한도가 넉넉함
 NEWS_ALIAS_LIMIT = 5  # 검색어가 이 수 이하일 때만 줄임말(별칭)도 따로 검색 (그 이상이면 호출이 너무 많아져 제목 확인에만 씀)
 NEWS_KINDS = {  # 조회 방식 -> 검색 때 붙이는 말(None=단독), 보여줄 언론사 구분
     "통신": {"keyword": "", "need_exclusive": False},
@@ -4614,7 +4624,7 @@ def render_news_search(kind):
     with st.form(f"{k}_form"):
         text = st.text_input(
             "검색어 (쉼표로 구분)", key=f"{k}_terms", placeholder="예: 삼성전자, SK하이닉스, HBM",
-            help=f"고른 섹터의 대표 기업·키워드가 채워져요. 직접 빼거나 더해서 최대 {MAX_NEWS_TERMS}개까지 검색할 수 있어요. 많으면 조회가 오래 걸려요.",
+            help=f"고른 섹터의 대표 기업·키워드가 채워져요. 직접 빼거나 더해서 최대 {MAX_NEWS_TERMS[kind]}개까지 검색할 수 있어요. 많으면 조회가 오래 걸려요.",
         )
         period = st.radio("기간", list(NEWS_PERIODS), index=list(NEWS_PERIODS).index("3일"), horizontal=True, key=f"{k}_period")
         in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key=f"{k}_title")
@@ -4624,8 +4634,8 @@ def render_news_search(kind):
         terms = parse_news_terms(text)
         if not terms:
             st.error("섹터를 고르거나 검색어를 입력해주세요.")
-        elif len(terms) > MAX_NEWS_TERMS:
-            st.error(f"검색어는 한 번에 {MAX_NEWS_TERMS}개까지 넣을 수 있어요. (지금 {len(terms)}개)")
+        elif len(terms) > MAX_NEWS_TERMS[kind]:
+            st.error(f"검색어는 한 번에 {MAX_NEWS_TERMS[kind]}개까지 넣을 수 있어요. (지금 {len(terms)}개)")
         else:
             st.session_state.pop(f"news_res_{kind}", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
             owner = {}  # 검색어·줄임말 -> 어느 검색어 것인지 (제목 확인과 꼬리표용)
