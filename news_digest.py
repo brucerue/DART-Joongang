@@ -6,7 +6,7 @@
 
 필요한 환경변수(GitHub 저장소 Settings > Secrets):
   TELEGRAM_BOT_TOKEN                             텔레그램 봇 토큰 (없으면 화면에만 출력하는 시험 모드)
-  DIGEST_SUBSCRIBERS                             받는 사람 목록(JSON). 예:
+  DIGEST_SUBSCRIBERS                             받는 사람 목록(JSON). TELEGRAM_CHAT_ID 칸에 같은 JSON을 넣어도 됨. 예:
       [{"name":"나상현","chat_id":"111","sectors":["자동차","배터리"],"modes":["통신","단독"]},
        {"name":"김OO","chat_id":"222","sectors":["방산","조선·해운"]}]
       sectors·modes를 생략하면 전부 받음. (없으면 subscribers.json 파일, 그것도 없으면 TELEGRAM_CHAT_ID 한 명)
@@ -294,10 +294,16 @@ def load_subscribers():
     path = os.path.join(HERE, "subscribers.json")
     if not raw and os.path.exists(path):
         raw = open(path, encoding="utf-8").read()
+    chat_env = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if not raw and chat_env.startswith("["):  # TELEGRAM_CHAT_ID 칸에 받는 사람 목록(JSON)을 넣어도 된다
+        raw = chat_env
     if raw:
-        data = json.loads(raw)
-    elif os.environ.get("TELEGRAM_CHAT_ID"):
-        data = [{"name": "기본", "chat_id": os.environ["TELEGRAM_CHAT_ID"]}]
+        try:
+            data = json.loads(raw)
+        except ValueError as e:
+            raise SystemExit(f"받는 사람 목록(JSON)을 읽지 못했어요: {e}\n따옴표는 반드시 곧은 따옴표(\"), 맨 앞은 [ , 맨 끝은 ] 이어야 해요.")
+    elif chat_env:  # 숫자 하나, 또는 쉼표로 여러 개: 111,222 (모두 같은 설정으로 전부 받음)
+        data = [{"name": f"기본{i + 1}" if "," in chat_env else "기본", "chat_id": c.strip()} for i, c in enumerate(chat_env.split(",")) if c.strip()]
     else:
         data = []
     subs = []
