@@ -355,7 +355,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.21 23:17"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.22 00:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -4366,39 +4366,61 @@ def render_tsk_decisions(res):
                        mime="text/csv", key="div_tsk_csv")
 
 
-def render_feed():
-    """탭 3: 오늘의 공시 - 하루 동안 전 상장사가 낸 공시 중 취재거리가 될 만한 것만 모아 보기"""
-    with st.form("feed_search"):
+def render_feed(by_sector=False):
+    """탭 3: 오늘의 공시 - 하루 동안 전 상장사가 낸 공시 중 취재거리가 될 만한 것만 모아 보기.
+    by_sector=True면 고른 섹터(실적 캘린더와 같은 섹터, 여러 개 가능)의 기업이 낸 공시만 보여준다."""
+    p = "fsec" if by_sector else "feed"  # 두 화면의 입력칸·결과가 섞이지 않도록 이름을 나눈다
+    if by_sector:
+        st.pills("섹터 (여러 개 선택 가능)", list(CAL_GROUPS), selection_mode="multi", key="fsec_groups")
+    with st.form(f"{p}_search"):
         c1, c2 = st.columns(2)
         day = c1.date_input(
-            "날짜", value=last_weekday(TODAY), min_value=date(2015, 1, 1), max_value=TODAY, key="feed_date"
+            "날짜", value=last_weekday(TODAY), min_value=date(2015, 1, 1), max_value=TODAY, key=f"{p}_date"
         )
-        market = c2.radio("시장", list(FEED_MARKETS), index=list(FEED_MARKETS).index("코스피"), horizontal=True, key="feed_market")
+        market = c2.radio("시장", list(FEED_MARKETS), index=0 if by_sector else list(FEED_MARKETS).index("코스피"),
+                          horizontal=True, key=f"{p}_market")
         submitted = st.form_submit_button("공시 불러오기")
 
     if submitted:
-        st.session_state.pop("feed", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
-        with st.spinner("공시를 불러오는 중입니다... (공시가 많은 날은 몇 초 걸려요)"):
-            try:
-                rows, total, truncated = collect_feed(day, FEED_MARKETS[market])
-            except DartApiError as e:
-                st.error(str(e))
-            else:
-                st.session_state["feed"] = {
-                    "day": day, "market": market, "rows": rows, "total": total, "truncated": truncated,
-                    "id": time.time_ns(),  # 조회할 때마다 달라지는 번호 (아래 라디오 키에 사용)
-                }
+        groups = list(st.session_state.get("fsec_groups") or []) if by_sector else []
+        st.session_state.pop(p, None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
+        if by_sector and not groups:
+            st.error("섹터를 하나 이상 골라주세요.")
+        else:
+            with st.spinner("공시를 불러오는 중입니다... (공시가 많은 날은 몇 초 걸려요)"):
+                try:
+                    rows, total, truncated = collect_feed(day, FEED_MARKETS[market])
+                except DartApiError as e:
+                    st.error(str(e))
+                else:
+                    if by_sector:  # 시장 전체 공시 중 고른 섹터 기업의 것만 남긴다
+                        keys = {name_key(n) for g in groups for n in CAL_GROUPS.get(g, [])}
+                        rows = [r for r in rows if name_key(r.get("corp_name", "")) in keys]
+                    st.session_state[p] = {
+                        "day": day, "market": market, "rows": rows, "total": total, "truncated": truncated,
+                        "groups": groups, "id": time.time_ns(),  # 조회할 때마다 달라지는 번호 (아래 라디오 키에 사용)
+                    }
 
-    res = st.session_state.get("feed")
+    res = st.session_state.get(p)
     if not res:
-        st.caption("날짜와 시장을 고르고 '공시 불러오기'를 누르세요. 영업실적·공급계약·증자·합병·자기주식·지분 변동 공시를 골라 보여줍니다.")
+        if by_sector:
+            st.caption("섹터를 고르고 날짜·시장을 정한 뒤 '공시 불러오기'를 누르세요. 고른 섹터의 기업이 그날 낸 공시를 골라 보여줍니다.")
+        else:
+            st.caption("날짜와 시장을 고르고 '공시 불러오기'를 누르세요. 영업실적·공급계약·증자·합병·자기주식·지분 변동 공시를 골라 보여줍니다.")
         return
     if not res["rows"]:
-        st.warning("이 날짜에 조회된 공시가 없습니다. 휴장일이거나 아직 공시가 올라오기 전일 수 있어요.")
+        if by_sector:
+            st.warning("이 날짜에 고른 섹터 기업의 공시가 없습니다. 시장을 바꾸거나 다른 날짜를 골라 보세요.")
+        else:
+            st.warning("이 날짜에 조회된 공시가 없습니다. 휴장일이거나 아직 공시가 올라오기 전일 수 있어요.")
         return
 
     views = ["주요 전체"] + list(MAJOR_DISCLOSURES) + ["모든 공시"]
-    notes = [f"{res['day']}", res["market"], f"전체 공시 {res['total']:,}건", "최신순", "정정 공시 포함"]
+    if by_sector:
+        notes = [f"{res['day']}", res["market"], ", ".join(res["groups"]), f"전체 공시 {res['total']:,}건 중 섹터 기업 {len(res['rows']):,}건",
+                 "최신순", "정정 공시 포함"]
+    else:
+        notes = [f"{res['day']}", res["market"], f"전체 공시 {res['total']:,}건", "최신순", "정정 공시 포함"]
     st.caption(" · ".join(notes))
     if res["truncated"]:
         st.warning(f"공시가 매우 많아 시장마다 최신 {MAX_FEED_PAGES * LIST_PAGE_SIZE:,}건까지만 확인했어요.")
@@ -4407,11 +4429,11 @@ def render_feed():
         views,
         horizontal=True,
         # 선택지 이름의 건수가 조회마다 바뀌므로, 조회마다 키를 새로 만들어 항상 첫 번째가 선택된 채로 시작하게 한다
-        key=f"feed_view_{res['id']}",
+        key=f"{p}_view_{res['id']}",
         format_func=lambda v: f"{v} ({len(match_preset(res['rows'], v)):,})",
     )
     keyword = st.text_input(
-        "회사·보고서명 검색", key="feed_keyword", placeholder="예: 삼성, 하이닉스, 유상증자 (공백으로 여러 단어를 넣으면 모두 포함된 공시만)"
+        "회사·보고서명 검색", key=f"{p}_keyword", placeholder="예: 삼성, 하이닉스, 유상증자 (공백으로 여러 단어를 넣으면 모두 포함된 공시만)"
     )
     shown = match_preset(res["rows"], view)
     terms = keyword.lower().split()
@@ -4424,7 +4446,7 @@ def render_feed():
     if not shown:
         st.info("조건에 맞는 공시가 없습니다.")
         return
-    saved = render_reaction(shown, "feed")
+    saved = render_reaction(shown, p)
     if saved:
         render_reaction_table(feed_table(shown), shown, saved)
     else:
@@ -4433,7 +4455,7 @@ def render_feed():
             hide_index=True,
             column_config={"보고서명": st.column_config.TextColumn("보고서명", width="large"), "원문": LINK_COLUMN},
         )
-    render_ai_summary(shown, "feed", all_rows=res["rows"])
+    render_ai_summary(shown, p, all_rows=res["rows"])
     render_news_picks(shown, res["id"])
 
 
@@ -7495,13 +7517,15 @@ def render_calendar():
 
 
 def render_disclosure_hub():
-    """탭: 공시 - 오늘의 공시(시장 전체) / 기업별 목록 중 방식을 고른다."""
+    """탭: 공시 - 오늘의 공시(시장 전체) / 기업 / 섹터 중 방식을 고른다."""
     with st.container(key="disc_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
         c1, c2 = st.columns([1, 4], vertical_alignment="center")
         c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["오늘의 공시", "기업별 목록"], horizontal=True, key="disc_mode", label_visibility="collapsed")
+        mode = c2.radio("조회 방식", ["오늘의 공시", "기업", "섹터"], horizontal=True, key="disc_mode", label_visibility="collapsed")
     if mode == "오늘의 공시":
         render_feed()
+    elif mode == "섹터":
+        render_feed(by_sector=True)
     else:
         render_disclosures()
 
