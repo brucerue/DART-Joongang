@@ -237,6 +237,9 @@ def collect(mode, sector, cutoff):
 
 
 # ---------- 메시지 ----------
+RAW_LIMIT = 6000  # 링크 주소까지 포함한 메시지 길이 상한 (구글 뉴스 링크가 길어 텔레그램의 ENTITIES_TOO_LONG을 막기 위함)
+
+
 def vlen(text):
     """텔레그램 글자 수 한도(4,096자)는 화면에 보이는 글자만 센다(링크 주소·HTML 태그는 제외)."""
     return len(html.unescape(re.sub(r"<[^>]+>", "", text)))
@@ -269,11 +272,11 @@ def build_messages(mode, now, sections):
         head_line = title
         for ln in lines:  # 줄 단위로 채우고, 넘치면 새 메시지에서 섹터 제목을 다시 붙여 이어간다
             if head_line is not None:
-                if not fresh() and vlen(cur) + 2 + vlen(head_line) + 1 + vlen(ln) > limit:
+                if not fresh() and (vlen(cur) + 2 + vlen(head_line) + 1 + vlen(ln) > limit or len(cur) + 2 + len(head_line) + 1 + len(ln) > RAW_LIMIT):
                     flush()
                 cur += ("\n" if fresh() else "\n\n") + head_line
                 head_line = None
-            if vlen(cur) + 1 + vlen(ln) > limit:
+            if vlen(cur) + 1 + vlen(ln) > limit or len(cur) + 1 + len(ln) > RAW_LIMIT:
                 flush()
                 cur += "\n" + title + " (이어서)"
             cur += "\n" + ln
@@ -287,6 +290,23 @@ def send_telegram(text, token, chat_id):
                         json={"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True})
     if res.status_code != 200:
         raise RuntimeError(f"텔레그램 발송 실패 [{res.status_code}] {res.text[:200]}")
+
+
+def send_safely(text, token, chat_id):
+    """보내다가 '너무 길다'(ENTITIES_TOO_LONG 등)고 거절되면 줄 단위로 반씩 나눠 다시 보낸다."""
+    try:
+        send_telegram(text, token, chat_id)
+    except RuntimeError as e:
+        if not any(k in str(e) for k in ("ENTITIES_TOO_LONG", "MESSAGE_TOO_LONG")):
+            raise
+        lines = text.split("\n")
+        if len(lines) < 4:
+            raise
+        mid = len(lines) // 2
+        first = "\n".join(lines[:mid])
+        second = lines[0] + " (이어서)\n" + "\n".join(lines[mid:])
+        send_safely(first, token, chat_id)
+        send_safely(second, token, chat_id)
 
 
 def load_seen():
@@ -430,7 +450,7 @@ def main():
                     if dry:
                         print("-" * 40 + f"\n[{sub['name']}]\n" + text)
                     else:
-                        send_telegram(text, token, chat)
+                        send_safely(text, token, chat)
                 if not dry and not args.force:  # 보낸 뒤에만 기록해야 실패한 회차의 기사가 다음에 다시 시도됨
                     for k in new_keys:
                         seen[k] = now.isoformat()
