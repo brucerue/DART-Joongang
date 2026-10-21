@@ -79,11 +79,12 @@ INDUSTRY_GROUPS = {
     "철강": ["POSCO홀딩스", "현대제철", "동국제강"],
     "정유·석화": ["SK이노베이션", "S-Oil", "GS칼텍스", "에이치디현대오일뱅크", "롯데케미칼", "LG화학", "한화솔루션", "금호석유화학"],
     "IT·통신": ["SK텔레콤", "KT", "LG유플러스", "NAVER", "카카오"],
+    "에너지·소재": ["효성", "HS효성", "대한전선", "LS ELECTRIC", "LS", "LS전선", "고려아연", "OCI", "OCI홀딩스"],
 }
 # 실적 캘린더의 섹터: 자동차와 배터리는 한 섹터로 묶는다
-CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("반도체", "조선·해운", "방산", "철강", "정유·석화", "IT·통신")}
+CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("반도체", "조선·해운", "방산", "철강", "정유·석화", "IT·통신", "에너지·소재")}
 CAL_GROUPS["자동차·배터리"] = INDUSTRY_GROUPS["자동차"] + INDUSTRY_GROUPS["배터리"]
-CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("반도체", "자동차·배터리", "조선·해운", "방산", "철강", "정유·석화", "IT·통신")}
+CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("반도체", "자동차·배터리", "조선·해운", "방산", "철강", "정유·석화", "IT·통신", "에너지·소재")}
 INDUSTRY_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
 
 # 주요사항보고서: 보고서명(공백·괄호 무시)에 들어 있는 말 -> (DART 주요정보 API, 칸 목록).
@@ -321,8 +322,12 @@ NEWS_SECTORS = {
         "기업": ["네이버", "카카오", "SKT", "KT", "LG유플"],
         "키워드": ["통신"],
     },
+    "에너지·소재": {
+        "기업": ["효성", "HS효성", "대한전선", "LS일렉트릭", "LS", "LS전선", "고려아연", "OCI", "OCI홀딩스"],
+        "키워드": [],
+    },
 }
-NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("반도체", "자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "IT·통신")}  # 화면에 나오는 순서
+NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("반도체", "자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "IT·통신", "에너지·소재")}  # 화면에 나오는 순서
 PUBLISHERS = {
     # 종합일간지
     "joongang.co.kr": ("중앙일보", "종합일간지"), "chosun.com": ("조선일보", "종합일간지"),
@@ -340,7 +345,7 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.21 11:26"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.21 14:15"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -2857,6 +2862,7 @@ NAME_READINGS = {
     "LIG디펜스앤에어로스페이스": ["LIG넥스원"],
     "S-Oil": ["에쓰오일", "에스오일", "에쓰-오일"],
     "NAVER": ["네이버"],
+    "LS ELECTRIC": ["LS일렉트릭", "엘에스일렉트릭", "LS산전"],
     "POSCO홀딩스": ["포스코홀딩스", "포스코"],
     "KT&G": ["케이티앤지", "KT앤G"],
     "F&F": ["에프앤에프"],
@@ -4561,6 +4567,7 @@ def render_global_news():
         st.markdown("\n".join(lines), unsafe_allow_html=True)
 
 
+NEWS_ALWAYS_SEARCH = {"LS ELECTRIC": ["LS일렉트릭"]}
 MAX_NEWS_TERMS = 40  # 검색어 칸에 넣을 수 있는 검색어 수 (섹터를 여러 개 고르면 많아짐)
 NEWS_ALIAS_LIMIT = 5  # 검색어가 이 수 이하일 때만 줄임말(별칭)도 따로 검색 (그 이상이면 호출이 너무 많아져 제목 확인에만 씀)
 NEWS_KINDS = {  # 조회 방식 -> 검색 때 붙이는 말(None=단독), 보여줄 언론사 구분
@@ -4629,6 +4636,11 @@ def render_news_search(kind):
                         owner[n] = t
                         if n == t or len(terms) <= NEWS_ALIAS_LIMIT:
                             search.append(n)  # 검색어가 적을 때만 줄임말도 따로 검색
+            for t in terms:  # 기사에서 주로 쓰는 이름이 등록명과 다른 기업은 항상 함께 검색 (예: LS ELECTRIC -> LS일렉트릭)
+                for n in NEWS_ALWAYS_SEARCH.get(t, []):
+                    if n not in owner:
+                        owner[n] = t
+                        search.append(n)
             with st.spinner("뉴스를 불러오는 중입니다..."):
                 try:
                     g_err = naver_note = None
