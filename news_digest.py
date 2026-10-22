@@ -12,7 +12,6 @@
       sectors·modes를 생략하면 전부 받음. (없으면 subscribers.json 파일, 그것도 없으면 TELEGRAM_CHAT_ID 한 명)
   DART_API_KEY                                   (공시 모드용) DART 오픈API 인증키
   NAVER_CLIENT_ID, NAVER_CLIENT_SECRET           (선택) 단독 모드에서 구글 결과가 적을 때 보충
-  DIGEST_SEND_EMPTY=1                            (선택) 새 기사가 없어도 '없음' 알림을 보냄
 사용: python news_digest.py [--mode 통신|단독|공시] [--sectors 자동차,배터리] [--dry-run]
       python news_digest.py --who      봇에게 말을 건 사람들의 chat id 확인
 """
@@ -350,6 +349,23 @@ def build_messages(mode, now, sections):
     return msgs
 
 
+def combine_messages(now, parts):
+    """모드가 둘 이상이고 전부 합쳐도 한 메시지에 들어가면 하나로 합친 글을, 아니면 None(모드별로 따로 보냄)."""
+    if len(parts) < 2:
+        return None
+    names = {"통신": "통신", "단독": "단독", "공시": "📋 주요 공시"}
+    bodies = []
+    for mode, sections, _ in parts:
+        msgs = build_messages(mode, now, sections)
+        if len(msgs) != 1:
+            return None
+        bodies.append(f"<b>━ {names.get(mode, mode)} ━</b>\n" + msgs[0].split("\n", 1)[1])
+    text = f"<b>📰 산업 뉴스·공시 · {now:%m/%d %H:%M}</b>\n" + "\n\n".join(bodies)
+    if vlen(text) > 4000 or len(text) > RAW_LIMIT:
+        return None
+    return text
+
+
 def send_telegram(text, token, chat_id):
     res = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", timeout=TIMEOUT,
                         json={"chat_id": chat_id, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True})
@@ -495,9 +511,11 @@ def main():
         raise SystemExit("모든 조회가 실패했어요.")
 
     # 2) 받는 사람마다 자기 섹터·모드에서 아직 안 보낸 기사만 골라 보낸다
+    #    모드별 결과가 모두 한 통에 들어갈 만큼 적으면 한 메시지로 합치고, 많으면 모드별로 따로 보낸다
     send_errors = 0
     for sub in subs:
         chat = sub["chat_id"]
+        parts = []  # [(모드, 섹션들, 새 기록 키들)]
         for mode in sub["modes"]:
             sections, placed, new_keys = [], set(), []
             for sector in sub["sectors"]:
@@ -516,24 +534,26 @@ def main():
                 if clusters:
                     sections.append((sector, clusters[:MAX_PER_SECTOR], max(0, len(clusters) - MAX_PER_SECTOR)))
             print(f"[{sub['name']}/{mode}] 새 묶음 {sum(len(c) + h for _, c, h in sections)}건 ({len(sections)}개 섹터)")
-            try:
-                if not sections:
-                    if os.environ.get("DIGEST_SEND_EMPTY") == "1" and not dry:
-                        send_telegram(f"{'📋 주요 공시' if mode == '공시' else '📰 산업 뉴스 · ' + mode} · {now:%m/%d %H:%M}\n새 {'공시' if mode == '공시' else '기사'}가 없어요.", token, chat)
-                    continue
-                for text in build_messages(mode, now, sections):
-                    if dry:
-                        print("-" * 40 + f"\n[{sub['name']}]\n" + text)
-                    else:
-                        send_safely(text, token, chat)
-                if not dry and not args.force:  # 보낸 뒤에만 기록해야 실패한 회차의 기사가 다음에 다시 시도됨
+            if sections:
+                parts.append((mode, sections, new_keys))
+        if not parts:
+            continue
+        combined = combine_messages(now, parts)
+        try:
+            for text in ([combined] if combined else [t for mode, sections, _ in parts for t in build_messages(mode, now, sections)]):
+                if dry:
+                    print("-" * 40 + f"\n[{sub['name']}]\n" + text)
+                else:
+                    send_safely(text, token, chat)
+            if not dry and not args.force:  # 보낸 뒤에만 기록해야 실패한 회차의 기사가 다음에 다시 시도됨
+                for _, _, new_keys in parts:
                     for k in new_keys:
                         seen[k] = now.isoformat()
-                    with open(SEEN_FILE, "w", encoding="utf-8") as f:
-                        json.dump(seen, f, ensure_ascii=False)
-            except Exception as e:  # 한 명이 실패해도(봇 차단 등) 다른 사람에게는 계속 보낸다
-                send_errors += 1
-                print(f"[{sub['name']}/{mode}] 발송 실패: {e}", file=sys.stderr)
+                with open(SEEN_FILE, "w", encoding="utf-8") as f:
+                    json.dump(seen, f, ensure_ascii=False)
+        except Exception as e:  # 한 명이 실패해도(봇 차단 등) 다른 사람에게는 계속 보낸다
+            send_errors += 1
+            print(f"[{sub['name']}] 발송 실패: {e}", file=sys.stderr)
     if send_errors:
         raise SystemExit(f"{send_errors}건의 발송이 실패했어요. 위 로그를 확인하세요.")
 
