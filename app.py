@@ -364,11 +364,11 @@ ALARM_SECTORS = ("자동차", "배터리", "조선·해운", "방산", "철강",
 ALARM_MODES = ("통신", "단독", "공시")
 # 팀 프리셋: 팀 버튼을 누르면 이 섹터들이 한꺼번에 선택된다(텔레그램 받는 사람 설정의 "teams"도 같은 목록을 쓴다). 팀을 늘리려면 여기에 한 줄 추가
 TEAM_PRESETS = {
-    "자동차팀": ["자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재"],
+    "차팀": ["자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재"],
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.22 18:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.22 18:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3017,7 +3017,7 @@ def search_news(terms, days, keyword=None, suffixes=("",)):
     return items, capped, since
 
 
-WIRE_DOMAINS = ("yna.co.kr", "newsis.com", "news1.kr")  # 통신 모드의 언론사: 연합뉴스·뉴시스·뉴스1
+WIRE_DOMAINS = ("yna.co.kr", "newsis.com", "news1.kr")  # 통신 모드의 언론사: 연합뉴스(첫째)·뉴시스·뉴스1. 기본은 연합만, 체크를 풀면 전부
 GNEWS_SITE_CHUNK = 8  # 구글 검색어에 한 번에 넣는 site: 개수 (검색어가 너무 길면 구글이 잘라내므로 언론사를 나눠 검색)
 NEWS_GOOGLE_MIN = 5  # 단독 모드: 구글 뉴스에서 찾은 단독 기사가 이보다 적으면 네이버로 보충
 
@@ -4760,7 +4760,7 @@ def render_feed(by_sector=False):
     p = "fsec" if by_sector else "feed"  # 두 화면의 입력칸·결과가 섞이지 않도록 이름을 나눈다
     if by_sector:
         team_buttons("fsec", CAL_GROUPS, "fsec_groups")
-        st.pills("섹터 (여러 개 선택 가능)", list(CAL_GROUPS), selection_mode="multi", key="fsec_groups")
+        st.pills("섹터", list(CAL_GROUPS), selection_mode="multi", key="fsec_groups", label_visibility="collapsed")
     with st.form(f"{p}_search"):
         c1, c2 = st.columns(2)
         day = c1.date_input(
@@ -5010,6 +5010,12 @@ def fill_news_terms(kind):
     st.session_state[f"nw_{kind}_terms"] = ", ".join(terms)
 
 
+def news_groups_changed(kind):
+    """섹터를 고르면 검색어를 채우고, 선택을 기억해 둔다 (통신↔단독으로 옮겨도 같은 섹터가 선택되도록)."""
+    st.session_state["nw_sel"] = list(st.session_state.get(f"nw_{kind}_groups") or [])
+    fill_news_terms(kind)
+
+
 def parse_news_terms(text):
     """검색어 칸 글 -> 검색어 목록 (대소문자 통일, 종목코드는 기업명으로, 중복 제외)."""
     out = []
@@ -5041,12 +5047,14 @@ def apply_team(team, options, target, after=None):
         after()
 
 
-def team_buttons(prefix, options, target, after=None):
-    """섹터 선택칸 위의 팀 버튼 한 줄. 누르면 그 팀의 섹터가 한꺼번에 선택되고, 이후에는 하나씩 더하거나 뺄 수 있다."""
-    cols = st.columns([1] * len(TEAM_PRESETS) + [6 - len(TEAM_PRESETS) if len(TEAM_PRESETS) < 6 else 1])
-    for col, team in zip(cols, TEAM_PRESETS):
-        col.button(team, key=f"{prefix}_team_{team}", on_click=apply_team, args=(team, list(options), target, after),
-                   help="이 팀의 섹터를 한꺼번에 선택해요: " + ", ".join(TEAM_PRESETS[team]), use_container_width=True)
+def team_buttons(prefix, options, target, after=None, label="섹터 (여러 개 선택 가능)"):
+    """섹터 선택칸의 제목 줄: 왼쪽에 제목, 오른쪽에 팀 칩. 누르면 그 팀의 섹터가 한꺼번에 선택되고, 이후에는 하나씩 더하거나 뺄 수 있다."""
+    with st.container(key=f"{prefix}_secbar"):  # 모바일에서도 한 줄 (CSS: secbar)
+        cols = st.columns([1] + [1] * len(TEAM_PRESETS), vertical_alignment="center")
+        cols[0].markdown(f'<span class="sec-lbl">{label}</span>', unsafe_allow_html=True)
+        for col, team in zip(cols[1:], TEAM_PRESETS):
+            col.button(team, key=f"{prefix}_team_{team}", on_click=apply_team, args=(team, list(options), target, after),
+                       help="이 팀의 섹터를 한꺼번에 선택해요: " + ", ".join(TEAM_PRESETS[team]))
 
 
 def render_news_search(kind):
@@ -5054,16 +5062,27 @@ def render_news_search(kind):
     cfg = NEWS_KINDS[kind]
     k = f"nw_{kind}"
     st.session_state.setdefault(f"{k}_terms", "")  # 처음엔 섹터도 검색어도 비워 둔다
-    team_buttons(k, NEWS_SECTORS, f"{k}_groups", after=lambda: fill_news_terms(kind))
-    st.pills("섹터 (여러 개 선택 가능)", list(NEWS_SECTORS), selection_mode="multi", key=f"{k}_groups",
-             on_change=fill_news_terms, args=(kind,))
+    if f"{k}_groups" not in st.session_state:  # 다른 모드(통신↔단독)에서 옮겨 왔으면 거기서 고른 섹터를 이어받는다
+        carried = [g for g in st.session_state.get("nw_sel") or [] if g in NEWS_SECTORS]
+        st.session_state[f"{k}_groups"] = carried
+        if carried:
+            fill_news_terms(kind)
+    team_buttons(k, NEWS_SECTORS, f"{k}_groups", after=lambda: news_groups_changed(kind))
+    st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key=f"{k}_groups", label_visibility="collapsed",
+             on_change=news_groups_changed, args=(kind,))
     with st.form(f"{k}_form"):
         text = st.text_input(
             "검색어 (쉼표로 구분)", key=f"{k}_terms", placeholder="예: 삼성전자, SK하이닉스, HBM",
             help=f"고른 섹터의 대표 기업·키워드가 채워져요. 직접 빼거나 더해서 최대 {MAX_NEWS_TERMS[kind]}개까지 검색할 수 있어요. 많으면 조회가 오래 걸려요.",
         )
         period = st.radio("기간", list(NEWS_PERIODS), index=list(NEWS_PERIODS).index("3일"), horizontal=True, key=f"{k}_period")
-        in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key=f"{k}_title")
+        if kind == "통신":
+            cc1, cc2 = st.columns(2)
+            in_title = cc1.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.")
+            yna_only = cc2.checkbox("연합만 검색", value=True, key=f"{k}_yna", help="끄면 뉴시스·뉴스1 기사도 함께 검색해요.")
+        else:
+            in_title = st.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.")
+            yna_only = False
         submitted = st.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False)
 
     if submitted:
@@ -5092,7 +5111,7 @@ def render_news_search(kind):
                     g_err = naver_note = None
                     capped, since = False, None
                     if kind == "통신":  # 통신: 구글 뉴스(연합뉴스·뉴시스·뉴스1 도메인만)로만 검색 -> 네이버 키·한도와 무관
-                        items, g_err = google_news(search, NEWS_PERIODS[period], WIRE_DOMAINS)
+                        items, g_err = google_news(search, NEWS_PERIODS[period], WIRE_DOMAINS[:1] if yna_only else WIRE_DOMAINS)
                         if g_err:
                             raise NewsApiError(g_err)
                         source = "구글 뉴스"
@@ -5120,6 +5139,8 @@ def render_news_search(kind):
                     total = len(items)
                     want = "통신사" if kind == "통신" else None  # 통신: 연합뉴스·뉴시스·뉴스1만 / 단독: 목록에 있는 언론사 모두
                     items = [i for i in items if (i["category"] == want if want else i["category"])]
+                    if yna_only:  # 연합만: 연합뉴스 아닌 기사(뉴시스·뉴스1 등)는 뺀다
+                        items = [i for i in items if i["publisher"] == "연합뉴스"]
                     keys = {t: name_key(t) for t in owner}
                     tagged = []
                     for i in items:
@@ -5144,7 +5165,7 @@ def render_news_search(kind):
     clusters = res["clusters"]
     if not clusters:
         st.warning(
-            "조건에 맞는 기사가 없습니다. '제목에 검색어' 조건을 끄거나 기간을 늘려보세요."
+            "조건에 맞는 기사가 없습니다. '제목만 검색'을 끄거나 기간을 늘려보세요."
             if res["total"]
             else "조회된 기사가 없습니다. 검색어를 확인하거나 기간을 늘려보세요."
         )
@@ -6849,6 +6870,12 @@ html, body, [class*="st-"], button, input, textarea {
 [data-testid="stAppViewContainer"] { background: #f6f8fb; }
 [data-testid="stHeader"] { background: transparent; }
 footer { visibility: hidden; }
+[class*="secbar"] [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; align-items: center; }
+[class*="secbar"] [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; flex: 0 0 auto !important; }
+[class*="secbar"] [data-testid="stColumn"]:first-child { flex: 1 1 auto !important; }
+[class*="secbar"] button { min-height: 0 !important; padding: 0.1rem 0.7rem !important; border-radius: 999px !important; font-size: 0.8rem !important; font-weight: 600 !important; color: #1c7ed6 !important; border-color: #1c7ed6 !important; background: #fff !important; }
+[class*="secbar"] button p { font-size: 0.8rem !important; }
+.sec-lbl { font-size: 0.9rem; color: #31333f; white-space: nowrap; }
 .mode-lbl { font-size: 0.9rem; font-weight: 600; color: #334155; white-space: nowrap; }
 .st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"], .st-key-news_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
 .st-key-fin_mode_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"], .st-key-news_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
@@ -7887,7 +7914,7 @@ def render_calendar():
     """탭: 실적 캘린더 - 업종별 국내 기업의 잠정실적·IR 일정과 정기보고서 제출기한."""
     st.session_state.setdefault("cal_corps", "")  # 처음엔 섹터도 기업도 비워 둔다
     team_buttons("cal", CAL_GROUPS, "cal_groups", after=fill_calendar)
-    st.pills("섹터 (여러 개 선택 가능)", list(CAL_GROUPS), selection_mode="multi", key="cal_groups", on_change=fill_calendar)
+    st.pills("섹터", list(CAL_GROUPS), selection_mode="multi", key="cal_groups", on_change=fill_calendar, label_visibility="collapsed")
     with st.form("cal_search"):
         corp_text = st.text_input("기업 (쉼표로 구분)", key="cal_corps", placeholder="예: 삼성전자, SK하이닉스",
                                   help=f"고른 섹터의 대표 기업이 채워져요. 기업을 직접 빼거나 더해서 최대 {MAX_CAL_CORPS}곳까지 볼 수 있어요. 많으면 조회가 오래 걸려요.")
@@ -8048,8 +8075,8 @@ def alarm_link(sectors, modes):
 def render_alarm_signup():
     with st.popover("🔔 알람 받기"):
         st.caption("원하는 섹터를 고르고 신청하면 텔레그램이 열려요. 아래 '시작(Start)'을 누르면 신청이 접수되고, 확인 후 알람이 시작돼요.")
-        team_buttons("alarm", ALARM_SECTORS, "alarm_sectors")
-        secs = st.multiselect("받을 섹터", list(ALARM_SECTORS), key="alarm_sectors")
+        team_buttons("alarm", ALARM_SECTORS, "alarm_sectors", label="받을 섹터")
+        secs = st.multiselect("받을 섹터", list(ALARM_SECTORS), key="alarm_sectors", label_visibility="collapsed")
         modes = st.multiselect("받을 종류", list(ALARM_MODES), default=list(ALARM_MODES), key="alarm_modes")
         if secs and modes:
             st.link_button("신청하기 (텔레그램 열기)", alarm_link(secs, modes), type="primary")
