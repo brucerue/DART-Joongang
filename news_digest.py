@@ -726,7 +726,7 @@ def main():
         if not sync_to_script(base_subs):
             raise SystemExit("동기화에 실패했어요(위 메시지 참고).")
         return
-    if not args.dry_run and not args.only:
+    if not args.dry_run and not args.only and not args.mode:  # 15분마다 도는 '단독만' 실행에서는 동기화하지 않음
         sync_to_script(base_subs)  # 발송 때마다 구글 쪽도 최신으로 맞춘다 (실패해도 계속)
     remote = fetch_remote_prefs()  # PREFS_URL이 있으면: 텔레그램이 Apps Script로 바로 보내므로 여기서는 메시지를 읽지 않는다
     if token and not remote:  # 알람 신청·받는 사람 명령(/섹터 등)을 먼저 처리해서, 이번 발송부터 바뀐 설정을 쓴다
