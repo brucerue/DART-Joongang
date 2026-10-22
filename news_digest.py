@@ -45,7 +45,7 @@ LOOKBACK_HOURS = 36  # 이 시간 안에 올라온 기사만 (이미 보낸 기�
 MAX_PER_SECTOR = 100  # 섹터마다 메시지에 싣는 최대 묶음 수 (넘으면 '외 N건'). 길면 텔레그램 메시지가 여러 통으로 나뉨
 USE_NAVER = os.environ.get("USE_NAVER", "").strip().lower() in ("1", "true", "yes", "on")  # 기본은 꺼짐(구글 뉴스만). 네이버 보충을 쓰려면 환경변수 USE_NAVER=1 (워크플로 env에 추가)
 NAVER_MIN = 5  # 단독 모드: 구글에서 찾은 단독 기사가 이보다 적으면 네이버로 보충
-WIRE_DOMAINS = ("yna.co.kr", "newsis.com", "news1.kr")
+WIRE_DOMAINS = ("yna.co.kr",)  # 통신 모드: 연합뉴스만 (늘리려면 "newsis.com", "news1.kr" 추가)
 SITE_CHUNK = 8
 TIMEOUT = 20
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
@@ -277,7 +277,7 @@ def collect(mode, sector, cutoff):
         items, err = google_search(search, list(WIRE_DOMAINS), "", cutoff)
         if err:
             raise RuntimeError(f"구글 뉴스 오류: {err}")
-        items = [i for i in items if i["category"] == "통신사"]
+        items = [i for i in items if i["category"] == "통신사" and i["publisher"] == "연합뉴스"]
     else:
         items, err = google_search(search, list(A["PUBLISHERS"]), "단독", cutoff)
         few = sum(is_exclusive(i["title"]) for i in items) < NAVER_MIN
