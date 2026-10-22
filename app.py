@@ -358,7 +358,7 @@ PUBLISHERS = {
 # 언론사 도메인 아래에 있어도 기사가 아닌 곳(커뮤니티·게시판 등)은 뺀다. 필요하면 여기에 추가하세요.
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.22 10:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.22 10:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -2888,8 +2888,17 @@ def cluster_news(items):
 
     대표 기사는 묶음 안에서 가장 최근 기사.
     """
+    def is_share(it):  # 동아일보 '퍼가기' 사본 등: 한 번 더 눌러야 본문이 나오는 공유용 페이지
+        return "shareiframe" in (it.get("url") or "") or bool(re.search(r"[|ㅣ｜]\s*퍼가기\s*$", it.get("title") or ""))
+
+    clean = []
+    for it in items:
+        if is_share(it):  # 제목 끝 'ㅣ퍼가기' 표시는 떼어 내고, 바로 열리는 기사를 대표로 앞세우기 위해 표시해 둔다
+            it = {**it, "title": re.sub(r"\s*[|ㅣ｜]\s*퍼가기\s*$", "", it["title"]), "_share": True}
+        clean.append(it)
     clusters = []
-    for item in sorted(items, key=lambda x: x["dt"], reverse=True):
+    # 바로 열리는 기사 먼저(최신순), 그다음 공유용 사본(최신순) -> 같은 묶음이면 바로 열리는 기사가 대표가 된다
+    for item in sorted(clean, key=lambda x: (bool(x.get("_share")), -x["dt"].timestamp())):
         key = title_key(item["title"])
         for c in clusters:
             m = c["matcher"]
@@ -2903,7 +2912,8 @@ def cluster_news(items):
             clusters.append({"matcher": matcher, "items": [item]})
     out = []
     for c in clusters:
-        out.append({"rep": c["items"][0], "others": c["items"][1:]})
+        out.append({"rep": c["items"][0], "others": sorted(c["items"][1:], key=lambda x: x["dt"], reverse=True)})
+    out.sort(key=lambda c: c["rep"]["dt"], reverse=True)  # 묶음 순서는 대표 기사 기준 최신순
     return out
 
 
