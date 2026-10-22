@@ -389,6 +389,25 @@ def send_safely(text, token, chat_id):
         send_safely(second, token, chat_id)
 
 
+def fetch_remote_prefs():
+    """PREFS_URL(구글 Apps Script가 즉시 응답하는 방식)이 있으면 거기서 받는 사람 설정을 읽어 PREFS_FILE에 저장한다.
+    못 읽으면 마지막으로 저장해 둔 것을 그대로 쓴다. -> 사용 여부(True/False)"""
+    url = os.environ.get("PREFS_URL", "").strip()
+    if not url:
+        return False
+    try:
+        res = requests.get(url, timeout=TIMEOUT)
+        res.raise_for_status()
+        data = res.json()
+        if not isinstance(data, dict):
+            raise ValueError("설정이 목록 모양이 아님")
+        save_prefs(data)
+        print(f"받는 사람 설정을 Apps Script에서 읽음 ({len(data)}명)")
+    except Exception as e:
+        print(f"(받는 사람 설정을 읽지 못해 마지막 설정을 씀: {type(e).__name__})", file=sys.stderr)
+    return True
+
+
 def load_prefs():
     """{chat_id: {"sectors": [...], "modes": [...], "paused": bool}} - 받는 사람이 봇 명령으로 바꾼 설정."""
     try:
@@ -554,10 +573,11 @@ def handle_updates(token, admin_chat, base_subs, dry):
     return changed
 
 
-def send_guides(token, subs, dry):
-    """받는 사람 각자에게 명령어 안내를 딱 한 번 보낸다(보냈다는 표시는 설정 저장소에 남음). 새로 추가된 사람도 처음 한 번 받는다."""
+def send_guides(token, subs, dry, force=False):
+    """받는 사람에게 명령어 안내를 보낸다. 이미 받은 사람은 건너뛴다(받았다는 표시는 설정 저장소에 남음).
+    force(--only와 함께 시험할 때)면 받은 적 있어도 보내고 표시는 남기지 않는다."""
     prefs = load_prefs()
-    todo = [s for s in subs if not (prefs.get(s["chat_id"]) or {}).get("guided")]
+    todo = [s for s in subs if force or not (prefs.get(s["chat_id"]) or {}).get("guided")]
     if not todo:
         return
     text = html.escape("📌 알람 설정을 직접 바꿀 수 있어요.\n\n" + HELP_TEXT, quote=False)
@@ -571,8 +591,9 @@ def send_guides(token, subs, dry):
         except Exception as e:
             print(f"(명령어 안내 실패 {sub['name']}: {e})", file=sys.stderr)
             continue
-        prefs.setdefault(sub["chat_id"], {})["guided"] = True
-        done = True
+        if not force:
+            prefs.setdefault(sub["chat_id"], {})["guided"] = True
+            done = True
     if done:
         save_prefs(prefs)
 
@@ -663,6 +684,7 @@ def main():
     ap.add_argument("--only", help="이 이름(또는 chat id)의 받는 사람에게만 보냄 (시험용)")
     ap.add_argument("--force", action="store_true", help="이미 보낸 기사도 다시 보내고, 보낸 기록은 남기지 않음 (시험용)")
     ap.add_argument("--who", action="store_true", help="봇에게 말을 건 사람의 chat id 목록을 보여주고 끝냄")
+    ap.add_argument("--guide", action="store_true", help="--only와 같이 써서 명령어 안내를 그 사람에게만 시험으로 보냄 (안내는 평소에도 못 받은 사람에게 한 번 자동으로 감)")
     ap.add_argument("--commands-only", action="store_true", help="뉴스는 보내지 않고, 알람 신청·받는 사람 명령만 처리하고 끝냄 (30분마다 도는 확인용)")
     args = ap.parse_args()
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -671,9 +693,15 @@ def main():
             raise SystemExit("TELEGRAM_BOT_TOKEN이 필요해요.")
         return show_chats(token)
     base_subs = load_subscribers()
-    if token:  # 알람 신청·받는 사람 명령(/섹터 등)을 먼저 처리해서, 이번 발송부터 바뀐 설정을 쓴다
+    remote = fetch_remote_prefs()  # PREFS_URL이 있으면: 텔레그램이 Apps Script로 바로 보내므로 여기서는 메시지를 읽지 않는다
+    if token and not remote:  # 알람 신청·받는 사람 명령(/섹터 등)을 먼저 처리해서, 이번 발송부터 바뀐 설정을 쓴다
         handle_updates(token, os.environ.get("ADMIN_CHAT_ID", "").strip(), base_subs, args.dry_run)
-        if not args.only:
+        if args.only and args.guide:  # 시험: 그 사람에게만 안내를 (받은 적 있어도) 보낸다
+            pick = [x for x in base_subs if args.only in (x["name"], x["chat_id"])]
+            if not pick:
+                raise SystemExit(f"받는 사람 목록에 '{args.only}'이(가) 없어요.")
+            send_guides(token, pick, args.dry_run, force=True)
+        elif not args.only:  # 평소: 아직 안내를 못 받은 사람에게 한 번 (새로 추가된 사람 포함)
             send_guides(token, base_subs, args.dry_run)
     if args.commands_only:
         print("명령 확인 끝")
