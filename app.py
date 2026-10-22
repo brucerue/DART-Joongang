@@ -358,7 +358,7 @@ PUBLISHERS = {
 # 언론사 도메인 아래에 있어도 기사가 아닌 곳(커뮤니티·게시판 등)은 뺀다. 필요하면 여기에 추가하세요.
 PUBLISHER_BLOCK = ("mlbpark.donga.com",)
 
-LAST_UPDATED = "2026.10.22 10:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.22 10:35"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -928,24 +928,33 @@ def parse_amount_cell(cell):
 def parse_provisional(text, rcept_dt):
     """영업(잠정)실적 공시 원문 글자 -> {"rev": 원, "op": 원, "year", "quarter"} 또는 None.
     표의 '매출액'·'영업이익' 줄에서 맨 앞 숫자(당해 분기 실적)를 읽는다. 단위·분기를 확인하지 못하면 None."""
-    unit = re.search(r"단위\s*[:：]\s*([가-힣]+)", text)
-    mult = PROV_UNITS.get(unit.group(1)) if unit else None
+    mult = None
+    for m in re.finditer(r"단위\s*[:：]?[\s|(]*([가-힣]+)", text):  # '단위 : 백만원', '(단위: 억원)', '단위 | 백만원' 모두
+        if m.group(1) in PROV_UNITS:
+            mult = PROV_UNITS[m.group(1)]
+            break
     if not mult:
         return None
     rev = op = None
-    for line in text.split("\n"):
-        cells = [c.strip() for c in line.split("|") if c.strip()]
-        if len(cells) < 2:
+    # 칸 단위로 펼쳐서 읽는다: 줄 나뉨·병합 칸이 달라도 '라벨 칸 뒤 첫 숫자'를 당해 분기 실적으로 본다
+    flat = [c.strip() for c in re.split(r"[|\n]", text) if c.strip()]
+    for i, cell in enumerate(flat):
+        label = re.sub(r"[\s\d.\)]", "", cell) if len(cell) < 14 else ""
+        if not label or "대비" in label or "비율" in label:
             continue
-        label = re.sub(r"\s", "", cells[0])
-        vals = [parse_amount_cell(c) for c in cells[1:]]
-        vals = [v for v in vals if v is not None]
-        if not vals:
+        kind = "rev" if label.startswith(PROV_REV_LABELS) else "op" if label.startswith(PROV_OP_LABELS) else None
+        if kind is None or (kind == "rev" and rev is not None) or (kind == "op" and op is not None):
             continue
-        if rev is None and label.startswith(PROV_REV_LABELS) and "대비" not in label and "비율" not in label:
-            rev = vals[0] * mult
-        elif op is None and label.startswith(PROV_OP_LABELS) and "대비" not in label and "비율" not in label:
-            op = vals[0] * mult
+        for nxt in flat[i + 1:i + 7]:
+            if nxt.replace(" ", "") in ("누계실적", "누적실적"):
+                break  # 당해 줄이 없고 누계만 있으면 쓰지 않는다
+            v = parse_amount_cell(nxt)
+            if v is not None:
+                if kind == "rev":
+                    rev = v * mult
+                else:
+                    op = v * mult
+                break
         if rev is not None and op is not None:
             break
     if rev is None and op is None:
@@ -995,12 +1004,16 @@ def collect_provisional(corp_code, data, start, end):
             continue
         cands += 1
         try:
-            got = parse_provisional(fetch_document_text(session, store, r["rcept_no"]), r.get("rcept_dt", ""))
+            doc = fetch_document_text(session, store, r["rcept_no"])
+            got = parse_provisional(doc, r.get("rcept_dt", ""))
         except (AiError, KeyError, ValueError) as e:
             errors.append(str(e))
             continue
         if got is None:
-            errors.append("원문 표에서 매출액·영업이익 또는 단위를 찾지 못함")
+            at = doc.find("매출액")
+            errors.append("원문 표에서 매출액·영업이익 또는 단위를 찾지 못함 "
+                          f"[원문 {len(doc)}자, 단위 {'있음' if '단위' in doc else '없음'}, "
+                          f"매출액 주변: {doc[max(at - 20, 0):at + 80].replace(chr(10), ' / ') if at >= 0 else '없음'}]")
             continue
         key = (got["year"], got["quarter"])
         if key in missing and key not in out:  # 최신 공시가 먼저 오므로 처음 읽은 것이 가장 최근
