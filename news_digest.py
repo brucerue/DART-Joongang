@@ -389,6 +389,29 @@ def send_safely(text, token, chat_id):
         send_safely(second, token, chat_id)
 
 
+def send_failure_alert(kind, token):
+    """발송 실행이 실패했을 때 관리자(나)에게 텔레그램으로 알린다. 구글 스크립트(PREFS_URL)가 있으면 거기로 보내(같은 종류 1시간 1회 제한),
+    없으면 봇 토큰으로 직접 보낸다. 알림이 안 가도 오류로 끝내지 않는다."""
+    run_url = "/".join(filter(None, [os.environ.get("GITHUB_SERVER_URL"), os.environ.get("GITHUB_REPOSITORY"), "actions/runs", os.environ.get("GITHUB_RUN_ID")]))
+    what = {"digest": "뉴스 발송", "sync": "동기화"}.get(kind, kind)
+    mode = os.environ.get("IN_MODE", "").strip()
+    text = f"{what} 실행이 실패했어요{' (' + mode + ')' if mode and mode != '전체' else ''}.\n아래 링크에서 원인을 볼 수 있어요.\n{run_url}"
+    url = os.environ.get("PREFS_URL", "").strip()
+    try:
+        if url:
+            requests.post(url, json={"alert": True, "kind": kind, "text": text}, timeout=TIMEOUT)
+            print("실패 알림을 보냈어요(구글 스크립트 경유)")
+            return
+        admin = os.environ.get("ADMIN_CHAT_ID", "").strip()
+        if token and admin:
+            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={"chat_id": admin, "text": "⚠ " + text, "disable_web_page_preview": True}, timeout=TIMEOUT)
+            print("실패 알림을 보냈어요")
+        else:
+            print("실패 알림을 보낼 곳이 없어요(PREFS_URL 또는 봇 토큰+ADMIN_CHAT_ID 필요)")
+    except Exception as e:
+        print(f"(실패 알림 전송 오류: {type(e).__name__})", file=sys.stderr)
+
+
 def sync_to_script(subs):
     """PREFS_URL(구글 Apps Script)이 있으면, GitHub의 받는 사람 목록(Secret)과 app.py의 섹터·팀 목록을 거기로 보내
     구글 쪽을 따로 고치지 않아도 되게 한다. 실패해도 발송은 계속한다. -> 성공 여부"""
@@ -454,10 +477,77 @@ HELP_TEXT = (
     "/설정 - 지금 설정 보기\n"
     "/섹터 자동차 배터리 - 받을 섹터 바꾸기 (팀 이름 '차팀', '전체'도 돼요)\n"
     "/종류 통신 공시 - 받을 종류 바꾸기 (통신·단독·공시)\n"
+    "/시간 8-18 - 받을 시간대 (기본 7~19시)\n"
+    "/요일 월-금, 일 - 받을 요일 (기본 월~금)\n"
     "/끄기 - 알람 잠시 멈추기\n"
     "/켜기 - 다시 받기\n"
-    "명령은 30분 안에 반영돼요."
+    "/도움 - 이 안내 다시 보기\n"
+    "통신·공시는 매시 정각, 단독은 15분마다 확인해요.\n"
+    "새 기사나 공시가 없으면 메시지를 보내지 않아요."
 )
+
+
+HOURS_MIN, HOURS_MAX = 7, 19  # 발송 가능한 전체 시간대(한국시간). 사람마다 이 안에서만 좁힐 수 있다
+
+
+DAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]  # 번호는 파이썬 weekday()와 같음: 월=0 ... 일=6
+DAYS_OPEN = [0, 1, 2, 3, 4, 5, 6]  # 받을 수 있는 요일: 월~일 모두 (기본은 월~금)
+DAYS_DEFAULT = [0, 1, 2, 3, 4]
+
+
+def days_text(days):
+    """[0,1,2,3,4] -> '월~금', [0,2,4] -> '월·수·금', [0,1,2,3,4,6] -> '월~금·일'"""
+    days = sorted(days)
+    runs, cur = [], [days[0]]
+    for d in days[1:]:
+        (cur.append(d) if d == cur[-1] + 1 else (runs.append(cur), cur := [d]))
+    runs.append(cur)
+    return "·".join(DAY_NAMES[r[0]] if len(r) == 1 else (DAY_NAMES[r[0]] + ("·" if len(r) == 2 else "~") + DAY_NAMES[r[-1]]) for r in runs)
+
+
+def parse_days(words):
+    """'월수금', '월-목', '월-금 일', '평일', '매일' -> [요일 번호]. '기본' -> None. 못 알아들으면 ValueError(안내 글)."""
+    text = "".join(words).replace(" ", "").replace("요일", "")
+    if text in ("기본", "reset", "default"):
+        return None
+    text = text.replace("평일", "월-금").replace("매일", "월-일")
+    order = [0, 1, 2, 3, 4, 5, 6]
+    out = set()
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c not in DAY_NAMES:
+            if c in "-~,":
+                i += 1
+                continue
+            raise ValueError("알아듣지 못했어요. 예: /요일 월수금  /요일 월-금, 일  (되돌리기: /요일 기본)")
+        if i + 2 < len(text) + 0 and text[i + 1] in "-~" and text[i + 2] in DAY_NAMES:
+            a, b = DAY_NAMES.index(c), DAY_NAMES.index(text[i + 2])
+            ia, ib = order.index(a), order.index(b)
+            if ia > ib:
+                raise ValueError("범위는 월→일 순서로 써 주세요. 예: 월-목")
+            out.update(order[ia:ib + 1])
+            i += 3
+            continue
+        out.add(DAY_NAMES.index(c))
+        i += 1
+    if not out:
+        raise ValueError("요일을 알려 주세요. 예: /요일 월수금  (되돌리기: /요일 기본)")
+    return sorted(out)
+
+
+def parse_hours(words):
+    """'8-18', '8~18', '8시부터 18시' -> (8, 18). '기본'/'전체' -> None(되돌리기). 못 알아들으면 ValueError(안내 글)."""
+    text = " ".join(words)
+    if text.strip() in ("기본", "전체", "reset", "default"):
+        return None
+    nums = [int(x) for x in re.findall(r"\d{1,2}", text)]
+    if len(nums) != 2:
+        raise ValueError("시간을 두 개 알려 주세요. 예: /시간 8-18  (되돌리기: /시간 기본)")
+    a, b = nums
+    if not (HOURS_MIN <= a <= b <= HOURS_MAX):
+        raise ValueError(f"{HOURS_MIN}~{HOURS_MAX}시 안에서만 고를 수 있고, 시작은 끝보다 늦을 수 없어요. 예: /시간 8-18")
+    return (a, b)
 
 
 def parse_choice(words, options, aliases=None):
@@ -485,7 +575,11 @@ def parse_choice(words, options, aliases=None):
 def describe_prefs(sub, prefs):
     mine = prefs.get(sub["chat_id"]) or {}
     state = "멈춤 (/켜기 로 다시 받아요)" if mine.get("paused") else "받는 중"
-    return (f"지금 설정이에요.\n상태: {state}\n섹터: {', '.join(sub['sectors'])}\n종류: {', '.join(sub['modes'])}")
+    h = mine.get("hours")
+    hours = f"{h[0]}~{h[1]}시" if h else f"{HOURS_MIN}~{HOURS_MAX}시 (기본)"
+    dd = mine.get("days")
+    dtxt = days_text(dd) if dd else days_text(DAYS_DEFAULT) + " (기본)"
+    return (f"지금 설정이에요.\n상태: {state}\n섹터: {', '.join(sub['sectors'])}\n종류: {', '.join(sub['modes'])}\n받는 시간: {hours}\n받는 요일: {dtxt}")
 
 
 def run_command(text, sub, prefs):
@@ -516,6 +610,26 @@ def run_command(text, sub, prefs):
         mine["sectors"] = chosen
         sub["sectors"] = chosen
         return "받을 섹터를 바꿨어요: " + ", ".join(chosen)
+    if cmd in ("요일", "days", "day"):
+        try:
+            d = parse_days(rest)
+        except ValueError as e:
+            return str(e)
+        if d is None:
+            mine.pop("days", None)
+            return f"받는 요일을 기본({days_text(DAYS_DEFAULT)})으로 되돌렸어요."
+        mine["days"] = d
+        return f"받는 요일을 {days_text(d)}로 바꿨어요. 쉬는 날 나온 기사는 다음 받는 날 첫 시간에 한꺼번에 와요."
+    if cmd in ("시간", "hours", "hour", "time"):
+        try:
+            h = parse_hours(rest)
+        except ValueError as e:
+            return str(e)
+        if h is None:
+            mine.pop("hours", None)
+            return f"받는 시간을 기본({HOURS_MIN}~{HOURS_MAX}시, 평일)으로 되돌렸어요."
+        mine["hours"] = list(h)
+        return f"받는 시간을 {h[0]}~{h[1]}시로 바꿨어요. 이 시간 밖에 나온 기사는 시작 시각에 한꺼번에 와요."
     if cmd in ("종류", "modes", "mode"):
         chosen, bad = parse_choice(rest, list(MODES), {"전체": list(MODES)})
         if bad or not chosen:
@@ -636,6 +750,12 @@ def apply_prefs(subs, prefs, keep_paused=False):
             new["sectors"] = [x for x in mine["sectors"] if x in A["NEWS_SECTORS"]] or sub["sectors"]
         if mine.get("modes"):
             new["modes"] = [x for x in mine["modes"] if x in MODES] or sub["modes"]
+        h = mine.get("hours")
+        if isinstance(h, list) and len(h) == 2 and all(isinstance(x, int) for x in h) and HOURS_MIN <= h[0] <= h[1] <= HOURS_MAX:
+            new["hours"] = (h[0], h[1])
+        dd = mine.get("days")
+        if isinstance(dd, list) and dd and all(isinstance(x, int) and x in DAYS_OPEN for x in dd):
+            new["days"] = sorted(set(dd))
         out.append(new)
     return out
 
@@ -711,10 +831,14 @@ def main():
     ap.add_argument("--force", action="store_true", help="이미 보낸 기사도 다시 보내고, 보낸 기록은 남기지 않음 (시험용)")
     ap.add_argument("--who", action="store_true", help="봇에게 말을 건 사람의 chat id 목록을 보여주고 끝냄")
     ap.add_argument("--guide", action="store_true", help="--only와 같이 써서 명령어 안내를 그 사람에게만 시험으로 보냄 (안내는 평소에도 못 받은 사람에게 한 번 자동으로 감)")
+    ap.add_argument("--alert", metavar="종류", help="발송이 실패했을 때 관리자에게 알림을 보내고 끝냄 (GitHub Actions의 '실패 시' 단계에서 사용)")
+    ap.add_argument("--auto", action="store_true", help="정시 자동 실행: 받는 사람마다 정한 받는 시간(/시간) 밖이면 건너뜀 (수동 실행·시험에는 쓰지 않음)")
     ap.add_argument("--sync", action="store_true", help="받는 사람 목록·섹터·팀을 구글 스크립트(PREFS_URL)로 동기화하고 끝냄")
     ap.add_argument("--commands-only", action="store_true", help="뉴스는 보내지 않고, 알람 신청·받는 사람 명령만 처리하고 끝냄 (30분마다 도는 확인용)")
     args = ap.parse_args()
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if args.alert:
+        return send_failure_alert(args.alert, token)
     if args.who:
         if not token:
             raise SystemExit("TELEGRAM_BOT_TOKEN이 필요해요.")
@@ -764,6 +888,12 @@ def main():
         if args.mode:
             sub["modes"] = [m for m in sub["modes"] if m == args.mode]
     now = datetime.now(KST)
+    if args.auto:  # 사람마다 받는 시간대(기본 7~19시)가 있고, 그 밖의 회차는 건너뛴다. 못 받은 기사는 기록하지 않으니 시작 시각에 모아서 간다
+        subs = [x for x in subs if x.get("hours", (HOURS_MIN, HOURS_MAX))[0] <= now.hour <= x.get("hours", (HOURS_MIN, HOURS_MAX))[1]
+                and now.weekday() in x.get("days", DAYS_DEFAULT)]
+        if not subs:
+            print(f"{now.hour}시({DAY_NAMES[now.weekday()]}): 이 시간에 받을 사람이 없어 건너뜀")
+            return
     cutoff = now - timedelta(hours=LOOKBACK_HOURS)
     seen = {} if args.force else load_seen()
     seen = {k: v for k, v in seen.items() if v >= (now - timedelta(days=7)).isoformat()}  # 7일 지난 기록은 정리
