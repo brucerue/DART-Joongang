@@ -368,7 +368,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 01:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 02:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3799,15 +3799,17 @@ def fill_industry():
 
 
 def render_fin_hub():
-    """탭: 재무 조회 - 기업 한 곳의 기간별 추이 / 여러 기업 합산을 고른다."""
+    """탭: 재무 조회 - 기업 한 곳의 기간별 추이 / 국내 섹터 합산 / 해외 섹터(미국 SEC 등)를 고른다."""
     with st.container(key="fin_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
         c1, c2 = st.columns([1, 4], vertical_alignment="center")
         c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["기업", "섹터"], horizontal=True, key="fin_mode", label_visibility="collapsed")
+        mode = c2.radio("조회 방식", ["기업", "국내 섹터", "해외 섹터"], horizontal=True, key="fin_mode", label_visibility="collapsed")
     if mode == "기업":
         render_financials()
-    else:
+    elif mode == "국내 섹터":
         render_industry()
+    else:
+        render_overseas()
 
 
 def render_industry():
@@ -5058,7 +5060,7 @@ def team_buttons(prefix, options, target, after=None, label="섹터 (여러 개 
 
 
 # ------------------------------------------------------------
-# 미리 모아 둔 기사·공시 (GitHub 'data' 브랜치: collect_data.py가 매시간 쌓음) -> 빠르게 보기 · 이슈 타임라인
+# 미리 모아 둔 기사·공시 (GitHub 'data' 브랜치: collect_data.py가 매시간 쌓음) -> 이슈 타임라인
 # ------------------------------------------------------------
 DATA_REPO = (load_secret("DATA_REPO") or "brucerue/DART-Joongang").strip()  # 'data' 브랜치가 있는 저장소(계정/저장소). 다르면 Streamlit Secrets에 DATA_REPO로 지정
 DATA_BRANCH = "data"
@@ -5090,37 +5092,6 @@ def stored_item(row):
                 "dt": dt, "kind": row.get("k", ""), "g": row.get("g") or []}
     except (KeyError, ValueError, TypeError):
         return None
-
-
-def stored_news_result(kind, terms, period):
-    """저장된 최근 7일 기사에서 검색어에 맞는 것만 골라 '뉴스 조회'와 같은 모양의 결과로. 자료를 못 읽으면 None."""
-    data = get_stored("recent.json")
-    if data is None:
-        return None
-    now = datetime.now(KST)
-    since = now - timedelta(days=NEWS_PERIODS[period])
-    owner = {}
-    for t in terms:
-        for n in news_names(t):
-            owner.setdefault(n, t)
-    keys = {n: name_key(n) for n in owner}
-    tagged, total = [], 0
-    for row in data["items"]:
-        if row.get("k") != kind:
-            continue
-        it = stored_item(row)
-        if not it or it["dt"] < since:
-            continue
-        total += 1
-        tk = name_key(it["title"])
-        hits = [n for n, k in keys.items() if k in tk]
-        if not hits:
-            continue
-        tags = list(dict.fromkeys(owner[h] for h in hits)) if len(terms) > 1 else []
-        tagged.append(dict(it, tags=tags))
-    return {"corp": ", ".join(terms), "kind": kind, "terms": terms, "names": list(owner), "period": period, "total": total, "kept": len(tagged),
-            "clusters": cluster_news(tagged), "capped": False, "oldest": None, "naver_note": None,
-            "source": f"저장된 기사 ({data.get('updated', '?').replace('T', ' ')} 기준)"}
 
 
 def render_timeline():
@@ -5214,22 +5185,7 @@ def render_news_search(kind):
         else:
             in_title = st.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.")
             yna_only = False
-        with st.container(key="news_btn_bar"):  # 모바일에서도 두 버튼을 한 줄에
-            b1, b2 = st.columns(2)
-            submitted = b1.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False)
-            quick = b2.form_submit_button("⚡ 빠르게 보기", help="미리 모아 둔 최근 7일 기사에서 바로 보여줘요(몇 초). 섹터 대표 기업·키워드 기사만 있어요. 다른 검색어는 '뉴스 조회'를 쓰세요.")
-
-    if quick:
-        terms = parse_news_terms(text)
-        if not terms:
-            st.error("섹터를 고르거나 검색어를 입력해주세요.")
-        else:
-            res_q = stored_news_result(kind, terms, period)
-            if res_q is None:
-                st.error("저장된 기사를 불러오지 못했어요. '뉴스 조회'를 눌러 직접 검색해 주세요.")
-            else:
-                st.session_state[f"news_res_{kind}"] = res_q
-                save_watchlist(res_q)
+        submitted = st.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False)
 
     if submitted:
         terms = parse_news_terms(text)
@@ -7026,8 +6982,8 @@ footer { visibility: hidden; }
 .st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"], .st-key-news_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
 .st-key-fin_mode_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"], .st-key-news_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
 .st-key-fin_mode_bar [data-testid="stColumn"]:first-child, .st-key-disc_mode_bar [data-testid="stColumn"]:first-child, .st-key-news_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
-.st-key-news_opts_bar [data-testid="stHorizontalBlock"], .st-key-news_btn_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
-.st-key-news_opts_bar [data-testid="stColumn"], .st-key-news_btn_bar [data-testid="stColumn"] { min-width: 0 !important; }
+.st-key-news_opts_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
+.st-key-news_opts_bar [data-testid="stColumn"] { min-width: 0 !important; }
 .st-key-ovs_fx_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.75rem !important; }  /* 모바일에서도 한 줄 */
 .st-key-ovs_fx_bar [data-testid="stColumn"] { min-width: 0 !important; }
 
@@ -8155,24 +8111,27 @@ def run_js(code):
         pass
 
 
-TAB_NAMES = ["기업 브리핑", "재무 조회", "해외 기업", "산업 뉴스", "이슈 타임라인", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
+TAB_NAMES = ["기업 브리핑", "재무 조회", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
+SHOW_TIMELINE = st.query_params.get("lab", "") == "1"  # 이슈 타임라인은 자료가 쌓이는 중이라 숨겨 둠: 주소 끝에 ?lab=1을 붙이면 보임
+if SHOW_TIMELINE:
+    TAB_NAMES.insert(TAB_NAMES.index("산업 뉴스") + 1, "이슈 타임라인")
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 산업 뉴스 탭을 먼저 연다
 first_tab = "산업 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
-tab_brief, tab_fin, tab_overseas, tab_news, tab_timeline, tab_disc, tab_cal, tab_periodic, tab_chaebol = tabs
+by_name = dict(zip(TAB_NAMES, tabs))
+tab_brief, tab_fin, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in TAB_NAMES if n != "이슈 타임라인")
 with tab_brief:
     render_brief()
 with tab_fin:
     render_fin_hub()
-with tab_overseas:
-    render_overseas()
 with tab_news:
     render_news()
-with tab_timeline:
-    render_timeline()
+if SHOW_TIMELINE:
+    with by_name["이슈 타임라인"]:
+        render_timeline()
 with tab_disc:
     render_disclosure_hub()
 with tab_periodic:
