@@ -11,6 +11,7 @@
        {"name":"김OO","chat_id":"222","sectors":["방산","조선·해운"]}]
       sectors·modes를 생략하면 전부 받음. (없으면 subscribers.json 파일, 그것도 없으면 TELEGRAM_CHAT_ID 한 명)
   DART_API_KEY                                   (공시 모드용) DART 오픈API 인증키
+  ADMIN_CHAT_ID                                  (선택) 앱의 '알람 받기' 신청을 알려 받을 내 chat id
   NAVER_CLIENT_ID, NAVER_CLIENT_SECRET           (선택) 단독 모드에서 구글 결과가 적을 때 보충
 사용: python news_digest.py [--mode 통신|단독|공시] [--sectors 자동차,배터리] [--dry-run]
       python news_digest.py --who      봇에게 말을 건 사람들의 chat id 확인
@@ -61,7 +62,7 @@ def load_app_data():
     tree = ast.parse(src)
     consts, funcs = {}, {}
     want_consts = {"LETTER_NAMES", "WORD_READINGS", "PUBLISHERS", "SIMILAR_TITLE", "NEWS_ALIASES", "NAME_READINGS",
-                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK"}
+                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES"}
     want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "disclosure_key"}
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
@@ -400,6 +401,52 @@ def send_safely(text, token, chat_id):
         send_safely(second, token, chat_id)
 
 
+def handle_signups(token, admin_chat, dry):
+    """봇에게 온 알람 신청(/start s…m…)을 읽어 관리자(나)에게 알려 주고, 신청자에게는 접수 안내를 보낸다.
+    신청 내용은 앱의 '알람 받기'가 t.me 링크의 start 값에 담아 둔 것. 받는 사람 목록(Secrets)에 넣는 일은 직접 한다."""
+    if not admin_chat:
+        print("(신청 알림: ADMIN_CHAT_ID가 없어 건너뜀)")
+        return
+    try:
+        res = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=TIMEOUT,
+                           params={"timeout": 0, "allowed_updates": json.dumps(["message"])})
+        updates = res.json().get("result", []) if res.status_code == 200 else []
+    except Exception as e:  # 신청 확인이 안 돼도 뉴스 발송은 계속한다
+        print(f"(신청 확인 실패: {type(e).__name__})", file=sys.stderr)
+        return
+    sectors, modes = A.get("ALARM_SECTORS") or [], A.get("ALARM_MODES") or []
+    last_id = None
+    for u in updates:
+        last_id = u["update_id"]
+        msg = u.get("message") or {}
+        m = re.match(r"^/start(?:@\w+)?\s+s([01]+)m([01]+)\s*$", (msg.get("text") or "").strip())
+        if not m or len(m.group(1)) != len(sectors) or len(m.group(2)) != len(modes):
+            continue
+        chat = msg.get("chat") or {}
+        cid = str(chat.get("id", ""))
+        name = " ".join(x for x in (chat.get("first_name"), chat.get("last_name")) if x) or chat.get("title") or cid
+        sec = [x for x, b in zip(sectors, m.group(1)) if b == "1"]
+        mod = [x for x, b in zip(modes, m.group(2)) if b == "1"]
+        entry = json.dumps({"name": name, "chat_id": cid, "sectors": sec, "modes": mod}, ensure_ascii=False, separators=(",", ":"))
+        user_tag = f" (@{chat['username']})" if chat.get("username") else ""
+        text = (f"🔔 알람 신청\n이름: {html.escape(name)}{html.escape(user_tag)}\nchat id: {cid}\n"
+                f"섹터: {html.escape(', '.join(sec) or '-')}\n종류: {html.escape(', '.join(mod) or '-')}\n\n"
+                f"받는 사람 목록에 넣을 항목:\n<code>{html.escape(entry, quote=False)}</code>")
+        if dry:
+            print("-" * 40 + "\n[신청 알림 → 관리자]\n" + text)
+            continue
+        try:
+            send_telegram(text, token, admin_chat)
+            send_telegram("신청이 접수됐어요. 확인되면 알람이 시작돼요.", token, cid)
+        except Exception as e:
+            print(f"(신청 알림 발송 실패: {e})", file=sys.stderr)
+    if last_id is not None and not dry:  # 처리한 알림은 확인 처리해서 다음에 다시 읽지 않게 한다
+        try:
+            requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=TIMEOUT, params={"offset": last_id + 1, "timeout": 0})
+        except Exception:
+            pass
+
+
 def load_seen():
     try:
         with open(SEEN_FILE, encoding="utf-8") as f:
@@ -492,6 +539,8 @@ def main():
             sub["sectors"] = [s for s in sub["sectors"] if s in args.sectors.split(",")]
         if args.mode:
             sub["modes"] = [m for m in sub["modes"] if m == args.mode]
+    if token:
+        handle_signups(token, os.environ.get("ADMIN_CHAT_ID", "").strip(), dry)
     now = datetime.now(KST)
     cutoff = now - timedelta(hours=LOOKBACK_HOURS)
     seen = {} if args.force else load_seen()

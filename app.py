@@ -357,9 +357,13 @@ PUBLISHERS = {
 }
 
 # 언론사 도메인 아래에 있어도 기사가 아닌 곳(커뮤니티·게시판 등)은 뺀다. 필요하면 여기에 추가하세요.
+# 텔레그램 알람 신청: 앱 맨 아래 '알람 받기'. 고른 섹터·종류를 t.me 링크의 start 값에 0/1로 담는다(순서를 바꾸면 news_digest.py의 해석도 달라지므로 끝에만 추가할 것)
+ALARM_BOT = "joongangbiz_bot"
+ALARM_SECTORS = ("반도체", "자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "IT·통신", "에너지·소재")
+ALARM_MODES = ("통신", "단독", "공시")
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.22 13:45"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.22 16:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7821,4 +7825,23 @@ _COL_LOCK_JS = """
 """
 run_js(_COL_LOCK_JS)
 
+def alarm_link(sectors, modes):
+    """고른 섹터·종류 -> 봇을 열면서 신청 내용을 넘기는 t.me 링크 (start 값: s + 섹터 0/1 아홉 칸 + m + 종류 0/1 세 칸)"""
+    sb = "".join("1" if x in sectors else "0" for x in ALARM_SECTORS)
+    mb = "".join("1" if x in modes else "0" for x in ALARM_MODES)
+    return f"https://t.me/{ALARM_BOT}?start=s{sb}m{mb}"
+
+
+def render_alarm_signup():
+    with st.popover("🔔 알람 받기"):
+        st.caption("원하는 섹터를 고르고 신청하면 텔레그램이 열려요. 아래 '시작(Start)'을 누르면 신청이 접수되고, 확인 후 알람이 시작돼요.")
+        secs = st.multiselect("받을 섹터", list(ALARM_SECTORS), key="alarm_sectors")
+        modes = st.multiselect("받을 종류", list(ALARM_MODES), default=list(ALARM_MODES), key="alarm_modes")
+        if secs and modes:
+            st.link_button("신청하기 (텔레그램 열기)", alarm_link(secs, modes), type="primary")
+        else:
+            st.button("신청하기 (텔레그램 열기)", disabled=True, help="섹터와 종류를 하나 이상 골라주세요.")
+
+
+render_alarm_signup()
 st.caption(f"updated {LAST_UPDATED}")  # 맨 아래
