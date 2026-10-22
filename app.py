@@ -71,7 +71,6 @@ MAX_PAY_CORPS = 5
 
 # 업종 합산: 업종을 고르면 아래 기업들이 입력칸에 채워진다 (DART에 등록된 이름 그대로). 자유롭게 추가·수정하세요.
 INDUSTRY_GROUPS = {
-    "반도체": ["삼성전자", "SK하이닉스", "한미반도체"],
     "자동차": ["현대자동차", "기아", "현대모비스"],
     "배터리": ["LG에너지솔루션", "삼성SDI", "에스케이온", "포스코퓨처엠", "엘앤에프", "에코프로비엠"],
     "조선·해운": ["HD한국조선해양", "HD현대중공업", "한화오션", "삼성중공업", "HMM", "팬오션"],
@@ -79,12 +78,13 @@ INDUSTRY_GROUPS = {
     "철강": ["POSCO홀딩스", "현대제철", "동국제강"],
     "정유·석화": ["SK이노베이션", "S-Oil", "GS칼텍스", "에이치디현대오일뱅크", "롯데케미칼", "LG화학", "한화솔루션", "금호석유화학"],
     "에너지·소재": ["효성", "HS효성", "대한전선", "엘에스일렉트릭", "LS", "LS전선", "고려아연", "OCI", "OCI홀딩스", "HD현대일렉트릭"],
+    "반도체": ["삼성전자", "SK하이닉스", "한미반도체"],
     "IT·통신": ["SK텔레콤", "KT", "LG유플러스", "NAVER", "카카오"],
 }
 # 실적 캘린더의 섹터: 자동차와 배터리는 한 섹터로 묶는다
-CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("반도체", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재", "IT·통신")}
+CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("조선·해운", "방산", "철강", "정유·석화", "에너지·소재", "반도체", "IT·통신")}
 CAL_GROUPS["자동차·배터리"] = INDUSTRY_GROUPS["자동차"] + INDUSTRY_GROUPS["배터리"]
-CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("반도체", "자동차·배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재", "IT·통신")}
+CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("자동차·배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재", "반도체", "IT·통신")}
 INDUSTRY_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
 
 # 주요사항보고서: 보고서명(공백·괄호 무시)에 들어 있는 말 -> (DART 주요정보 API, 칸 목록).
@@ -184,6 +184,7 @@ MAJOR_DISCLOSURES = {
     "거래 중단·해지": ["거래중단", "계약해지", "계약해제", "계약종료", "영업정지", "생산중단"],
     "증자·감자": ["유상증자", "무상증자", "감자"],
     "합병·분할": ["합병", "분할", "주식교환", "주식이전"],
+    "기업설명회": ["기업설명회"],
     "자기주식": ["자기주식"],
     "지분 변동": ["대량보유", "소유상황", "최대주주", "소유주식변동"],
     "정기보고서": ["사업보고서", "반기보고서", "분기보고서"],
@@ -328,7 +329,7 @@ NEWS_SECTORS = {
         "키워드": ["원전", "전력망", "핵심광물", "태양광", "재생에너지"],
     },
 }
-NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("반도체", "자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재", "IT·통신")}  # 화면에 나오는 순서
+NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재", "반도체", "IT·통신")}  # 화면에 나오는 순서
 PUBLISHERS = {
     # 종합일간지
     "joongang.co.kr": ("중앙일보", "종합일간지"), "chosun.com": ("조선일보", "종합일간지"),
@@ -359,11 +360,15 @@ PUBLISHERS = {
 # 언론사 도메인 아래에 있어도 기사가 아닌 곳(커뮤니티·게시판 등)은 뺀다. 필요하면 여기에 추가하세요.
 # 텔레그램 알람 신청: 앱 맨 아래 '알람 받기'. 고른 섹터·종류를 t.me 링크의 start 값에 0/1로 담는다(순서를 바꾸면 news_digest.py의 해석도 달라지므로 끝에만 추가할 것)
 ALARM_BOT = "joongangbiz_bot"
-ALARM_SECTORS = ("반도체", "자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "IT·통신", "에너지·소재")
+ALARM_SECTORS = ("자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재", "반도체", "IT·통신")
 ALARM_MODES = ("통신", "단독", "공시")
+# 팀 프리셋: 팀 버튼을 누르면 이 섹터들이 한꺼번에 선택된다(텔레그램 받는 사람 설정의 "teams"도 같은 목록을 쓴다). 팀을 늘리려면 여기에 한 줄 추가
+TEAM_PRESETS = {
+    "자동차팀": ["자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재"],
+}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.22 16:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.22 17:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -401,7 +406,7 @@ def load_secret(name):
 
 NAVER_ID = load_secret("NAVER_CLIENT_ID")
 NAVER_SECRET = load_secret("NAVER_CLIENT_SECRET")
-USE_NAVER = (load_secret("USE_NAVER") or "").strip().lower() in ("1", "true", "yes", "on")  # 기본은 꺼짐: 모든 뉴스 검색이 구글 뉴스만 쓴다. 네이버를 다시 쓰려면 Streamlit Secrets에 USE_NAVER = "1" 추가
+USE_NAVER = (load_secret("USE_NAVER") or "1").strip().lower() in ("1", "true", "yes", "on")  # 기본은 켜짐(네이버 키가 있을 때): 단독 검색은 구글 뉴스에 네이버 뉴스를 항상 합친다. 끄려면 Streamlit Secrets에 USE_NAVER = "0"
 
 # AI 기능 (선택). ANTHROPIC_API_KEY가 있으면 Claude(유료), 없고 GEMINI_API_KEY가 있으면 Gemini(무료 한도)를 쓴다.
 # 둘 다 넣어 두었다면 Secrets의 AI_PROVIDER = "gemini" 또는 "claude"로 고를 수 있다.
@@ -595,12 +600,14 @@ def call_dart(session, url, params):
     raise DartApiError(f"DART 응답 오류 [{status}] {jo.get('message', '')}".strip())
 
 
-def fetch(session, store, corp_code, year, reprt_code):
+def fetch(session, store, corp_code, year, reprt_code, fs_div=None):
     """보고서 한 건 조회. 없으면 None, DART 오류·응답 없음이면 DartApiError.
+    fs_div: 연결(CFS)·별도(OFS). 비우면 앱 기본(FS_DIV).
 
     ※ 작업 스레드에서 실행되므로 st.* 함수를 쓰지 않고, 세션·저장소는 인자로 받는다.
     """
-    key = (corp_code, year, reprt_code)
+    fs_div = fs_div or FS_DIV
+    key = (corp_code, year, reprt_code) if fs_div == FS_DIV else (corp_code, year, reprt_code, fs_div)
     cached = cache_lookup(store, key, CACHE_TTL)
     if cached is not _MISSING:
         return cached
@@ -610,7 +617,7 @@ def fetch(session, store, corp_code, year, reprt_code):
         "corp_code": corp_code,
         "bsns_year": year,
         "reprt_code": reprt_code,
-        "fs_div": FS_DIV,
+        "fs_div": fs_div,
     }
     jo = call_dart(session, DART_API_URL, params)
     df = slim(pd.DataFrame(jo["list"])) if jo else None
@@ -875,6 +882,163 @@ def make_record(label, sort_key, cur, yoy=None, qoq=None):
 # ------------------------------------------------------------
 # 연도별 / 분기별 수집
 # ------------------------------------------------------------
+ALT_REV_LABELS = ("매출액", "영업수익", "수익(매출액)")
+ALT_OP_LABELS = ("영업이익", "영업손익", "영업손실")
+ALT_NET_LABELS = ("당기순이익", "당기순손익", "당기순손실", "분기순이익", "분기순손익", "반기순이익", "반기순손익", "연결당기순이익")
+ALT_HEAD = re.compile(r"^(?:[가-하]\.)?(?:연결)?(?:포괄)?손익계산서\.{0,}$")
+ALT_STOP = re.compile(r"현금흐름표|자본변동표|이익잉여금처분계산서|결손금처리계산서|재무상태표")
+
+
+def parse_income_table(text):
+    """보고서 원문 글자 -> {"rev": [...], "op": [...], "net": [...]} (원 단위, 표의 열 순서대로. '-'는 None) 또는 None.
+    DART 재무 API에 자료가 없는 기업(일반기업회계기준 등)용. '손익계산서' 제목 아래 표에서 매출액·영업이익·당기순이익 줄을 찾는다.
+    요약재무정보 표는 제목이 달라 건너뛰고, 번호(Ⅰ. 1.)는 떼고 이름을 비교한다. 단위는 줄 앞쪽의 가장 가까운 '(단위 : ...)'."""
+    lines = text.split("\n")
+    unit_at, unit = [], 1
+    for ln in lines:
+        m = re.search(r"단위\s*[:：]?[\s|(]*([가-힣]+)", ln)
+        if m and m.group(1) in PROV_UNITS:
+            unit = PROV_UNITS[m.group(1)]
+        unit_at.append(unit)
+    for i, ln in enumerate(lines):
+        head = re.sub(r"\s", "", ln.split("|")[0])
+        if not ALT_HEAD.match(head):
+            continue
+        found = {}
+        for j in range(i + 1, min(i + 120, len(lines))):
+            cells = [c.strip() for c in lines[j].split("|") if c.strip()]
+            if not cells:
+                continue
+            compact = re.sub(r"\s", "", cells[0])
+            if j > i + 3 and found and ALT_STOP.search(compact) and len(cells) <= 2:
+                break
+            if len(cells) < 3:
+                continue
+            label = re.sub(r"^[\dIVXⅠ-Ⅻ.()\-]+", "", compact)
+            vals = []
+            for c in cells[1:]:
+                v = parse_amount_cell(c)
+                if v is not None:
+                    vals.append(v * unit_at[j])
+                elif c in ("-", "－", "—"):
+                    vals.append(None)
+            if sum(v is not None for v in vals) < 1:
+                continue
+            for key, names in (("rev", ALT_REV_LABELS), ("op", ALT_OP_LABELS), ("net", ALT_NET_LABELS)):
+                if key not in found and label.startswith(names) and "대비" not in label and "률" not in label:
+                    found[key] = vals
+        if found.get("rev") or found.get("op"):
+            return found
+    return None
+
+
+def alt_col(got, key, i):
+    v = got.get(key) or []
+    return v[i] if len(v) > i else None
+
+
+def alt_report_doc(corp_code, year, reprt, session, store):
+    """정기보고서 원문의 손익계산서 표(parse_income_table) + 원문 링크. 없으면 (None, None)."""
+    try:
+        rno = find_periodic_rcept(corp_code, year, reprt)
+        if not rno:
+            return None, None
+        return parse_income_table(fetch_document_text(session, store, rno)), DART_VIEW_URL.format(rno)
+    except (DartApiError, AiError):
+        return None, None
+
+
+def is_empty(cur):
+    return all(cur is None or cur.get(k) is None for k in ("rev", "op", "net"))
+
+
+def collect_alt_yearly(corp_code, years, data):
+    """연결 재무제표 API에 자료가 없는 연도를 채운다. 1) 별도(OFS) API 2) 사업보고서 원문 표.
+    -> {연도: 'ofs'|'doc'} (어떤 방법으로 채웠는지). data를 그 자리에서 고친다."""
+    session, store = get_session(), get_cache_store()
+    how = {}
+    missing = [y for y in years if is_empty(data[y])]
+    for y in missing:  # 1) 연결재무제표가 없는 기업은 별도 재무제표로 조회
+        try:
+            df = fetch(session, store, corp_code, y, ANNUAL, fs_div="OFS")
+        except DartApiError:
+            continue
+        cur = {"rev": pick(df, REVENUE_NAMES, ids=REVENUE_IDS), "op": pick(df, OPERATING_NAMES, ids=OPERATING_IDS),
+               "net": pick(df, NET_NAMES, ids=NET_IDS), "link": link_of(df), "bs": bs_values(df, with_capex=True)}
+        if not is_empty(cur):
+            data[y] = cur
+            how[y] = "ofs"
+    left = sorted((y for y in missing if y not in how), reverse=True)
+    docs = 0
+    for y in left:  # 2) 원문: 한 보고서에 당기·전기·전전기가 함께 있으니 최신 연도부터 읽어 같이 채운다
+        if not is_empty(data[y]) or docs >= 4:
+            continue
+        docs += 1
+        got, link = alt_report_doc(corp_code, y, ANNUAL, session, store)
+        if not got:
+            continue
+        for i in range(3):
+            yy = y - i
+            if yy not in data or not is_empty(data[yy]):
+                continue
+            vals = {k: alt_col(got, k, i) for k in ("rev", "op", "net")}
+            if all(v is None for v in vals.values()):
+                continue
+            data[yy] = {**vals, "link": link, "bs": None}
+            how[yy] = "doc"
+    return how
+
+
+def collect_alt_quarterly(corp_code, data, start, end):
+    """분기 자료가 비는 곳을 정기보고서 원문 표로 채운다. data[(연,분기)]를 그 자리에서 고치고 {(연,분기): 'doc'}을 돌려준다.
+    열 구성: 1분기 [당분기, 전년 1분기, 전기 연간, ...] / 반기·3분기 [3개월, 누적, 전년 3개월, 전년 누적, 전기 연간, ...] / 사업 [당기, 전기, 전전기].
+    4분기 = 사업보고서 연간 - 3분기 누적. 한 보고서에 전년도 같은 분기도 있으니 두 해가 함께 채워진다."""
+    session, store = get_session(), get_cache_store()
+    how, docs = {}, 0
+
+    def put(y, q, vals, link):
+        key = (y, q)
+        if key in data and is_empty(data[key]) and any(v is not None for v in vals.values()):
+            data[key] = {**vals, "link": link, "bs": None}
+            how[key] = "doc"
+
+    def vals_at(got, i):
+        return {k: alt_col(got, k, i) for k in ("rev", "op", "net")}
+
+    for y in range(start, end + 1):
+        if y < TODAY.year - 4:
+            continue
+        need = {q: [yy for yy in (y, y - 1) if (yy, q) in data and is_empty(data[(yy, q)])] for q in (1, 2, 3, 4)}
+        cum9 = {}
+        for q, reprt in ((1, Q1), (2, H1), (3, Q3)):
+            if not need[q] and not (q == 3 and need[4]):
+                continue
+            if docs >= 12:
+                break
+            docs += 1
+            got, link = alt_report_doc(corp_code, y, reprt, session, store)
+            if not got:
+                continue
+            n = max(len(got.get("rev") or []), len(got.get("op") or []), len(got.get("net") or []))
+            if q == 1:
+                put(y, 1, vals_at(got, 0), link)
+                put(y - 1, 1, vals_at(got, 1), link)
+            elif n >= 4:
+                put(y, q, vals_at(got, 0), link)
+                put(y - 1, q, vals_at(got, 2), link)
+                if q == 3:
+                    cum9 = {y: vals_at(got, 1), y - 1: vals_at(got, 3)}
+        if need[4] and docs < 12:  # 4분기 = 연간 - 3분기 누적
+            docs += 1
+            got, link = alt_report_doc(corp_code, y, ANNUAL, session, store)
+            if got:
+                for i, yy in ((0, y), (1, y - 1)):
+                    if yy in cum9:
+                        ann, cum = vals_at(got, i), cum9[yy]
+                        put(yy, 4, {k: (ann[k] - cum[k] if ann[k] is not None and cum[k] is not None else None) for k in ("rev", "op", "net")}, link)
+    return how
+
+
 def collect_yearly(corp_code, start, end, tick):
     """증감률 계산을 위해 시작연도 전년도까지 함께 조회한다."""
     years = range(start - 1, end + 1)
@@ -888,13 +1052,21 @@ def collect_yearly(corp_code, start, end, tick):
             "net": pick(df, NET_NAMES, ids=NET_IDS), "link": link_of(df),
             "bs": bs_values(df, with_capex=True),
         }
+    how = {}
+    try:  # 연결 자료가 비는 연도(연결재무제표가 없거나 API에 자료가 없는 기업)는 별도 API·원문 표로 채운다
+        how = collect_alt_yearly(corp_code, list(years), data)
+    except Exception:
+        how = {}
 
     records = []
     for y in range(start, end + 1):
         cur = data[y]
         if cur["rev"] is None and cur["op"] is None and cur["net"] is None:
             continue
-        records.append(make_record(str(y), (y, 0), cur, yoy=data[y - 1]))
+        rec = make_record(f"{y}†" if y in how else str(y), (y, 0), cur, yoy=data[y - 1])
+        if y in how:
+            rec["alt"] = how[y]
+        records.append(rec)
     return records
 
 
@@ -1045,6 +1217,12 @@ def collect_quarterly(corp_code, start, end, tick):
             data[(y, i + 1)] = {"rev": revs[i], "op": ops[i], "net": nets[i], "link": link_of(reports[i]),
                                 "bs": bs_values(reports[i])}  # 4분기 = 사업보고서의 기말 잔액
 
+    how = {}
+    try:  # API에 자료가 없는 분기(연결재무제표가 없거나 일반기업회계기준 회사)는 정기보고서 원문 표로 채운다
+        how = collect_alt_quarterly(corp_code, data, start, end)
+    except Exception:
+        how = {}
+
     records = []
     for y in range(start, end + 1):
         for q in range(1, 5):
@@ -1052,7 +1230,10 @@ def collect_quarterly(corp_code, start, end, tick):
             if cur["rev"] is None and cur["op"] is None and cur["net"] is None:
                 continue
             qoq = data[(y, q - 1)] if q > 1 else data[(y - 1, 4)]
-            records.append(make_record(f"{y} {q}Q", (y, q), cur, yoy=data[(y - 1, q)], qoq=qoq))
+            rec = make_record(f"{y} {q}Q†" if (y, q) in how else f"{y} {q}Q", (y, q), cur, yoy=data[(y - 1, q)], qoq=qoq)
+            if (y, q) in how:
+                rec["alt"] = "doc"
+            records.append(rec)
     st.session_state["fin_prov_note"] = ""
     try:  # 분기보고서 전 단계: 영업(잠정)실적 공시가 있으면 매출액·영업이익만 보태고 '*'로 표시
         found, why = collect_provisional(corp_code, data, start, end)
@@ -3528,6 +3709,11 @@ def render_financials():
     table = build_table(result["records"], result["period"], unit=unit)
     basis = "연결 기준" if FS_DIV == "CFS" else "별도 기준"  # 지금은 항상 연결재무제표(CFS)로 조회
     st.caption(f"단위: {unit} · {basis}")
+    alts = {r["alt"] for r in result["records"] if r.get("alt")}
+    if "ofs" in alts:
+        st.caption("†연결재무제표가 없어 별도 재무제표 기준으로 보여줘요.")
+    if "doc" in alts:
+        st.caption("†DART 재무 자료에 없어 정기보고서 원문 표에서 읽은 매출액·영업이익·순이익이에요(4분기는 연간 − 3분기 누적. 기준·단위는 원문 확인).")
     if any(r.get("prov") for r in result["records"]):
         st.caption("\\*잠정실적: 분기보고서 제출 전, '영업(잠정)실적(공정공시)'에서 읽은 매출액·영업이익만 보여줘요(연결 기준). 확정치와 다를 수 있어요")
     elif st.session_state.get("fin_prov_note") and result["period"] == "분기별":
@@ -3627,8 +3813,8 @@ def render_fin_hub():
 def render_industry():
     """탭: 업종 합산 - 여러 회사의 같은 기간 실적을 모으고 합계를 낸다."""
     groups = list(INDUSTRY_GROUPS)
-    st.session_state.setdefault("ind_corps", ", ".join(INDUSTRY_GROUPS[groups[0]]))
-    st.radio("섹터", groups, horizontal=True, key="ind_group", on_change=fill_industry)  # 폼 밖: 고르면 아래 기업 칸이 바뀜
+    st.session_state.setdefault("ind_corps", "")  # 처음엔 섹터도 기업도 비워 둔다
+    st.radio("섹터", groups, index=None, horizontal=True, key="ind_group", on_change=fill_industry)  # 폼 밖: 고르면 아래 기업 칸이 바뀜
     ly, lp = latest_period()
     years = list(range(TODAY.year, 2014, -1))
     with st.form("ind_search"):
@@ -4573,6 +4759,7 @@ def render_feed(by_sector=False):
     by_sector=True면 고른 섹터(실적 캘린더와 같은 섹터, 여러 개 가능)의 기업이 낸 공시만 보여준다."""
     p = "fsec" if by_sector else "feed"  # 두 화면의 입력칸·결과가 섞이지 않도록 이름을 나눈다
     if by_sector:
+        team_buttons("fsec", CAL_GROUPS, "fsec_groups")
         st.pills("섹터 (여러 개 선택 가능)", list(CAL_GROUPS), selection_mode="multi", key="fsec_groups")
     with st.form(f"{p}_search"):
         c1, c2 = st.columns(2)
@@ -4838,11 +5025,36 @@ def parse_news_terms(text):
     return out
 
 
+def team_sector_options(team, options):
+    """팀 프리셋의 섹터 -> 이 화면의 선택지 이름들. 실적 캘린더·공시 섹터는 '자동차·배터리'처럼 묶은 이름이라 그쪽으로 바꿔 준다."""
+    out = []
+    for sec in TEAM_PRESETS[team]:
+        name = sec if sec in options else next((o for o in options if sec in o.split("·") and "·" in o and sec in ("자동차", "배터리")), None)
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
+def apply_team(team, options, target, after=None):
+    st.session_state[target] = team_sector_options(team, options)
+    if after:
+        after()
+
+
+def team_buttons(prefix, options, target, after=None):
+    """섹터 선택칸 위의 팀 버튼 한 줄. 누르면 그 팀의 섹터가 한꺼번에 선택되고, 이후에는 하나씩 더하거나 뺄 수 있다."""
+    cols = st.columns([1] * len(TEAM_PRESETS) + [6 - len(TEAM_PRESETS) if len(TEAM_PRESETS) < 6 else 1])
+    for col, team in zip(cols, TEAM_PRESETS):
+        col.button(team, key=f"{prefix}_team_{team}", on_click=apply_team, args=(team, list(options), target, after),
+                   help="이 팀의 섹터를 한꺼번에 선택해요: " + ", ".join(TEAM_PRESETS[team]), use_container_width=True)
+
+
 def render_news_search(kind):
     """통신/단독 공통 화면: 섹터 고르기 + 검색어 + 기간 -> 기사 묶음 목록."""
     cfg = NEWS_KINDS[kind]
     k = f"nw_{kind}"
     st.session_state.setdefault(f"{k}_terms", "")  # 처음엔 섹터도 검색어도 비워 둔다
+    team_buttons(k, NEWS_SECTORS, f"{k}_groups", after=lambda: fill_news_terms(kind))
     st.pills("섹터 (여러 개 선택 가능)", list(NEWS_SECTORS), selection_mode="multi", key=f"{k}_groups",
              on_change=fill_news_terms, args=(kind,))
     with st.form(f"{k}_form"):
@@ -4884,12 +5096,12 @@ def render_news_search(kind):
                         if g_err:
                             raise NewsApiError(g_err)
                         source = "구글 뉴스"
-                    else:  # 단독: 구글 뉴스를 먼저 쓰고, 실패하거나 단독 기사가 너무 적으면 네이버로 보충
+                    else:  # 단독: 구글 뉴스에 네이버 뉴스를 항상 합친다(구글이 늦게 반영하는 기사를 네이버가 메움). 키가 없거나 USE_NAVER=0이면 구글만
                         items, g_err = google_news(search, NEWS_PERIODS[period], list(PUBLISHERS), "단독")
                         source = "구글 뉴스"
                         n_excl = sum(is_exclusive(i["title"]) for i in items)
                         few = n_excl < NEWS_GOOGLE_MIN
-                        if (g_err or few) and USE_NAVER and NAVER_ID and NAVER_SECRET:
+                        if USE_NAVER and NAVER_ID and NAVER_SECRET:
                             try:
                                 n_items, capped, since = search_news(search, NEWS_PERIODS[period], keyword=cfg["keyword"])
                             except NewsApiError as e:
@@ -4899,7 +5111,7 @@ def render_news_search(kind):
                             else:
                                 have = {title_key(i["title"]) for i in items}
                                 items = items + [n for n in n_items if title_key(n["title"]) not in have]
-                                source = "네이버 뉴스(구글 뉴스 실패)" if g_err else "구글 뉴스 + 네이버 뉴스(보충)"
+                                source = "네이버 뉴스(구글 뉴스 실패)" if g_err else "구글 뉴스 + 네이버 뉴스"
                         elif g_err:
                             raise NewsApiError(g_err)
                 except NewsApiError as e:
@@ -7674,6 +7886,7 @@ def fill_calendar():
 def render_calendar():
     """탭: 실적 캘린더 - 업종별 국내 기업의 잠정실적·IR 일정과 정기보고서 제출기한."""
     st.session_state.setdefault("cal_corps", "")  # 처음엔 섹터도 기업도 비워 둔다
+    team_buttons("cal", CAL_GROUPS, "cal_groups", after=fill_calendar)
     st.pills("섹터 (여러 개 선택 가능)", list(CAL_GROUPS), selection_mode="multi", key="cal_groups", on_change=fill_calendar)
     with st.form("cal_search"):
         corp_text = st.text_input("기업 (쉼표로 구분)", key="cal_corps", placeholder="예: 삼성전자, SK하이닉스",
@@ -7835,6 +8048,7 @@ def alarm_link(sectors, modes):
 def render_alarm_signup():
     with st.popover("🔔 알람 받기"):
         st.caption("원하는 섹터를 고르고 신청하면 텔레그램이 열려요. 아래 '시작(Start)'을 누르면 신청이 접수되고, 확인 후 알람이 시작돼요.")
+        team_buttons("alarm", ALARM_SECTORS, "alarm_sectors")
         secs = st.multiselect("받을 섹터", list(ALARM_SECTORS), key="alarm_sectors")
         modes = st.multiselect("받을 종류", list(ALARM_MODES), default=list(ALARM_MODES), key="alarm_modes")
         if secs and modes:

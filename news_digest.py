@@ -43,8 +43,7 @@ SECTORS = ["자동차", "배터리", "조선·해운", "방산", "철강", "정�
 MODES = ["통신", "단독", "공시"]
 LOOKBACK_HOURS = 36  # 이 시간 안에 올라온 기사만 (이미 보낸 기사는 기록으로 걸러냄)
 MAX_PER_SECTOR = 100  # 섹터마다 메시지에 싣는 최대 묶음 수 (넘으면 '외 N건'). 길면 텔레그램 메시지가 여러 통으로 나뉨
-USE_NAVER = os.environ.get("USE_NAVER", "").strip().lower() in ("1", "true", "yes", "on")  # 기본은 꺼짐(구글 뉴스만). 네이버 보충을 쓰려면 환경변수 USE_NAVER=1 (워크플로 env에 추가)
-NAVER_MIN = 5  # 단독 모드: 구글에서 찾은 단독 기사가 이보다 적으면 네이버로 보충
+USE_NAVER = os.environ.get("USE_NAVER", "1").strip().lower() in ("1", "true", "yes", "on")  # 기본은 켜짐(네이버 키가 있을 때만 실제로 사용). 끄려면 환경변수 USE_NAVER=0
 WIRE_DOMAINS = ("yna.co.kr",)  # 통신 모드: 연합뉴스만 (늘리려면 "newsis.com", "news1.kr" 추가)
 SITE_CHUNK = 8
 TIMEOUT = 20
@@ -62,7 +61,7 @@ def load_app_data():
     tree = ast.parse(src)
     consts, funcs = {}, {}
     want_consts = {"LETTER_NAMES", "WORD_READINGS", "PUBLISHERS", "SIMILAR_TITLE", "NEWS_ALIASES", "NAME_READINGS",
-                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES"}
+                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "TEAM_PRESETS"}
     want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "disclosure_key"}
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
@@ -280,8 +279,7 @@ def collect(mode, sector, cutoff):
         items = [i for i in items if i["category"] == "통신사" and i["publisher"] == "연합뉴스"]
     else:
         items, err = google_search(search, list(A["PUBLISHERS"]), "단독", cutoff)
-        few = sum(is_exclusive(i["title"]) for i in items) < NAVER_MIN
-        if USE_NAVER and (err or few):
+        if USE_NAVER and os.environ.get("NAVER_CLIENT_ID"):  # 구글 뉴스에 네이버 뉴스를 항상 합친다(구글이 늦게 반영하는 기사를 네이버가 메움)
             have = {title_key(i["title"]) for i in items}
             extra = [n for n in naver_search(search, cutoff) if title_key(n["title"]) not in have]
             if err and not extra:  # 구글이 막혔는데 네이버도 못 쓰면 실패로 기록
@@ -310,42 +308,31 @@ def vlen(text):
 
 
 def build_messages(mode, now, sections):
-    """sections: [(섹터, [묶음...], 숨겨진 묶음 수)] -> 텔레그램 메시지 목록(보이는 글자 기준 4,000자 이하, 넘으면 여러 통)"""
+    """sections: [(섹터, [묶음...], 숨겨진 묶음 수)] -> 텔레그램 메시지 목록(보이는 글자 기준 4,000자 이하, 넘으면 여러 통)
+    간략하게 보이도록 섹터 제목 없이 기사만 줄로 나열한다(같은 기사가 여러 섹터에 걸리면 한 번만)."""
     limit = 4000
     label = "📋 주요 공시" if mode == "공시" else f"📰 산업 뉴스 · {mode}"
     head = f"<b>{label} · {now:%m/%d %H:%M}</b>"
     cont = head + " (이어서)"
-    msgs, cur = [], head
-
-    def fresh():
-        return cur in (head, cont)
-
-    def flush():
-        nonlocal cur
-        msgs.append(cur)
-        cur = cont
-
-    for sector, clusters, hidden in sections:
-        title = f"<b>[{html.escape(sector)}]</b>"
-        lines = []
+    lines, seen_urls, hidden = [], set(), 0
+    for _, clusters, h in sections:
+        hidden += h
         for c in clusters:
             it = c["rep"]
+            if it["url"] in seen_urls:
+                continue
+            seen_urls.add(it["url"])
             more = f" (+{len(c['others'])}건)" if c["others"] else ""
             lines.append(f'• <a href="{html.escape(it["url"], quote=True)}">{html.escape(it["title"])}</a> · {html.escape(it["publisher"])}{more}')
-        if hidden:
-            lines.append(f"  … 외 {hidden}건")
-        head_line = title
-        for ln in lines:  # 줄 단위로 채우고, 넘치면 새 메시지에서 섹터 제목을 다시 붙여 이어간다
-            if head_line is not None:
-                if not fresh() and (vlen(cur) + 2 + vlen(head_line) + 1 + vlen(ln) > limit or len(cur) + 2 + len(head_line) + 1 + len(ln) > RAW_LIMIT):
-                    flush()
-                cur += ("\n" if fresh() else "\n\n") + head_line
-                head_line = None
-            if vlen(cur) + 1 + vlen(ln) > limit or len(cur) + 1 + len(ln) > RAW_LIMIT:
-                flush()
-                cur += "\n" + title + " (이어서)"
-            cur += "\n" + ln
-    if not fresh():
+    if hidden:
+        lines.append(f"  … 외 {hidden}건")
+    msgs, cur = [], head
+    for ln in lines:  # 줄 단위로 채우고, 넘치면 새 메시지에서 이어간다
+        if cur not in (head, cont) and (vlen(cur) + 1 + vlen(ln) > limit or len(cur) + 1 + len(ln) > RAW_LIMIT):
+            msgs.append(cur)
+            cur = cont
+        cur += "\n" + ln
+    if cur not in (head, cont):
         msgs.append(cur)
     return msgs
 
@@ -457,8 +444,8 @@ def load_seen():
 
 def load_subscribers():
     """받는 사람 목록. 우선순위: 환경변수 DIGEST_SUBSCRIBERS(JSON) > subscribers.json 파일 > TELEGRAM_CHAT_ID 한 명.
-    각 항목: {"name": "이름", "chat_id": "123", "sectors": ["자동차", ...], "modes": ["통신", "단독"]}
-    sectors·modes를 생략하면 SECTORS·MODES 전부를 받는다."""
+    각 항목: {"name": "이름", "chat_id": "123", "sectors": ["자동차", ...], "teams": ["자동차팀"], "modes": ["통신", "단독"]}
+    teams는 앱의 팀 프리셋(TEAM_PRESETS)에 든 섹터를 한꺼번에 더한다(sectors와 합쳐짐). sectors·teams·modes를 생략하면 SECTORS·MODES 전부를 받는다."""
     raw = os.environ.get("DIGEST_SUBSCRIBERS", "").strip()
     path = os.path.join(HERE, "subscribers.json")
     if not raw and os.path.exists(path):
@@ -477,7 +464,13 @@ def load_subscribers():
         data = []
     subs = []
     for d in data:
-        sectors = d.get("sectors") or SECTORS
+        teams = d.get("teams") or []
+        presets = A.get("TEAM_PRESETS") or {}
+        bad_teams = [t for t in teams if t not in presets]
+        if bad_teams:
+            raise SystemExit(f"{d.get('name', d.get('chat_id'))}: 알 수 없는 팀 {bad_teams} (가능: {', '.join(presets) or '없음'})")
+        team_sectors = [x for t in teams for x in presets[t]]
+        sectors = list(dict.fromkeys(list(d.get("sectors") or []) + team_sectors)) or SECTORS  # 팀 + 개별 섹터를 합쳐서, 둘 다 없으면 전부
         modes = d.get("modes") or MODES
         bad = [x for x in sectors if x not in A["NEWS_SECTORS"]] + [m for m in modes if m not in MODES]
         if bad:
