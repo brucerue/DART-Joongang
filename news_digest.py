@@ -37,6 +37,7 @@ KST = timezone(timedelta(hours=9))
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, "app.py")
 SEEN_FILE = os.path.join(HERE, "digest_seen.json")
+PREFS_FILE = os.path.join(HERE, "digest_prefs.json")  # 받는 사람이 봇 명령으로 바꾼 설정(회차 사이에 캐시로 이어짐)
 
 # ---------- 설정: 받고 싶은 섹터·조회 방식 ----------
 SECTORS = ["자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재"]
@@ -388,50 +389,185 @@ def send_safely(text, token, chat_id):
         send_safely(second, token, chat_id)
 
 
-def handle_signups(token, admin_chat, dry):
-    """봇에게 온 알람 신청(/start s…m…)을 읽어 관리자(나)에게 알려 주고, 신청자에게는 접수 안내를 보낸다.
-    신청 내용은 앱의 '알람 받기'가 t.me 링크의 start 값에 담아 둔 것. 받는 사람 목록(Secrets)에 넣는 일은 직접 한다."""
-    if not admin_chat:
-        print("(신청 알림: ADMIN_CHAT_ID가 없어 건너뜀)")
-        return
+def load_prefs():
+    """{chat_id: {"sectors": [...], "modes": [...], "paused": bool}} - 받는 사람이 봇 명령으로 바꾼 설정."""
+    try:
+        with open(PREFS_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_prefs(prefs):
+    with open(PREFS_FILE, "w", encoding="utf-8") as f:
+        json.dump(prefs, f, ensure_ascii=False)
+
+
+HELP_TEXT = (
+    "알람 설정 명령어예요.\n"
+    "/설정 - 지금 설정 보기\n"
+    "/섹터 자동차 배터리 - 받을 섹터 바꾸기 (팀 이름 '차팀', '전체'도 돼요)\n"
+    "/종류 통신 공시 - 받을 종류 바꾸기 (통신·단독·공시)\n"
+    "/끄기 - 알람 잠시 멈추기\n"
+    "/켜기 - 다시 받기\n"
+    "명령은 30분 안에 반영돼요."
+)
+
+
+def parse_choice(words, options, aliases=None):
+    """명령 뒤 단어들 -> (고른 항목들, 못 알아본 단어들). 이름이 정확히 같거나, 한 항목에만 들어 있는 글자(예: 조선 -> 조선·해운)면 인정."""
+    chosen, bad = [], []
+    for w in words:
+        w = w.strip(",;")
+        if not w:
+            continue
+        if aliases and w in aliases:
+            hits = list(aliases[w])
+        elif w in options:
+            hits = [w]
+        else:
+            hits = [o for o in options if len(w) >= 2 and w.lower() in o.lower()]
+            hits = hits if len(hits) == 1 else []
+        if not hits:
+            bad.append(w)
+        for h in hits:
+            if h not in chosen:
+                chosen.append(h)
+    return chosen, bad
+
+
+def describe_prefs(sub, prefs):
+    mine = prefs.get(sub["chat_id"]) or {}
+    state = "멈춤 (/켜기 로 다시 받아요)" if mine.get("paused") else "받는 중"
+    return (f"지금 설정이에요.\n상태: {state}\n섹터: {', '.join(sub['sectors'])}\n종류: {', '.join(sub['modes'])}")
+
+
+def run_command(text, sub, prefs):
+    """받는 사람의 명령 한 줄 -> 답장 글(명령이 아니면 None). prefs를 그 자리에서 고친다."""
+    m = re.match(r"^/(\S+?)(?:@\w+)?(?:\s+(.*))?$", text.strip(), re.S)
+    if not m:
+        return None
+    cmd, rest = m.group(1).lower(), (m.group(2) or "").replace(",", " ").split()
+    mine = prefs.setdefault(sub["chat_id"], {})
+    if cmd in ("start", "help", "도움", "도움말"):
+        return HELP_TEXT
+    if cmd in ("설정", "status", "상태"):
+        return describe_prefs(sub, prefs)
+    if cmd in ("끄기", "off", "stop", "중지"):
+        mine["paused"] = True
+        return "알람을 멈췄어요. 다시 받으려면 /켜기 를 보내주세요."
+    if cmd in ("켜기", "on", "resume", "재개"):
+        mine.pop("paused", None)
+        return "알람을 다시 켰어요."
+    if cmd in ("섹터", "sectors", "sector"):
+        presets = A.get("TEAM_PRESETS") or {}
+        options = list(A.get("ALARM_SECTORS") or SECTORS)
+        aliases = {t: v for t, v in presets.items()}
+        aliases["전체"] = options
+        chosen, bad = parse_choice(rest, options, aliases)
+        if bad or not chosen:
+            return f"알아듣지 못한 말: {', '.join(bad) or '(없음)'}\n가능한 섹터: {', '.join(options)}\n팀: {', '.join(presets) or '-'} / 전체"
+        mine["sectors"] = chosen
+        sub["sectors"] = chosen
+        return "받을 섹터를 바꿨어요: " + ", ".join(chosen)
+    if cmd in ("종류", "modes", "mode"):
+        chosen, bad = parse_choice(rest, list(MODES), {"전체": list(MODES)})
+        if bad or not chosen:
+            return f"알아듣지 못한 말: {', '.join(bad) or '(없음)'}\n가능한 종류: {', '.join(MODES)} / 전체"
+        mine["modes"] = chosen
+        sub["modes"] = chosen
+        return "받을 종류를 바꿨어요: " + ", ".join(chosen)
+    return "모르는 명령이에요.\n" + HELP_TEXT
+
+
+def handle_updates(token, admin_chat, base_subs, dry):
+    """봇에게 온 메시지를 읽는다. 1) 알람 신청(/start s…m…)은 관리자(나)에게 알리고 신청자에게 접수 안내
+    2) 받는 사람 목록에 있는 사람의 명령(/섹터 /종류 /끄기 /켜기 /설정)은 설정을 바꾸고 바로 답장.
+    신청 내용은 앱의 '알람 받기'가 t.me 링크의 start 값에 담아 둔 것. 받는 사람 목록(Secrets)에 넣는 일은 직접 한다.
+    -> 설정이 바뀌었으면 True"""
     try:
         res = requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=TIMEOUT,
                            params={"timeout": 0, "allowed_updates": json.dumps(["message"])})
         updates = res.json().get("result", []) if res.status_code == 200 else []
-    except Exception as e:  # 신청 확인이 안 돼도 뉴스 발송은 계속한다
-        print(f"(신청 확인 실패: {type(e).__name__})", file=sys.stderr)
-        return
+    except Exception as e:  # 확인이 안 돼도 뉴스 발송은 계속한다
+        print(f"(메시지 확인 실패: {type(e).__name__})", file=sys.stderr)
+        return False
     sectors, modes = A.get("ALARM_SECTORS") or [], A.get("ALARM_MODES") or []
+    prefs = load_prefs()
+    before = json.dumps(prefs, sort_keys=True, ensure_ascii=False)
+    effective = {s["chat_id"]: s for s in apply_prefs(base_subs, prefs, keep_paused=True)}
     last_id = None
     for u in updates:
         last_id = u["update_id"]
         msg = u.get("message") or {}
-        m = re.match(r"^/start(?:@\w+)?\s+s([01]+)m([01]+)\s*$", (msg.get("text") or "").strip())
-        if not m or len(m.group(1)) != len(sectors) or len(m.group(2)) != len(modes):
-            continue
+        body = (msg.get("text") or "").strip()
         chat = msg.get("chat") or {}
         cid = str(chat.get("id", ""))
-        name = " ".join(x for x in (chat.get("first_name"), chat.get("last_name")) if x) or chat.get("title") or cid
-        sec = [x for x, b in zip(sectors, m.group(1)) if b == "1"]
-        mod = [x for x, b in zip(modes, m.group(2)) if b == "1"]
-        entry = json.dumps({"name": name, "chat_id": cid, "sectors": sec, "modes": mod}, ensure_ascii=False, separators=(",", ":"))
-        user_tag = f" (@{chat['username']})" if chat.get("username") else ""
-        text = (f"🔔 알람 신청\n이름: {html.escape(name)}{html.escape(user_tag)}\nchat id: {cid}\n"
-                f"섹터: {html.escape(', '.join(sec) or '-')}\n종류: {html.escape(', '.join(mod) or '-')}\n\n"
-                f"받는 사람 목록에 넣을 항목:\n<code>{html.escape(entry, quote=False)}</code>")
+        m = re.match(r"^/start(?:@\w+)?\s+s([01]+)m([01]+)\s*$", body)
+        if m:
+            if not admin_chat or len(m.group(1)) != len(sectors) or len(m.group(2)) != len(modes):
+                continue
+            name = " ".join(x for x in (chat.get("first_name"), chat.get("last_name")) if x) or chat.get("title") or cid
+            sec = [x for x, b in zip(sectors, m.group(1)) if b == "1"]
+            mod = [x for x, b in zip(modes, m.group(2)) if b == "1"]
+            entry = json.dumps({"name": name, "chat_id": cid, "sectors": sec, "modes": mod}, ensure_ascii=False, separators=(",", ":"))
+            user_tag = f" (@{chat['username']})" if chat.get("username") else ""
+            text = (f"🔔 알람 신청\n이름: {html.escape(name)}{html.escape(user_tag)}\nchat id: {cid}\n"
+                    f"섹터: {html.escape(', '.join(sec) or '-')}\n종류: {html.escape(', '.join(mod) or '-')}\n\n"
+                    f"받는 사람 목록에 넣을 항목:\n<code>{html.escape(entry, quote=False)}</code>")
+            if dry:
+                print("-" * 40 + "\n[신청 알림 → 관리자]\n" + text)
+                continue
+            try:
+                send_telegram(text, token, admin_chat)
+                send_telegram("신청이 접수됐어요. 확인되면 알람이 시작돼요.", token, cid)
+            except Exception as e:
+                print(f"(신청 알림 발송 실패: {e})", file=sys.stderr)
+            continue
+        if not body.startswith("/") or not cid:
+            continue  # 잡담은 무시
+        sub = effective.get(cid)
+        if sub is None:
+            reply = "아직 알람 받는 사람 목록에 없어요. 앱의 '🔔 알람 받기'로 신청해 주세요." if not body.startswith("/start") else None
+            if reply is None:
+                continue
+        else:
+            reply = run_command(body, sub, prefs)
+        if reply is None:
+            continue
         if dry:
-            print("-" * 40 + "\n[신청 알림 → 관리자]\n" + text)
+            print("-" * 40 + f"\n[명령 답장 → {cid}]\n" + reply)
             continue
         try:
-            send_telegram(text, token, admin_chat)
-            send_telegram("신청이 접수됐어요. 확인되면 알람이 시작돼요.", token, cid)
+            send_telegram(html.escape(reply, quote=False), token, cid)
         except Exception as e:
-            print(f"(신청 알림 발송 실패: {e})", file=sys.stderr)
+            print(f"(명령 답장 실패: {e})", file=sys.stderr)
     if last_id is not None and not dry:  # 처리한 알림은 확인 처리해서 다음에 다시 읽지 않게 한다
         try:
             requests.get(f"https://api.telegram.org/bot{token}/getUpdates", timeout=TIMEOUT, params={"offset": last_id + 1, "timeout": 0})
         except Exception:
             pass
+    changed = json.dumps(prefs, sort_keys=True, ensure_ascii=False) != before
+    if changed and not dry:
+        save_prefs(prefs)
+    return changed
+
+
+def apply_prefs(subs, prefs, keep_paused=False):
+    """받는 사람 목록에 봇 명령으로 바꾼 설정을 덧씌운다. 멈춘 사람은 뺀다(keep_paused면 둔다)."""
+    out = []
+    for sub in subs:
+        mine = prefs.get(sub["chat_id"]) or {}
+        if mine.get("paused") and not keep_paused:
+            continue
+        new = dict(sub)
+        if mine.get("sectors"):
+            new["sectors"] = [x for x in mine["sectors"] if x in A["NEWS_SECTORS"]] or sub["sectors"]
+        if mine.get("modes"):
+            new["modes"] = [x for x in mine["modes"] if x in MODES] or sub["modes"]
+        out.append(new)
+    return out
 
 
 def load_seen():
@@ -444,7 +580,7 @@ def load_seen():
 
 def load_subscribers():
     """받는 사람 목록. 우선순위: 환경변수 DIGEST_SUBSCRIBERS(JSON) > subscribers.json 파일 > TELEGRAM_CHAT_ID 한 명.
-    각 항목: {"name": "이름", "chat_id": "123", "sectors": ["자동차", ...], "teams": ["자동차팀"], "modes": ["통신", "단독"]}
+    각 항목: {"name": "이름", "chat_id": "123", "sectors": ["자동차", ...], "teams": ["차팀"], "modes": ["통신", "단독"]}
     teams는 앱의 팀 프리셋(TEAM_PRESETS)에 든 섹터를 한꺼번에 더한다(sectors와 합쳐짐). sectors·teams·modes를 생략하면 SECTORS·MODES 전부를 받는다."""
     raw = os.environ.get("DIGEST_SUBSCRIBERS", "").strip()
     path = os.path.join(HERE, "subscribers.json")
@@ -504,13 +640,20 @@ def main():
     ap.add_argument("--only", help="이 이름(또는 chat id)의 받는 사람에게만 보냄 (시험용)")
     ap.add_argument("--force", action="store_true", help="이미 보낸 기사도 다시 보내고, 보낸 기록은 남기지 않음 (시험용)")
     ap.add_argument("--who", action="store_true", help="봇에게 말을 건 사람의 chat id 목록을 보여주고 끝냄")
+    ap.add_argument("--commands-only", action="store_true", help="뉴스는 보내지 않고, 알람 신청·받는 사람 명령만 처리하고 끝냄 (30분마다 도는 확인용)")
     args = ap.parse_args()
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if args.who:
         if not token:
             raise SystemExit("TELEGRAM_BOT_TOKEN이 필요해요.")
         return show_chats(token)
-    subs = load_subscribers()
+    base_subs = load_subscribers()
+    if token:  # 알람 신청·받는 사람 명령(/섹터 등)을 먼저 처리해서, 이번 발송부터 바뀐 설정을 쓴다
+        handle_updates(token, os.environ.get("ADMIN_CHAT_ID", "").strip(), base_subs, args.dry_run)
+    if args.commands_only:
+        print("명령 확인 끝")
+        return
+    subs = apply_prefs(base_subs, load_prefs())
     print(f"설정 확인: 봇 토큰 {'있음' if token else '없음'} / DIGEST_SUBSCRIBERS {'있음' if os.environ.get('DIGEST_SUBSCRIBERS', '').strip() else '없음'} "
           f"/ TELEGRAM_CHAT_ID {'있음' if os.environ.get('TELEGRAM_CHAT_ID') else '없음'} / 받는 사람 {len(subs)}명")
     if not subs:
@@ -532,8 +675,6 @@ def main():
             sub["sectors"] = [s for s in sub["sectors"] if s in args.sectors.split(",")]
         if args.mode:
             sub["modes"] = [m for m in sub["modes"] if m == args.mode]
-    if token:
-        handle_signups(token, os.environ.get("ADMIN_CHAT_ID", "").strip(), dry)
     now = datetime.now(KST)
     cutoff = now - timedelta(hours=LOOKBACK_HOURS)
     seen = {} if args.force else load_seen()
