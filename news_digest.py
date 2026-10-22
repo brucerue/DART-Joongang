@@ -350,16 +350,26 @@ def build_messages(mode, now, sections):
 
 
 def combine_messages(now, parts):
-    """모드가 둘 이상이고 전부 합쳐도 한 메시지에 들어가면 하나로 합친 글을, 아니면 None(모드별로 따로 보냄)."""
+    """모드가 둘 이상이고 전부 합쳐도 한 메시지에 들어가면 하나로 합친 글을, 아니면 None(모드별로 따로 보냄).
+    합친 글은 간략하게 보이도록 섹터 제목 없이 기사만 모아 보여 준다(같은 기사가 여러 섹터에 걸리면 한 번만)."""
     if len(parts) < 2:
         return None
     names = {"통신": "통신", "단독": "단독", "공시": "📋 주요 공시"}
     bodies = []
     for mode, sections, _ in parts:
-        msgs = build_messages(mode, now, sections)
-        if len(msgs) != 1:
-            return None
-        bodies.append(f"<b>━ {names.get(mode, mode)} ━</b>\n" + msgs[0].split("\n", 1)[1])
+        lines, seen_urls, hidden = [], set(), 0
+        for _, clusters, h in sections:
+            hidden += h
+            for c in clusters:
+                it = c["rep"]
+                if it["url"] in seen_urls:
+                    continue
+                seen_urls.add(it["url"])
+                more = f" (+{len(c['others'])}건)" if c["others"] else ""
+                lines.append(f'• <a href="{html.escape(it["url"], quote=True)}">{html.escape(it["title"])}</a> · {html.escape(it["publisher"])}{more}')
+        if hidden:
+            lines.append(f"  … 외 {hidden}건")
+        bodies.append(f"<b>━ {names.get(mode, mode)} ━</b>\n" + "\n".join(lines))
     text = f"<b>📰 산업 뉴스·공시 · {now:%m/%d %H:%M}</b>\n" + "\n\n".join(bodies)
     if vlen(text) > 4000 or len(text) > RAW_LIMIT:
         return None
