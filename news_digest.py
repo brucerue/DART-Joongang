@@ -20,11 +20,13 @@ import argparse
 import ast
 import difflib
 import html
+import io
 import json
 import os
 import re
 import sys
 import unicodedata
+import zipfile
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -53,6 +55,9 @@ DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
 DISCLOSURE_DAYS = 2  # 공시 모드: 오늘과 어제 접수분을 확인 (이미 보낸 공시는 기록으로 걸러냄)
 MAX_DART_PAGES = 30  # 시장마다 하루 최대 3,000건까지만 확인
 DISCLOSURE_SKIP = []  # 알림에서 뺄 보고서명 단어 (예: ["소유상황"] 이면 임원·주요주주 지분 보고는 안 보냄)
+DART_DOC_URL = "https://opendart.fss.or.kr/api/document.xml"  # 공시 원문(zip). 잠정실적 수치를 읽을 때 쓴다
+PROV_UNITS = {"원": 1, "천원": 10**3, "백만원": 10**6, "억원": 10**8, "십억원": 10**9, "조원": 10**12}  # 잠정실적 표의 단위 (app.py와 같게)
+EARN_WAIT_MINUTES = 30  # 잠정실적 원문이 DART에 아직 안 올라왔으면 이 시간까지는 기다렸다가(다음 회차에) 수치와 함께 보낸다
 # -----------------------------------------------------
 
 
@@ -62,8 +67,10 @@ def load_app_data():
     tree = ast.parse(src)
     consts, funcs = {}, {}
     want_consts = {"LETTER_NAMES", "WORD_READINGS", "PUBLISHERS", "SIMILAR_TITLE", "NEWS_ALIASES", "NAME_READINGS",
-                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "TEAM_PRESETS"}
-    want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "disclosure_key"}
+                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "TEAM_PRESETS",
+                   "PROV_REV_LABELS", "PROV_OP_LABELS"}
+    want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "disclosure_key",
+                  "parse_amount_cell", "parse_provisional", "doc_text_from_zip"}  # 뒤의 셋: 잠정실적 원문 읽기 (앱 '재무 조회'와 같은 규칙)
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
@@ -77,7 +84,8 @@ def load_app_data():
     missing = (want_consts - set(consts)) | (want_funcs - set(funcs))
     if missing:
         raise SystemExit(f"app.py에서 읽지 못한 항목: {sorted(missing)}")
-    ns = {"re": re, "unicodedata": unicodedata, "difflib": difflib, "urlparse": urlparse, **consts}
+    ns = {"re": re, "unicodedata": unicodedata, "difflib": difflib, "urlparse": urlparse, "io": io, "zipfile": zipfile,
+          "html": html, "AiError": RuntimeError, "PROV_UNITS": PROV_UNITS, **consts}
     for code in funcs.values():
         exec(code, ns)
     # app.py와 같은 방식으로 별칭 표를 완성한다 (NAME_READINGS를 NEWS_ALIASES에 합침)
@@ -216,12 +224,15 @@ def naver_search(terms, cutoff):
 
 
 # ---------- 한 섹터 조회 ----------
-def fetch_dart_day(api_key, ymd, cls):
-    """하루치 전체 공시(한 시장). DART 공시 목록 API를 페이지별로 받는다. 데이터 없음(013)은 빈 목록."""
+def fetch_dart_day(api_key, ymd, cls, ty=""):
+    """하루치 전체 공시(한 시장). DART 공시 목록 API를 페이지별로 받는다. 데이터 없음(013)은 빈 목록.
+    ty: 공시 유형(예: "I" 거래소공시)만 받을 때. 비우면 전부"""
     def page(n):
-        res = requests.get(DART_LIST_URL, timeout=TIMEOUT, params={
-            "crtfc_key": api_key, "bgn_de": ymd, "end_de": ymd, "corp_cls": cls,
-            "last_reprt_at": "N", "page_no": n, "page_count": 100})
+        params = {"crtfc_key": api_key, "bgn_de": ymd, "end_de": ymd, "corp_cls": cls,
+                  "last_reprt_at": "N", "page_no": n, "page_count": 100}
+        if ty:
+            params["pblntf_ty"] = ty
+        res = requests.get(DART_LIST_URL, timeout=TIMEOUT, params=params)
         res.raise_for_status()
         jo = res.json()
         if jo.get("status") == "013":
@@ -239,36 +250,269 @@ def fetch_dart_day(api_key, ymd, cls):
     return rows
 
 
-def fetch_dart_feed(now):
-    """오늘·어제(한국 날짜)에 접수된 전 상장사(코스피·코스닥) 공시. 한 번 받아 모든 섹터가 같이 쓴다."""
+def dart_key():
     api_key = os.environ.get("DART_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("DART_API_KEY가 없어요. GitHub Secrets에 DART API 키를 DART_API_KEY로 등록하세요.")
-    days = [(now - timedelta(days=d)).strftime("%Y%m%d") for d in range(DISCLOSURE_DAYS)]
+    return api_key
+
+
+def fetch_dart_feed(now, earn_only=False):
+    """오늘·어제(한국 날짜)에 접수된 전 상장사(코스피·코스닥) 공시. 한 번 받아 모든 섹터가 같이 쓴다.
+    earn_only(15분마다 도는 단독 확인 때): 잠정실적만 보면 되므로 오늘 접수된 거래소공시(I)만 받아 가볍게"""
+    api_key = dart_key()
+    days = [now.strftime("%Y%m%d")] if earn_only else [(now - timedelta(days=d)).strftime("%Y%m%d") for d in range(DISCLOSURE_DAYS)]
     rows = []
     for ymd in days:
         for cls in ("Y", "K"):
-            rows.extend(fetch_dart_day(api_key, ymd, cls))
+            rows.extend(fetch_dart_day(api_key, ymd, cls, "I" if earn_only else ""))
     return rows
 
 
-def disclosure_items(feed, sector):
-    """시장 전체 공시 중 섹터 기업의 '주요 공시'만 골라, 뉴스 항목과 같은 모양으로 돌려준다 (최신순)."""
+def earn_kind(report_nm):
+    """보고서명이 영업(잠정)실적 공시면 '연결' 또는 '별도', 아니면 None"""
+    rk = A["disclosure_key"](report_nm)
+    if "영업잠정실적" not in rk:
+        return None
+    return "연결" if "연결" in rk else "별도"
+
+
+def disclosure_items(feed, sector, earn_only=False):
+    """시장 전체 공시 중 섹터 기업의 '주요 공시'만 골라, 뉴스 항목과 같은 모양으로 돌려준다 (최신순).
+    잠정실적은 같은 회사가 연결 기준을 냈으면 별도 기준은 빼고(중복), 수치를 붙일 수 있게 표시해 둔다.
+    earn_only면 잠정실적만."""
     keys = {name_key(n) for n in A["INDUSTRY_GROUPS"].get(sector, [])}
     major = [A["disclosure_key"](w) for ws in A["MAJOR_DISCLOSURES"].values() for w in ws]
     skip = [A["disclosure_key"](w) for w in DISCLOSURE_SKIP]
+    has_cons = {r.get("corp_code") or r.get("corp_name") for r in feed if earn_kind(r.get("report_nm", "")) == "연결"}
     out = []
     for r in feed:
         if name_key(r.get("corp_name", "")) not in keys:
             continue
         rk = A["disclosure_key"](r.get("report_nm", ""))
-        if not any(m in rk for m in major) or any(x in rk for x in skip):
+        kind = earn_kind(r.get("report_nm", ""))
+        if earn_only and not kind:
+            continue
+        if not kind and (not any(m in rk for m in major) or any(x in rk for x in skip)):
+            continue
+        if kind and any(x in rk for x in skip):
+            continue
+        if kind == "별도" and (r.get("corp_code") or r.get("corp_name")) in has_cons:
             continue
         no = str(r.get("rcept_no", ""))
-        out.append({"title": f"[{r.get('corp_name', '')}] {str(r.get('report_nm', '')).strip()}", "url": DART_VIEW_URL.format(no),
-                    "publisher": "DART", "key": no})
+        item = {"title": f"[{r.get('corp_name', '')}] {str(r.get('report_nm', '')).strip()}", "url": DART_VIEW_URL.format(no),
+                "publisher": "DART", "key": no}
+        if kind:
+            item.update(earn=kind, corp=str(r.get("corp_name", "")), rcept_dt=str(r.get("rcept_dt", "")),
+                        fix="정정" in str(r.get("report_nm", "")))
+        out.append(item)
     out.sort(key=lambda x: x["key"], reverse=True)  # 접수번호가 클수록 나중에 접수
     return out
+
+
+# ---------- 잠정실적 수치 ----------
+class DocNotReady(Exception):
+    """DART에 공시 원문 파일이 아직 없다 (방금 올라온 공시)"""
+
+
+def fetch_doc_text(api_key, rcept_no):
+    """접수번호 -> 공시 원문 글자 (표는 칸 ' | ', 줄 바꿈으로)"""
+    res = requests.get(DART_DOC_URL, params={"crtfc_key": api_key, "rcept_no": rcept_no}, timeout=TIMEOUT)
+    data = res.content or b""
+    if not data.startswith(b"PK"):  # zip이 아니면 오류 응답
+        msg = data.decode("utf-8", "ignore")
+        code = re.search(r"<status>(\d+)</status>", msg) or re.search(r'"status"\s*:\s*"(\d+)"', msg)
+        code = code.group(1) if code else "?"
+        if code in ("013", "014"):
+            raise DocNotReady(rcept_no)
+        raise RuntimeError(f"DART 원문 오류 [{code}]")
+    return A["doc_text_from_zip"](data)
+
+
+EARN_ROWS = [  # (키, 메시지에 쓸 이름, 표의 줄 이름들)
+    ("rev", "매출", ("매출액", "영업수익", "수익(매출액)")),
+    ("op", "영업이익", ("영업이익", "영업손익", "영업손실")),
+    ("net", "순이익", ("당기순이익", "당기순손익", "당기순손실", "분기순이익", "반기순이익")),
+]
+EARN_WORDS = ("흑자전환", "적자전환", "적자지속", "흑자지속", "적자확대", "적자축소")
+
+
+def parse_earnings(text):
+    """잠정실적 원문 표 -> {"rev": {"cur", "prev", "qoq", "prev_y", "yoy"}, ...} (금액은 원). 못 읽으면 None.
+    표 모양(거래소 양식): 구분 | 당해실적 | 전기실적 | 전기대비증감율 | 전년동기실적 | 전년동기대비증감율"""
+    mult = None
+    for m in re.finditer(r"단위\s*[:：]?[\s|(]*([가-힣]+)", text):
+        if m.group(1) in A["PROV_UNITS"]:
+            mult = A["PROV_UNITS"][m.group(1)]
+            break
+    if not mult:
+        return None
+    stop = {"누계실적", "누적실적"}
+
+    def row_from(cells):
+        """라벨 다음 칸들 -> 한 줄 수치 (당해·전기·전기대비·전년동기·전년동기대비). 당해 금액이 없으면 None"""
+        cells = [c for c in cells if c.replace(" ", "") not in ("당해실적", "당기실적")][:5]
+        if any(c.replace(" ", "") in stop for c in cells):
+            cells = cells[:[c.replace(" ", "") in stop for c in cells].index(True)]
+        cur = A["parse_amount_cell"](cells[0]) if cells else None
+        if cur is None:
+            return None
+        num = lambda k: A["parse_amount_cell"](cells[k]) if len(cells) > k else None
+        row = {"cur": cur * mult, "prev": None, "qoq": None, "prev_y": None, "yoy": None}
+        if len(cells) >= 5:  # 전기·전년동기 칸까지 있는 표
+            row["prev"] = num(1) * mult if num(1) is not None else None
+            row["prev_y"] = num(3) * mult if num(3) is not None else None
+            for k, col in (("qoq", 2), ("yoy", 4)):  # 회사가 적은 증감율을 우선 쓰고, 비어 있으면 금액으로 계산
+                w = cells[col].replace(" ", "")
+                row[k] = w if w in EARN_WORDS else num(col)
+        return row
+
+    def which(cell):
+        label = re.sub(r"[\s\d.\)]", "", cell) if len(cell) < 16 else ""
+        if not label or any(x in label for x in ("대비", "비율", "률", "율")):  # 영업이익률 같은 줄은 금액이 아님
+            return None
+        return next((k for k, _, names in EARN_ROWS if label.startswith(names)), None)
+
+    out = {}
+    # 1) 표의 한 줄(칸 ' | ')씩: 빈 칸도 자리를 지켜서 읽는다
+    for line in text.split("\n"):
+        if "|" not in line:
+            continue
+        cells = [c.strip() for c in line.split("|")]
+        if cells and not cells[-1]:
+            cells.pop()
+        for i, cell in enumerate(cells):
+            key = which(cell)
+            if key and key not in out:
+                row = row_from(cells[i + 1:])
+                if row:
+                    out[key] = row
+                break
+    # 2) 줄이 나뉜 표: 칸을 모두 펼쳐 라벨 뒤 칸들을 읽는다 (빈 칸은 건너뜀)
+    flat = [c.strip() for c in re.split(r"[|\n]", text) if c.strip()]
+    for i, cell in enumerate(flat):
+        key = which(cell)
+        if key and key not in out:
+            row = row_from(flat[i + 1:i + 9])
+            if row:
+                out[key] = row
+    return out or None
+
+
+def change_text(cur, base, rev=False):
+    """증감 표시: +7.2% / -15.1% / 흑자전환 / 적자전환 / 적자지속. 계산할 수 없으면 None"""
+    if cur is None or base is None:
+        return None
+    if base > 0:
+        return f"{(cur - base) / base * 100:+.1f}%"
+    if rev:
+        return None
+    if base <= 0 < cur:
+        return "흑자전환"
+    if base >= 0 > cur:
+        return "적자전환"
+    if base < 0 and cur < 0:
+        return "적자지속"
+    return None
+
+
+def won_text(v):
+    """원 -> '46조 7,214억' / '3,512억' / '-1,204억'"""
+    sign, v = ("-" if v < 0 else ""), abs(v)
+    eok_total = round(v / 1e8)
+    if eok_total >= 10000:
+        jo, eok = divmod(eok_total, 10000)
+        return f"{sign}{jo:,}조" + (f" {eok:,}억" if eok else "")
+    if eok_total >= 1:
+        return f"{sign}{eok_total:,}억"
+    return f"{sign}{v / 1e8:.1f}억"
+
+
+def earnings_detail(rows):
+    """읽은 수치 -> 메시지에 붙일 줄들 (HTML)"""
+    lines = []
+    for key, name, _ in EARN_ROWS:
+        r = rows.get(key)
+        if not r:
+            continue
+        rev = key == "rev"
+        yoy = r["yoy"] if isinstance(r["yoy"], str) else (f"{r['yoy']:+.1f}%" if r["yoy"] is not None and r["prev_y"] and r["prev_y"] > 0 else None)
+        qoq = r["qoq"] if isinstance(r["qoq"], str) else (f"{r['qoq']:+.1f}%" if r["qoq"] is not None and r["prev"] and r["prev"] > 0 else None)
+        yoy = yoy or change_text(r["cur"], r["prev_y"], rev)
+        qoq = qoq or change_text(r["cur"], r["prev"], rev)
+        if rev and yoy in EARN_WORDS:
+            yoy = None
+        if rev and qoq in EARN_WORDS:
+            qoq = None
+        cmp_ = " · ".join(x for x in (f"전년比 {yoy}" if yoy else "", f"전분기比 {qoq}" if qoq else "") if x)
+        lines.append(f"   {name} {won_text(r['cur'])}" + (f" ({cmp_})" if cmp_ else ""))
+    return html.escape("\n".join(lines), quote=False)
+
+
+def earnings_title(item, text):
+    """'[현대차] 2026년 3분기 잠정실적 (연결)' 처럼 짧게. 분기를 못 읽으면 원래 보고서명 그대로"""
+    try:
+        got = A["parse_provisional"](text, item.get("rcept_dt", "")) or {}
+    except Exception:
+        got = {}
+    if not got.get("quarter"):
+        return item["title"]
+    q = "4분기(연간)" if got["quarter"] == 4 else f"{got['quarter']}분기"
+    return f"[{item['corp']}] {got['year']}년 {q} 잠정실적 ({item['earn']}{', 정정' if item.get('fix') else ''})"
+
+
+def enrich_earnings(items, seen, now, dry=False):
+    """잠정실적 항목에 수치를 붙인다(같은 접수번호는 한 번만 읽음). 원문이 아직 없으면 EARN_WAIT_MINUTES까지는
+    이번 회차에서 빼 두었다가(hold) 다음 회차에 수치와 함께 보내고, 그 뒤에도 없으면 수치 없이 보낸다.
+    seen에 '기다리기 시작한 시각'을 남긴다 -> seen이 바뀌었으면 True"""
+    by_no = {}
+    for it in items:
+        by_no.setdefault(it["key"], []).append(it)
+    if not by_no:
+        return False
+    api_key = dart_key()
+
+    def one(no):
+        try:
+            text = fetch_doc_text(api_key, no)
+        except DocNotReady:
+            return no, "wait", None
+        except Exception as e:
+            return no, "error", str(e)
+        return no, "ok", text
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(one, list(by_no)))
+    changed = False
+    for no, status, text in results:
+        group = by_no[no]
+        if status == "ok":
+            rows = parse_earnings(text)
+            title = earnings_title(group[0], text)
+            detail = earnings_detail(rows) if rows else html.escape("   (수치를 읽지 못했어요 · 원문에서 확인해 주세요)", quote=False)
+            for it in group:
+                it["title"], it["detail"] = title, detail
+            print(f"  잠정실적 {no}: {title} / {'수치 읽음' if rows else '수치 못 읽음'}")
+            continue
+        if status == "wait":
+            wkey = f"wait|{no}"
+            first = seen.get(wkey)
+            if first is None:
+                seen[wkey] = now.isoformat()
+                changed = True
+                first = seen[wkey]
+            if now - datetime.fromisoformat(first) < timedelta(minutes=EARN_WAIT_MINUTES):
+                for it in group:
+                    it["hold"] = True
+                print(f"  잠정실적 {no}: 원문이 아직 없어 다음 회차에 다시 확인")
+                continue
+            note = "   (원문이 아직 DART에 없어 수치는 원문 링크에서 확인해 주세요)"
+        else:
+            print(f"  잠정실적 {no}: 원문을 받지 못함 ({text})", file=sys.stderr)
+            note = "   (원문을 받지 못해 수치는 원문 링크에서 확인해 주세요)"
+        for it in group:
+            it["detail"] = html.escape(note, quote=False)
+    return changed
 
 
 def collect(mode, sector, cutoff):
@@ -308,11 +552,17 @@ def vlen(text):
     return len(html.unescape(re.sub(r"<[^>]+>", "", text)))
 
 
-def build_messages(mode, now, sections):
+def item_line(it, more=""):
+    """기사·공시 한 건 -> 메시지 줄. 잠정실적은 아래에 수치 줄(detail)이 붙는다."""
+    line = f'• <a href="{html.escape(it["url"], quote=True)}">{html.escape(it["title"])}</a> · {html.escape(it["publisher"])}{more}'
+    return line + ("\n" + it["detail"] if it.get("detail") else "")
+
+
+def build_messages(mode, now, sections, earn_only=False):
     """sections: [(섹터, [묶음...], 숨겨진 묶음 수)] -> 텔레그램 메시지 목록(보이는 글자 기준 4,000자 이하, 넘으면 여러 통)
     간략하게 보이도록 섹터 제목 없이 기사만 줄로 나열한다(같은 기사가 여러 섹터에 걸리면 한 번만)."""
     limit = 4000
-    label = "📋 주요 공시" if mode == "공시" else f"📰 산업 뉴스 · {mode}"
+    label = ("📊 잠정실적" if earn_only else "📋 주요 공시") if mode == "공시" else f"📰 산업 뉴스 · {mode}"
     head = f"<b>{label} · {now:%m/%d %H:%M}</b>"
     cont = head + " (이어서)"
     lines, seen_urls, hidden = [], set(), 0
@@ -324,7 +574,7 @@ def build_messages(mode, now, sections):
                 continue
             seen_urls.add(it["url"])
             more = f" (+{len(c['others'])}건)" if c["others"] else ""
-            lines.append(f'• <a href="{html.escape(it["url"], quote=True)}">{html.escape(it["title"])}</a> · {html.escape(it["publisher"])}{more}')
+            lines.append(item_line(it, more))
     if hidden:
         lines.append(f"  … 외 {hidden}건")
     msgs, cur = [], head
@@ -338,12 +588,12 @@ def build_messages(mode, now, sections):
     return msgs
 
 
-def combine_messages(now, parts):
+def combine_messages(now, parts, earn_only=False):
     """모드가 둘 이상이고 전부 합쳐도 한 메시지에 들어가면 하나로 합친 글을, 아니면 None(모드별로 따로 보냄).
     합친 글은 간략하게 보이도록 섹터 제목 없이 기사만 모아 보여 준다(같은 기사가 여러 섹터에 걸리면 한 번만)."""
     if len(parts) < 2:
         return None
-    names = {"통신": "통신", "단독": "단독", "공시": "📋 주요 공시"}
+    names = {"통신": "통신", "단독": "단독", "공시": "📊 잠정실적" if earn_only else "📋 주요 공시"}
     bodies = []
     for mode, sections, _ in parts:
         lines, seen_urls, hidden = [], set(), 0
@@ -355,7 +605,7 @@ def combine_messages(now, parts):
                     continue
                 seen_urls.add(it["url"])
                 more = f" (+{len(c['others'])}건)" if c["others"] else ""
-                lines.append(f'• <a href="{html.escape(it["url"], quote=True)}">{html.escape(it["title"])}</a> · {html.escape(it["publisher"])}{more}')
+                lines.append(item_line(it, more))
         if hidden:
             lines.append(f"  … 외 {hidden}건")
         bodies.append(f"<b>━ {names.get(mode, mode)} ━</b>\n" + "\n".join(lines))
@@ -513,7 +763,7 @@ HELP_TEXT = (
     "/끄기 - 알람 잠시 멈추기\n"
     "/켜기 - 다시 받기\n"
     "/도움 - 이 안내 다시 보기\n"
-    "통신·공시는 매시 정각, 단독은 15분마다 확인해요.\n"
+    "통신·공시는 매시 정각, 단독과 잠정실적 공시는 15분마다 확인해요.\n"
     "새 기사나 공시가 없으면 메시지를 보내지 않아요."
 )
 
@@ -918,11 +1168,13 @@ def main():
     for s in (args.sectors.split(",") if args.sectors else []):
         if s not in A["NEWS_SECTORS"]:
             raise SystemExit(f"없는 섹터: {s}")
+    # 15분마다 도는 '단독' 확인 때는 공시를 켠 사람에게 잠정실적 공시도 함께 확인해 보낸다 (나머지 공시는 정각에)
+    earn_only = args.mode == "단독"
     for sub in subs:  # 시험용 옵션은 모든 받는 사람에게 같이 적용
         if args.sectors:
             sub["sectors"] = [s for s in sub["sectors"] if s in args.sectors.split(",")]
         if args.mode:
-            sub["modes"] = [m for m in sub["modes"] if m == args.mode]
+            sub["modes"] = [m for m in sub["modes"] if m == args.mode or (earn_only and m == "공시")]
     now = datetime.now(KST)
     if args.auto:  # 사람마다 받는 시간대(기본 7~19시)가 있고, 그 밖의 회차는 건너뛴다. 못 받은 기사는 기록하지 않으니 시작 시각에 모아서 간다
         subs = [x for x in subs if x.get("hours", (HOURS_MIN, HOURS_MAX))[0] <= now.hour <= x.get("hours", (HOURS_MIN, HOURS_MAX))[1]
@@ -944,10 +1196,10 @@ def main():
         try:
             if mode == "공시":
                 if feed is None:
-                    feed = fetch_dart_feed(now)
+                    feed = fetch_dart_feed(now, earn_only)
                 if feed is False:
                     raise RuntimeError("DART 공시를 받지 못해 건너뜀 (위 오류 참고)")
-                found[(mode, sector)] = disclosure_items(feed, sector)
+                found[(mode, sector)] = disclosure_items(feed, sector, earn_only)
             else:
                 found[(mode, sector)] = collect(mode, sector, cutoff)
         except Exception as e:
@@ -957,6 +1209,16 @@ def main():
             print(f"[{mode}/{sector}] 조회 실패: {e}", file=sys.stderr)
     if need and len(failed) == len(need):
         raise SystemExit("모든 조회가 실패했어요.")
+
+    # 1-2) 이번에 누군가에게 새로 갈 잠정실적 공시는 원문에서 매출·영업이익·순이익을 읽어 붙인다
+    earn_new = [i for sub in subs if "공시" in sub["modes"] for s in sub["sectors"]
+                for i in found.get(("공시", s), []) if i.get("earn") and f"{sub['chat_id']}|공시|{i['key']}" not in seen]
+    seen_dirty = False
+    if earn_new:
+        try:
+            seen_dirty = enrich_earnings(earn_new, seen, now)
+        except Exception as e:  # 수치를 못 붙여도 공시 알림은 그대로 보낸다
+            print(f"잠정실적 수치 읽기 실패: {e}", file=sys.stderr)
 
     # 2) 받는 사람마다 자기 섹터·모드에서 아직 안 보낸 기사만 골라 보낸다
     #    모드별 결과가 모두 한 통에 들어갈 만큼 적으면 한 메시지로 합치고, 많으면 모드별로 따로 보낸다
@@ -972,6 +1234,8 @@ def main():
                     continue
                 fresh = []
                 for i in found[(mode, sector)]:
+                    if i.get("hold"):  # 원문이 올라오면 수치와 함께 보낸다 (다음 회차)
+                        continue
                     k = f"{chat}|{mode}|{i['key'] if mode == '공시' else title_key(i['title'])}"
                     if k in seen or k in placed:
                         continue
@@ -987,9 +1251,9 @@ def main():
                 parts.append((mode, sections, new_keys))
         if not parts:
             continue
-        combined = combine_messages(now, parts)
+        combined = combine_messages(now, parts, earn_only)
         try:
-            for text in ([combined] if combined else [t for mode, sections, _ in parts for t in build_messages(mode, now, sections)]):
+            for text in ([combined] if combined else [t for mode, sections, _ in parts for t in build_messages(mode, now, sections, earn_only)]):
                 if dry:
                     print("-" * 40 + f"\n[{sub['name']}]\n" + text)
                 else:
@@ -1004,6 +1268,9 @@ def main():
         except Exception as e:  # 한 명이 실패해도(봇 차단 등) 다른 사람에게는 계속 보낸다
             send_errors += 1
             print(f"[{sub['name']}] 발송 실패: {e}", file=sys.stderr)
+    if seen_dirty and not dry and not args.force:  # 원문을 기다리기 시작한 시각을 남긴다 (보낸 사람이 없었어도)
+        with open(SEEN_FILE, "w", encoding="utf-8") as f:
+            json.dump(seen, f, ensure_ascii=False)
     if not dry and not args.only and not args.force:
         report_run("단독" if args.mode == "단독" else "전체", len(subs), delivered, send_errors)
     if send_errors:
