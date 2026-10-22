@@ -3499,7 +3499,7 @@ def render_financials():
     basis = "연결 기준" if FS_DIV == "CFS" else "별도 기준"  # 지금은 항상 연결재무제표(CFS)로 조회
     st.caption(f"단위: {unit} · {basis}")
     if any(r.get("prov") for r in result["records"]):
-        st.caption("\\* \\*잠정실적: 분기보고서 제출 전, '영업(잠정)실적(공정공시)'에서 읽은 매출액·영업이익만 보여줘요(연결 기준). 확정치와 다를 수 있어요")
+        st.caption("\\*잠정실적: 분기보고서 제출 전, '영업(잠정)실적(공정공시)'에서 읽은 매출액·영업이익만 보여줘요(연결 기준). 확정치와 다를 수 있어요")
     elif st.session_state.get("fin_prov_note") and result["period"] == "분기별":
         st.caption(st.session_state["fin_prov_note"])
     # 스크롤 없이 전체가 보이도록 높이를 행 수에 맞춘다 (머리글 1줄 + 데이터 행, 한 줄당 약 35px)
