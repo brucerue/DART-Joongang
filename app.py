@@ -355,7 +355,10 @@ PUBLISHERS = {
     "yna.co.kr": ("연합뉴스", "통신사"), "newsis.com": ("뉴시스", "통신사"), "news1.kr": ("뉴스1", "통신사"),
 }
 
-LAST_UPDATED = "2026.10.22 07:01"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+# 언론사 도메인 아래에 있어도 기사가 아닌 곳(커뮤니티·게시판 등)은 뺀다. 필요하면 여기에 추가하세요.
+PUBLISHER_BLOCK = ("mlbpark.donga.com",)
+
+LAST_UPDATED = "2026.10.22 09:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -393,6 +396,7 @@ def load_secret(name):
 
 NAVER_ID = load_secret("NAVER_CLIENT_ID")
 NAVER_SECRET = load_secret("NAVER_CLIENT_SECRET")
+USE_NAVER = (load_secret("USE_NAVER") or "").strip().lower() in ("1", "true", "yes", "on")  # 기본은 꺼짐: 모든 뉴스 검색이 구글 뉴스만 쓴다. 네이버를 다시 쓰려면 Streamlit Secrets에 USE_NAVER = "1" 추가
 
 # AI 기능 (선택). ANTHROPIC_API_KEY가 있으면 Claude(유료), 없고 GEMINI_API_KEY가 있으면 Gemini(무료 한도)를 쓴다.
 # 둘 다 넣어 두었다면 Secrets의 AI_PROVIDER = "gemini" 또는 "claude"로 고를 수 있다.
@@ -492,7 +496,7 @@ def get_dart():
                 time.sleep(2 * (attempt + 1))
     finally:
         requests.get = original_get
-    raise RuntimeError("DART 서버에 연결하지 못했어요 (기업 목록을 받지 못함). 잠시 후 다시 시도하거나 앱을 새로고침해 주세요.") from last_error
+    raise RuntimeError("DART 서버에 연결하지 못했어요 (기업 목록을 받지 못함). 잠시 후 다시 시도하거나 앱을 새로고침해 주세요.") from None  # 원래 오류에는 인증키가 든 주소가 있어, 화면에 보이지 않게 이어 붙이지 않는다
 
 
 @st.cache_resource
@@ -2601,6 +2605,8 @@ def publisher_of(url):
     host = (urlparse(url or "").hostname or "").lower()
     if host.startswith("www."):
         host = host[4:]
+    if any(host == b or host.endswith("." + b) for b in PUBLISHER_BLOCK):
+        return host, None  # 목록에 없는 곳과 같게 취급 -> 뉴스 결과에서 빠진다
     best = None
     for domain, (name, category) in PUBLISHERS.items():
         if (host == domain or host.endswith("." + domain)) and (best is None or len(domain) > len(best[0])):
@@ -3295,9 +3301,17 @@ def render_financials():
     """탭 1: 매출액·영업이익 조회"""
     this_year = TODAY.year
 
+    def set_default_years():
+        """조회 단위를 바꾸면 기간 기본값도 바꾼다: 분기별은 올해 한 해(분기는 보통 당해 분기를 보므로), 연도별은 2021~작년."""
+        if st.session_state.get("fin_period") == "분기별":
+            st.session_state["fin_start"], st.session_state["fin_end"] = this_year, this_year
+        else:
+            st.session_state["fin_start"], st.session_state["fin_end"] = 2021, this_year - 1
+
+    # 조회 단위는 폼 밖에 둔다(폼 안에서는 '조회'를 눌러야 반영돼 기간 기본값이 바로 바뀌지 않음)
+    period = st.radio("조회 단위", ["연도별", "분기별"], horizontal=True, key="fin_period", on_change=set_default_years)
     with st.form("search"):
         corp_text = st.text_input("기업명 또는 종목코드", key="fin_corp", placeholder="예: 삼성전자 또는 005930")
-        period = st.radio("조회 단위", ["연도별", "분기별"], horizontal=True, key="fin_period")
         c1, c2 = st.columns(2)
         start = c1.number_input("시작연도", min_value=2015, max_value=this_year, value=2021, step=1, key="fin_start")
         end = c2.number_input("종료연도", min_value=2015, max_value=this_year, value=this_year - 1, step=1, key="fin_end")
@@ -4705,7 +4719,7 @@ def render_news_search(kind):
                         source = "구글 뉴스"
                         n_excl = sum(is_exclusive(i["title"]) for i in items)
                         few = n_excl < NEWS_GOOGLE_MIN
-                        if (g_err or few) and NAVER_ID and NAVER_SECRET:
+                        if (g_err or few) and USE_NAVER and NAVER_ID and NAVER_SECRET:
                             try:
                                 n_items, capped, since = search_news(search, NEWS_PERIODS[period], keyword=cfg["keyword"])
                             except NewsApiError as e:
@@ -6866,6 +6880,8 @@ BRIEF_YEARS = 5  # 실적 표에 보여줄 연수
 BRIEF_DISC_DAYS = 92  # 최근 공시: 약 3개월
 BRIEF_NEWS_DAYS = 30  # 최근 단독 뉴스: 한 달
 BRIEF_NEWS_MAX = 8  # 보여줄 뉴스 묶음 수
+BRIEF_TREND_DAYS = 7  # 동향 요약에 보내는 단독·통신 기사: 최근 1주일
+BRIEF_WIRE_MAX = 15  # 동향 요약에 보내는 통신 기사 묶음 수
 BRIEF_DISC_MAX = 12  # 보여줄 주요 공시 수
 
 AI_BRIEF_SYSTEM = (
@@ -6983,10 +6999,19 @@ def brief_trend_sources(b):
     if b.get("disc") is not None and not b["disc"].empty:
         for r in b["disc"].to_dict("records"):
             out.append(("[최근 3개월 주요 공시 제목]", f"{r.get('접수일', '')} | {r.get('보고서명', '')}", str(r.get("보고서명", "")), str(r.get("원문") or "")))
-    for head, key in (("[최근 한 달 단독 기사 제목]", "news"), ("[최근 일반 기사 제목 (최신순)]", "news_all")):
+    cutoff = b["asof"] - timedelta(days=BRIEF_TREND_DAYS)
+    seen = {url for *_, url in out if url}  # 같은 기사가 단독·통신·일반 목록에 겹쳐 나오면 한 번만
+    for head, key in (("[최근 1주일 단독 기사 제목]", "news"), ("[최근 1주일 통신 기사 제목 (연합뉴스·뉴시스·뉴스1)]", "wire"),
+                      ("[최근 일반 기사 제목 (최신순)]", "news_all")):
         for c in b.get(key) or []:
             rep = c["rep"]
-            out.append((head, f"{rep['dt']:%m/%d} {rep.get('publisher', '')} · {rep['title']}", rep["title"], rep.get("url", "")))
+            if key == "news" and rep["dt"] < cutoff:  # 단독은 화면에는 한 달 치를 보여주지만 동향 요약에는 1주일 치만
+                continue
+            url = rep.get("url", "")
+            if url and url in seen:
+                continue
+            seen.add(url)
+            out.append((head, f"{rep['dt']:%m/%d} {rep.get('publisher', '')} · {rep['title']}", rep["title"], url))
     return out
 
 
@@ -7058,26 +7083,38 @@ def collect_brief(name, code, progress):
 
     b["disc"] = step("최근 공시를 불러오는 중...", "disc", disclosures)
 
-    if NAVER_ID and NAVER_SECRET:
-        def news():
-            names = news_names(name)
-            items, _, _ = search_news(names, BRIEF_NEWS_DAYS)
-            keys = [name_key(t) for t in names]
-            items = [i for i in items if i["category"] and is_exclusive(i["title"]) and any(k in name_key(i["title"]) for k in keys)]
-            return cluster_news(items)[:BRIEF_NEWS_MAX]
+    # 뉴스는 모두 구글 뉴스로 찾는다 (네이버 키가 없어도 됨)
+    def google(terms, days, domains, keyword=""):
+        items, err = google_news(terms, days, domains, keyword)
+        if err:
+            raise NewsApiError(err)
+        return items
 
-        b["news"] = step("최근 단독 뉴스를 찾는 중...", "news", news)
+    def news():
+        names = news_names(name)
+        items = google(names, BRIEF_NEWS_DAYS, list(PUBLISHERS), "단독")
+        keys = [name_key(t) for t in names]
+        items = [i for i in items if i["category"] and is_exclusive(i["title"]) and any(k in name_key(i["title"]) for k in keys)]
+        return cluster_news(items)[:BRIEF_NEWS_MAX]
 
-        def news_all():  # 단독 표기와 상관없는 일반 기사 (동향 요약용)
-            items, _, _ = search_news([name], BRIEF_NEWS_DAYS, keyword="")
-            key = name_key(name)
-            items = [i for i in items if i["category"] and key in name_key(i["title"]) and not is_exclusive(i["title"])]  # 단독은 위 목록에 있음
-            return cluster_news(items)[:BRIEF_TREND_NEWS_MAX]
+    b["news"] = step("최근 단독 뉴스를 찾는 중...", "news", news)
 
-        b["news_all"] = step("최근 기사를 찾는 중...", "news_all", news_all)
-    else:
-        b["news"] = None
-        b["news_all"] = None
+    def wire():  # 연합뉴스·뉴시스·뉴스1 기사 (브리핑 화면에는 보이지 않고 동향 요약에만 쓴다)
+        names = news_names(name)
+        items = google(names, BRIEF_TREND_DAYS, list(WIRE_DOMAINS))
+        keys = [name_key(t) for t in names]
+        items = [i for i in items if i["category"] == "통신사" and any(k in name_key(i["title"]) for k in keys)]
+        return cluster_news(items)[:BRIEF_WIRE_MAX]
+
+    b["wire"] = step("최근 통신 기사를 찾는 중...", "wire", wire)
+
+    def news_all():  # 단독 표기와 상관없는 일반 기사 (동향 요약용)
+        items = google([name], BRIEF_NEWS_DAYS, list(PUBLISHERS), "")
+        key = name_key(name)
+        items = [i for i in items if i["category"] and key in name_key(i["title"]) and not is_exclusive(i["title"])]  # 단독은 위 목록에 있음
+        return cluster_news(items)[:BRIEF_TREND_NEWS_MAX]
+
+    b["news_all"] = step("최근 기사를 찾는 중...", "news_all", news_all)
     return b
 
 
@@ -7165,7 +7202,7 @@ def render_brief_trend(b):
         st.caption("동향 요약을 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude) 또는 GEMINI_API_KEY(Gemini)를 추가해주세요.")
         return
     has_disc = b.get("disc") is not None and not b["disc"].empty
-    if not (has_disc or b.get("news") or b.get("news_all")):
+    if not (has_disc or b.get("news") or b.get("wire") or b.get("news_all")):
         st.caption("요약할 최근 공시·기사가 없어요.")
         return
     prompt = brief_trend_prompt(b)
@@ -7179,12 +7216,15 @@ def render_brief_trend(b):
             else:
                 st.session_state["brief_trend"] = {"sig": sig, "text": text, "model": used}
     saved = st.session_state.get("brief_trend")
-    n_news = len(b.get("news") or []) + len(b.get("news_all") or [])
+    n_news = len(b.get("news") or []) + len(b.get("wire") or []) + len(b.get("news_all") or [])
+    for key, label in (("wire", "통신 기사"), ("news_all", "일반 기사")):
+        if b["errors"].get(key):
+            st.caption(f"{label}를 불러오지 못해 빼고 정리해요: {b['errors'][key]}")
     if saved and saved["sig"] == sig:
         st.markdown(brief_trend_linkify(saved["text"], brief_trend_sources(b)))
         st.caption(f"AI 분석({saved['model']}) · 공시 제목과 기사 제목만 보고 정리한 것이에요. 본문은 읽지 않았으니 원문 확인이 필요해요")
     else:
-        st.caption(f"누르면 최근 주요 공시 {0 if not has_disc else len(b['disc'])}건과 기사 {n_news}묶음의 제목을 종합해 이슈를 정리해 줘요. (기사는 검색된 최근 기사 중 주요 언론사 것만 봐요)")
+        st.caption(f"누르면 최근 주요 공시 {0 if not has_disc else len(b['disc'])}건과 기사 {n_news}묶음의 제목을 종합해 이슈를 정리해 줘요. (기사는 최근 1주일 단독·통신 기사와 일반 기사 중 주요 언론사 것만 봐요. 통신 기사는 브리핑 화면에는 보이지 않아요)")
 
 
 def render_brief_result(b):
@@ -7226,9 +7266,7 @@ def render_brief_result(b):
                      height=min(len(b["disc"]) + 1, 14) * 35 + 3)
 
     st.markdown("##### 최근 한 달 단독 뉴스")
-    if b.get("news") is None and "news" not in errs:
-        st.caption("뉴스를 함께 보려면 Streamlit Secrets에 NAVER_CLIENT_ID, NAVER_CLIENT_SECRET을 추가해주세요.")
-    elif errs.get("news"):
+    if errs.get("news"):
         st.warning(errs["news"])
     elif not b["news"]:
         st.info("최근 한 달 동안 제목에 [단독]이 붙은 기사가 없어요.")

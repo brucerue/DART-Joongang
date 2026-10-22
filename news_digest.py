@@ -1,6 +1,6 @@
-"""산업 뉴스 자동 발송: 정해진 시각에 섹터별 통신/단독 뉴스를 찾아 텔레그램으로 보낸다.
+"""산업 뉴스·공시 자동 발송: 정해진 시각에 섹터별 통신/단독 뉴스와 주요 공시를 찾아 텔레그램으로 보낸다.
 
-- GitHub Actions(.github/workflows/news_digest.yml)가 하루 세 번(07:00, 13:00, 17:00 한국 시간) 실행한다.
+- GitHub Actions(.github/workflows/news_digest.yml)가 정해진 시각(한국 시간 06~19시 매시 정각)에 실행한다.
 - 섹터·기업·언론사·별칭 같은 데이터는 같은 폴더의 app.py에서 그대로 읽어 온다(앱을 고치면 여기도 따라 바뀜).
 - 이미 보낸 기사는 digest_seen.json에 기록해 두고 다시 보내지 않는다.
 
@@ -10,9 +10,10 @@
       [{"name":"나상현","chat_id":"111","sectors":["자동차","배터리"],"modes":["통신","단독"]},
        {"name":"김OO","chat_id":"222","sectors":["방산","조선·해운"]}]
       sectors·modes를 생략하면 전부 받음. (없으면 subscribers.json 파일, 그것도 없으면 TELEGRAM_CHAT_ID 한 명)
+  DART_API_KEY                                   (공시 모드용) DART 오픈API 인증키
   NAVER_CLIENT_ID, NAVER_CLIENT_SECRET           (선택) 단독 모드에서 구글 결과가 적을 때 보충
   DIGEST_SEND_EMPTY=1                            (선택) 새 기사가 없어도 '없음' 알림을 보냄
-사용: python news_digest.py [--mode 통신|단독] [--sectors 자동차,배터리] [--dry-run]
+사용: python news_digest.py [--mode 통신|단독|공시] [--sectors 자동차,배터리] [--dry-run]
       python news_digest.py --who      봇에게 말을 건 사람들의 chat id 확인
 """
 import argparse
@@ -39,13 +40,19 @@ SEEN_FILE = os.path.join(HERE, "digest_seen.json")
 
 # ---------- 설정: 받고 싶은 섹터·조회 방식 ----------
 SECTORS = ["자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재"]
-MODES = ["통신", "단독"]
+MODES = ["통신", "단독", "공시"]
 LOOKBACK_HOURS = 36  # 이 시간 안에 올라온 기사만 (이미 보낸 기사는 기록으로 걸러냄)
 MAX_PER_SECTOR = 100  # 섹터마다 메시지에 싣는 최대 묶음 수 (넘으면 '외 N건'). 길면 텔레그램 메시지가 여러 통으로 나뉨
+USE_NAVER = os.environ.get("USE_NAVER", "").strip().lower() in ("1", "true", "yes", "on")  # 기본은 꺼짐(구글 뉴스만). 네이버 보충을 쓰려면 환경변수 USE_NAVER=1 (워크플로 env에 추가)
 NAVER_MIN = 5  # 단독 모드: 구글에서 찾은 단독 기사가 이보다 적으면 네이버로 보충
 WIRE_DOMAINS = ("yna.co.kr", "newsis.com", "news1.kr")
 SITE_CHUNK = 8
 TIMEOUT = 20
+DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
+DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
+DISCLOSURE_DAYS = 2  # 공시 모드: 오늘과 어제 접수분을 확인 (이미 보낸 공시는 기록으로 걸러냄)
+MAX_DART_PAGES = 30  # 시장마다 하루 최대 3,000건까지만 확인
+DISCLOSURE_SKIP = []  # 알림에서 뺄 보고서명 단어 (예: ["소유상황"] 이면 임원·주요주주 지분 보고는 안 보냄)
 # -----------------------------------------------------
 
 
@@ -55,8 +62,8 @@ def load_app_data():
     tree = ast.parse(src)
     consts, funcs = {}, {}
     want_consts = {"LETTER_NAMES", "WORD_READINGS", "PUBLISHERS", "SIMILAR_TITLE", "NEWS_ALIASES", "NAME_READINGS",
-                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH"}
-    want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news"}
+                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK"}
+    want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "disclosure_key"}
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
@@ -209,6 +216,61 @@ def naver_search(terms, cutoff):
 
 
 # ---------- 한 섹터 조회 ----------
+def fetch_dart_day(api_key, ymd, cls):
+    """하루치 전체 공시(한 시장). DART 공시 목록 API를 페이지별로 받는다. 데이터 없음(013)은 빈 목록."""
+    def page(n):
+        res = requests.get(DART_LIST_URL, timeout=TIMEOUT, params={
+            "crtfc_key": api_key, "bgn_de": ymd, "end_de": ymd, "corp_cls": cls,
+            "last_reprt_at": "N", "page_no": n, "page_count": 100})
+        res.raise_for_status()
+        jo = res.json()
+        if jo.get("status") == "013":
+            return {"list": [], "total_page": 0}
+        if jo.get("status") != "000":
+            raise RuntimeError(f"DART 오류 {jo.get('status')}: {jo.get('message')}")
+        return jo
+    first = page(1)
+    rows = list(first.get("list", []))
+    last = min(int(first.get("total_page", 1) or 1), MAX_DART_PAGES)
+    if last > 1:
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            for jo in pool.map(page, range(2, last + 1)):
+                rows.extend(jo.get("list", []))
+    return rows
+
+
+def fetch_dart_feed(now):
+    """오늘·어제(한국 날짜)에 접수된 전 상장사(코스피·코스닥) 공시. 한 번 받아 모든 섹터가 같이 쓴다."""
+    api_key = os.environ.get("DART_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("DART_API_KEY가 없어요. GitHub Secrets에 DART API 키를 DART_API_KEY로 등록하세요.")
+    days = [(now - timedelta(days=d)).strftime("%Y%m%d") for d in range(DISCLOSURE_DAYS)]
+    rows = []
+    for ymd in days:
+        for cls in ("Y", "K"):
+            rows.extend(fetch_dart_day(api_key, ymd, cls))
+    return rows
+
+
+def disclosure_items(feed, sector):
+    """시장 전체 공시 중 섹터 기업의 '주요 공시'만 골라, 뉴스 항목과 같은 모양으로 돌려준다 (최신순)."""
+    keys = {name_key(n) for n in A["INDUSTRY_GROUPS"].get(sector, [])}
+    major = [A["disclosure_key"](w) for ws in A["MAJOR_DISCLOSURES"].values() for w in ws]
+    skip = [A["disclosure_key"](w) for w in DISCLOSURE_SKIP]
+    out = []
+    for r in feed:
+        if name_key(r.get("corp_name", "")) not in keys:
+            continue
+        rk = A["disclosure_key"](r.get("report_nm", ""))
+        if not any(m in rk for m in major) or any(x in rk for x in skip):
+            continue
+        no = str(r.get("rcept_no", ""))
+        out.append({"title": f"[{r.get('corp_name', '')}] {str(r.get('report_nm', '')).strip()}", "url": DART_VIEW_URL.format(no),
+                    "publisher": "DART", "key": no})
+    out.sort(key=lambda x: x["key"], reverse=True)  # 접수번호가 클수록 나중에 접수
+    return out
+
+
 def collect(mode, sector, cutoff):
     search, owner = sector_terms(sector)
     if mode == "통신":
@@ -219,12 +281,14 @@ def collect(mode, sector, cutoff):
     else:
         items, err = google_search(search, list(A["PUBLISHERS"]), "단독", cutoff)
         few = sum(is_exclusive(i["title"]) for i in items) < NAVER_MIN
-        if err or few:
+        if USE_NAVER and (err or few):
             have = {title_key(i["title"]) for i in items}
             extra = [n for n in naver_search(search, cutoff) if title_key(n["title"]) not in have]
             if err and not extra:  # 구글이 막혔는데 네이버도 못 쓰면 실패로 기록
                 raise RuntimeError(f"구글 뉴스 오류: {err}")
             items += extra
+        elif err:
+            raise RuntimeError(f"구글 뉴스 오류: {err}")
         items = [i for i in items if i["category"] and is_exclusive(i["title"])]
     keys = {n: name_key(n) for n in owner}
     out = []
@@ -248,7 +312,8 @@ def vlen(text):
 def build_messages(mode, now, sections):
     """sections: [(섹터, [묶음...], 숨겨진 묶음 수)] -> 텔레그램 메시지 목록(보이는 글자 기준 4,000자 이하, 넘으면 여러 통)"""
     limit = 4000
-    head = f"<b>📰 산업 뉴스 · {mode} · {now:%m/%d %H:%M}</b>"
+    label = "📋 주요 공시" if mode == "공시" else f"📰 산업 뉴스 · {mode}"
+    head = f"<b>{label} · {now:%m/%d %H:%M}</b>"
     cont = head + " (이어서)"
     msgs, cur = [], head
 
@@ -341,7 +406,7 @@ def load_subscribers():
     for d in data:
         sectors = d.get("sectors") or SECTORS
         modes = d.get("modes") or MODES
-        bad = [x for x in sectors if x not in A["NEWS_SECTORS"]] + [m for m in modes if m not in ("통신", "단독")]
+        bad = [x for x in sectors if x not in A["NEWS_SECTORS"]] + [m for m in modes if m not in MODES]
         if bad:
             raise SystemExit(f"{d.get('name', d.get('chat_id'))}: 알 수 없는 섹터/모드 {bad}")
         subs.append({"name": d.get("name") or str(d["chat_id"]), "chat_id": str(d["chat_id"]), "sectors": list(sectors), "modes": list(modes)})
@@ -410,11 +475,21 @@ def main():
     need = sorted({(m, s) for sub in subs for m in sub["modes"] for s in sub["sectors"]},
                   key=lambda x: (MODES.index(x[0]), SECTORS.index(x[1]) if x[1] in SECTORS else 99))
     found, failed = {}, set()
+    feed = None
     for mode, sector in need:
         try:
-            found[(mode, sector)] = collect(mode, sector, cutoff)
+            if mode == "공시":
+                if feed is None:
+                    feed = fetch_dart_feed(now)
+                if feed is False:
+                    raise RuntimeError("DART 공시를 받지 못해 건너뜀 (위 오류 참고)")
+                found[(mode, sector)] = disclosure_items(feed, sector)
+            else:
+                found[(mode, sector)] = collect(mode, sector, cutoff)
         except Exception as e:
             failed.add((mode, sector))
+            if mode == "공시":
+                feed = False if feed is None else feed  # 같은 회차에 DART를 되풀이해 부르지 않는다
             print(f"[{mode}/{sector}] 조회 실패: {e}", file=sys.stderr)
     if need and len(failed) == len(need):
         raise SystemExit("모든 조회가 실패했어요.")
@@ -430,21 +505,21 @@ def main():
                     continue
                 fresh = []
                 for i in found[(mode, sector)]:
-                    k = f"{chat}|{mode}|{title_key(i['title'])}"
+                    k = f"{chat}|{mode}|{i['key'] if mode == '공시' else title_key(i['title'])}"
                     if k in seen or k in placed:
                         continue
                     placed.add(k)
                     fresh.append(i)
-                clusters = cluster_news(fresh)
+                clusters = [{"rep": i, "others": []} for i in fresh] if mode == "공시" else cluster_news(fresh)
                 for c in clusters:
-                    new_keys += [f"{chat}|{mode}|{title_key(it['title'])}" for it in [c["rep"]] + c["others"]]
+                    new_keys += [f"{chat}|{mode}|{it['key'] if mode == '공시' else title_key(it['title'])}" for it in [c["rep"]] + c["others"]]
                 if clusters:
                     sections.append((sector, clusters[:MAX_PER_SECTOR], max(0, len(clusters) - MAX_PER_SECTOR)))
             print(f"[{sub['name']}/{mode}] 새 묶음 {sum(len(c) + h for _, c, h in sections)}건 ({len(sections)}개 섹터)")
             try:
                 if not sections:
                     if os.environ.get("DIGEST_SEND_EMPTY") == "1" and not dry:
-                        send_telegram(f"📰 산업 뉴스 · {mode} · {now:%m/%d %H:%M}\n새 기사가 없어요.", token, chat)
+                        send_telegram(f"{'📋 주요 공시' if mode == '공시' else '📰 산업 뉴스 · ' + mode} · {now:%m/%d %H:%M}\n새 {'공시' if mode == '공시' else '기사'}가 없어요.", token, chat)
                     continue
                 for text in build_messages(mode, now, sections):
                     if dry:
