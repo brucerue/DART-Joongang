@@ -358,7 +358,7 @@ PUBLISHERS = {
 # 언론사 도메인 아래에 있어도 기사가 아닌 곳(커뮤니티·게시판 등)은 뺀다. 필요하면 여기에 추가하세요.
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.22 10:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.22 11:15"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -1372,6 +1372,21 @@ def collect_industry(corps, year, period):
             y_key: period_values({c: got.get((name, y, c)) for c in period_codes(period)}, period)
             for y_key, y in (("now", year), ("prev", year - 1))
         }
+    if period in ("1Q", "2Q", "3Q", "4Q"):  # 분기보고서 전 단계: 영업(잠정)실적 공시가 있으면 매출액·영업이익만 보태고 '*'로 표시
+        q = int(period[0])
+        empty = {"rev": None, "op": None, "net": None}
+        for name, code in corps:
+            now = out[name]["now"]
+            if any(now[k] is not None for k in ("rev", "op", "net")):
+                continue
+            try:
+                filled = {(year, i): {"rev": 0, "op": 0, "net": 0} for i in range(1, 5) if i != q}  # 다른 분기는 조회 대상이 아님
+                found, _ = collect_provisional(code, {**filled, (year, q): empty}, year, year)
+            except Exception:  # 잠정실적을 못 읽어도 나머지 결과는 그대로
+                continue
+            if (year, q) in found:
+                v = found[(year, q)]
+                out[name]["now"] = {"rev": v["rev"], "op": v["op"], "net": None, "link": v["link"], "prov": True}
     return out
 
 
@@ -1420,7 +1435,7 @@ def industry_result(data, unit):
                     both[k]["n"] += 1
         margin = now["op"] / now["rev"] * 100 if now["op"] is not None and now["rev"] else None
         rows.append({
-            "회사": corp,
+            "회사": corp + ("*" if now.get("prov") else ""),
             "매출액": fmt_amount(now["rev"], unit), "매출 전년比": fmt_change(pct_change(now["rev"], prev["rev"])),
             "영업이익": fmt_amount(now["op"], unit), "영업이익 전년比": fmt_change(op_change(now["op"], prev["op"])),
             "영업이익률": f"{margin:.1f}%" if margin is not None else "-",
@@ -3668,6 +3683,8 @@ def render_industry():
         return
     empty = [c for c, d in res["data"].items() if all(d["now"][k] is None for k in ("rev", "op", "net"))]
     st.caption(f"{when} · 연결 기준 · 단위: {unit} · 전년比는 두 해 모두 공시된 회사끼리 비교")
+    if any(d["now"].get("prov") for d in res["data"].values()):
+        st.caption("\\*잠정실적: 분기보고서 제출 전, '영업(잠정)실적(공정공시)'에서 읽은 매출액·영업이익만 보여줘요(연결 기준). 합계에도 포함돼 있고 확정치와 다를 수 있어요")
     if empty:
         st.caption(f"실적이 없어 합계에서 빠진 회사: {', '.join(empty)}")
     st.dataframe(
@@ -4780,7 +4797,7 @@ def render_global_news():
 
 
 NEWS_ALWAYS_SEARCH = {"엘에스일렉트릭": ["LS일렉트릭"]}
-MAX_NEWS_TERMS = {"통신": 100, "단독": 40}  # 검색어 칸에 넣을 수 있는 검색어 수 (섹터를 여러 개 고르면 많아짐). 통신은 구글 뉴스라 한도가 넉넉함
+MAX_NEWS_TERMS = {"통신": 100, "단독": 100}  # 검색어 칸에 넣을 수 있는 검색어 수 (섹터를 여러 개 고르면 많아짐). 통신은 구글 뉴스라 한도가 넉넉함
 NEWS_ALIAS_LIMIT = 5  # 검색어가 이 수 이하일 때만 줄임말(별칭)도 따로 검색 (그 이상이면 호출이 너무 많아져 제목 확인에만 씀)
 NEWS_KINDS = {  # 조회 방식 -> 검색 때 붙이는 말(None=단독), 보여줄 언론사 구분
     "통신": {"keyword": "", "need_exclusive": False},
