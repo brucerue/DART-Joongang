@@ -1,0 +1,49 @@
+name: 기업 목록 만들기
+
+# 매일 DART 기업 고유번호 중 상장사만 골라 'corp-codes' 브랜치에 저장합니다.
+# 앱은 이 파일을 먼저 읽어서, DART 서버가 느리거나 막혀도 기업명 검색이 바로 열리게 합니다.
+on:
+  schedule:
+    - cron: "20 20 * * *" # 한국 시간 매일 05시 20분
+  workflow_dispatch:
+
+permissions:
+  contents: write # corp-codes 브랜치에 올리기 위해 필요
+
+concurrency:
+  group: corp-codes
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 상장사 목록 만들기
+        run: python corp_codes.py --out corp_codes.csv
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      - name: corp-codes 브랜치에 올리기 (기록을 남기지 않고 한 커밋으로 덮어씀)
+        run: |
+          mkdir -p out && cp corp_codes.csv out/
+          cd out
+          git init -q -b corp-codes
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add corp_codes.csv
+          git commit -q -m "corp codes $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" corp-codes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 실패 알림
+        if: failure()
+        run: python news_digest.py --alert corp
+        env:
+          PREFS_URL: ${{ secrets.PREFS_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
