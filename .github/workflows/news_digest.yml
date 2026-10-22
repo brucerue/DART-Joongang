@@ -52,6 +52,12 @@ jobs:
           path: digest_seen.json
           key: digest-seen-${{ github.run_id }}
           restore-keys: digest-seen-
+      # 받는 사람이 봇 명령(/섹터 등)으로 바꾼 설정 (30분마다 도는 '알람 명령 확인'과 함께 쓰는 저장소)
+      - uses: actions/cache@v4
+        with:
+          path: digest_prefs.json
+          key: digest-prefs-${{ github.run_id }}
+          restore-keys: digest-prefs-
       - name: 뉴스 조회 후 텔레그램 발송
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
