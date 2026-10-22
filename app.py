@@ -358,7 +358,7 @@ PUBLISHERS = {
 # 언론사 도메인 아래에 있어도 기사가 아닌 곳(커뮤니티·게시판 등)은 뺀다. 필요하면 여기에 추가하세요.
 PUBLISHER_BLOCK = ("mlbpark.donga.com",)
 
-LAST_UPDATED = "2026.10.22 09:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.22 10:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -907,6 +907,93 @@ def quarter_values(r1, r2, r3, r4, names, ids=None):
     return [q1, q2, q3, q4]
 
 
+# ------------------------------------------------------------
+# 잠정실적: 분기보고서가 나오기 전, '영업(잠정)실적(공정공시)'에서 매출액·영업이익만 읽어 분기별 표에 보태 보여준다.
+# ------------------------------------------------------------
+PROV_UNITS = {"원": 1, "천원": 10**3, "백만원": 10**6, "억원": 10**8, "십억원": 10**9, "조원": 10**12}
+PROV_REV_LABELS = ("매출액", "영업수익", "수익(매출액)")
+PROV_OP_LABELS = ("영업이익", "영업손익", "영업손실")
+
+
+def parse_amount_cell(cell):
+    """표 칸 -> 숫자. '1,234', '(1,234)', '△1,234', '-1,234'는 마이너스 처리. 숫자가 아니면 None."""
+    t = str(cell).strip().replace(" ", "")
+    m = re.fullmatch(r"([\(\-△▲]?)([\d,]+(?:\.\d+)?)\)?", t)
+    if not m or not re.search(r"\d", m.group(2)):
+        return None
+    v = float(m.group(2).replace(",", ""))
+    return -v if m.group(1) else v
+
+
+def parse_provisional(text, rcept_dt):
+    """영업(잠정)실적 공시 원문 글자 -> {"rev": 원, "op": 원, "year", "quarter"} 또는 None.
+    표의 '매출액'·'영업이익' 줄에서 맨 앞 숫자(당해 분기 실적)를 읽는다. 단위·분기를 확인하지 못하면 None."""
+    unit = re.search(r"단위\s*[:：]\s*([가-힣]+)", text)
+    mult = PROV_UNITS.get(unit.group(1)) if unit else None
+    if not mult:
+        return None
+    rev = op = None
+    for line in text.split("\n"):
+        cells = [c.strip() for c in line.split("|") if c.strip()]
+        if len(cells) < 2:
+            continue
+        label = re.sub(r"\s", "", cells[0])
+        vals = [parse_amount_cell(c) for c in cells[1:]]
+        vals = [v for v in vals if v is not None]
+        if not vals:
+            continue
+        if rev is None and label.startswith(PROV_REV_LABELS) and "대비" not in label and "비율" not in label:
+            rev = vals[0] * mult
+        elif op is None and label.startswith(PROV_OP_LABELS) and "대비" not in label and "비율" not in label:
+            op = vals[0] * mult
+        if rev is not None and op is not None:
+            break
+    if rev is None and op is None:
+        return None
+    month = int(str(rcept_dt)[4:6])
+    year = int(str(rcept_dt)[:4])
+    found = re.search(r"([1-4])\s*분기", text[:3000])
+    if found:
+        quarter = int(found.group(1))
+    else:  # 원문에 분기 글자가 없으면 접수 시기로 짐작 (1분기 4~5월, 반기 7~8월, 3분기 10~11월, 연간 1~3월)
+        quarter = {1: 4, 2: 4, 3: 4, 4: 1, 5: 1, 7: 2, 8: 2, 10: 3, 11: 3}.get(month)
+        if quarter is None:
+            return None
+    if quarter == 4 and month <= 6:
+        year -= 1  # 연간(4분기) 잠정실적은 이듬해 1~3월에 나온다
+    return {"rev": rev, "op": op, "year": year, "quarter": quarter}
+
+
+def quarter_end(year, quarter):
+    return date(year, quarter * 3, 30 if quarter in (2, 3) else 31)
+
+
+def collect_provisional(corp_code, data, start, end):
+    """분기보고서가 아직 없는 분기 중 영업(잠정)실적 공시가 있는 분기를 {(연, 분기): {rev, op, link}}로 돌려준다.
+    연결재무제표기준 공시만 쓰고(표는 연결 기준), 같은 분기 공시가 여럿이면 가장 최근 것을 쓴다."""
+    missing = [(y, q) for y in range(start, end + 1) for q in range(1, 5)
+               if y >= TODAY.year - 1 and quarter_end(y, q) <= TODAY
+               and all(data.get((y, q), {}).get(k) is None for k in ("rev", "op", "net"))]
+    if not missing:
+        return {}
+    since = max(date(min(y for y, _ in missing), 1, 1), TODAY - timedelta(days=400))
+    rows, _, _ = collect_disclosures(corp_code, since, TODAY, "I")  # 거래소공시(공정공시 포함), 최신순
+    session, store = get_session(), get_cache_store()
+    out = {}
+    for r in rows:
+        name = disclosure_key(r.get("report_nm", ""))
+        if "영업잠정실적" not in name or "연결" not in name:
+            continue
+        try:
+            got = parse_provisional(fetch_document_text(session, store, r["rcept_no"]), r.get("rcept_dt", ""))
+        except (AiError, KeyError, ValueError):
+            continue
+        key = got and (got["year"], got["quarter"])
+        if key in missing and key not in out:  # 최신 공시가 먼저 오므로 처음 읽은 것이 가장 최근
+            out[key] = {"rev": got["rev"], "op": got["op"], "link": DART_VIEW_URL.format(r["rcept_no"])}
+    return out
+
+
 def collect_quarterly(corp_code, start, end, tick):
     years = range(start - 1, end + 1)
     codes = (Q1, H1, Q3, ANNUAL)
@@ -930,6 +1017,16 @@ def collect_quarterly(corp_code, start, end, tick):
                 continue
             qoq = data[(y, q - 1)] if q > 1 else data[(y - 1, 4)]
             records.append(make_record(f"{y} {q}Q", (y, q), cur, yoy=data[(y - 1, q)], qoq=qoq))
+    st.session_state["fin_prov_note"] = ""
+    try:  # 분기보고서 전 단계: 영업(잠정)실적 공시가 있으면 매출액·영업이익만 보태고 '*'로 표시
+        for (y, q), v in sorted(collect_provisional(corp_code, data, start, end).items()):
+            cur = {"rev": v["rev"], "op": v["op"], "net": None, "link": v["link"], "bs": None}
+            qoq = data.get((y, q - 1)) if q > 1 else data.get((y - 1, 4))
+            rec = make_record(f"{y} {q}Q*", (y, q), cur, yoy=data.get((y - 1, q)), qoq=qoq)
+            rec["prov"] = True
+            records.append(rec)
+    except Exception as e:  # 잠정실적을 못 읽어도 확정 실적 표는 그대로 보여준다
+        st.session_state["fin_prov_note"] = "잠정실적 공시를 확인하지 못했어요 (확정 실적만 표시)" + (f": {e}" if isinstance(e, (DartApiError, AiError)) else "")
     return records
 
 
@@ -3308,13 +3405,15 @@ def render_financials():
         else:
             st.session_state["fin_start"], st.session_state["fin_end"] = 2021, this_year - 1
 
+    st.session_state.setdefault("fin_start", 2021)  # 기간 기본값 (조회 단위를 바꾸면 위 함수가 다시 채운다)
+    st.session_state.setdefault("fin_end", this_year - 1)
     # 조회 단위는 폼 밖에 둔다(폼 안에서는 '조회'를 눌러야 반영돼 기간 기본값이 바로 바뀌지 않음)
     period = st.radio("조회 단위", ["연도별", "분기별"], horizontal=True, key="fin_period", on_change=set_default_years)
     with st.form("search"):
         corp_text = st.text_input("기업명 또는 종목코드", key="fin_corp", placeholder="예: 삼성전자 또는 005930")
         c1, c2 = st.columns(2)
-        start = c1.number_input("시작연도", min_value=2015, max_value=this_year, value=2021, step=1, key="fin_start")
-        end = c2.number_input("종료연도", min_value=2015, max_value=this_year, value=this_year - 1, step=1, key="fin_end")
+        start = c1.number_input("시작연도", min_value=2015, max_value=this_year, step=1, key="fin_start")
+        end = c2.number_input("종료연도", min_value=2015, max_value=this_year, step=1, key="fin_end")
         submitted = st.form_submit_button("조회") or st.session_state.pop("fin_run", False)
 
     if submitted:
@@ -3365,6 +3464,10 @@ def render_financials():
     table = build_table(result["records"], result["period"], unit=unit)
     basis = "연결 기준" if FS_DIV == "CFS" else "별도 기준"  # 지금은 항상 연결재무제표(CFS)로 조회
     st.caption(f"단위: {unit} · {basis}")
+    if any(r.get("prov") for r in result["records"]):
+        st.caption("* 잠정실적: 분기보고서 제출 전, '영업(잠정)실적(공정공시)'에서 읽은 매출액·영업이익만 보여줘요(연결 기준). 순이익·재무상태는 분기보고서가 나온 뒤에 표시돼요. 확정치와 다를 수 있어요")
+    elif st.session_state.get("fin_prov_note") and result["period"] == "분기별":
+        st.caption(st.session_state["fin_prov_note"])
     # 스크롤 없이 전체가 보이도록 높이를 행 수에 맞춘다 (머리글 1줄 + 데이터 행, 한 줄당 약 35px)
     st.dataframe(
         style_table(table),
