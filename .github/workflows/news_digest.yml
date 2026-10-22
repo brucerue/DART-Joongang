@@ -22,6 +22,10 @@ on:
         description: "이미 보낸 기사도 다시 보내기 (보낸 기록은 남기지 않음)"
         type: boolean
         default: false
+      auto:
+        description: "정시 자동 실행용(Worker가 켬): 받는 사람이 정한 받는 시간 밖이면 건너뜀. 수동 시험에서는 끄세요"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -66,10 +70,21 @@ jobs:
           IN_MODE: ${{ inputs.mode }}
           IN_SECTORS: ${{ inputs.sectors }}
           IN_FORCE: ${{ inputs.force }}
+          IN_AUTO: ${{ inputs.auto }}
         run: |
           args=()
           [ -n "$IN_ONLY" ] && args+=(--only "$IN_ONLY")
           [ -n "$IN_MODE" ] && [ "$IN_MODE" != "전체" ] && args+=(--mode "$IN_MODE")
           [ -n "$IN_SECTORS" ] && args+=(--sectors "$IN_SECTORS")
           [ "$IN_FORCE" = "true" ] && args+=(--force)
+          [ "$IN_AUTO" = "true" ] && args+=(--auto)
           python news_digest.py "${args[@]}"
+      # 위 단계가 실패하면 관리자(나)에게 텔레그램으로 알림 (같은 종류는 1시간에 한 번만)
+      - name: 실패 알림
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          PREFS_URL: ${{ secrets.PREFS_URL }}
+          IN_MODE: ${{ inputs.mode }}
+        run: python news_digest.py --alert digest

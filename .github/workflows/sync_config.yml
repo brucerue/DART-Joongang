@@ -34,3 +34,10 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DIGEST_SUBSCRIBERS: ${{ secrets.DIGEST_SUBSCRIBERS }}
           PREFS_URL: ${{ secrets.PREFS_URL }}
+      - name: 실패 알림
+        if: failure()
+        run: python news_digest.py --alert sync
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          PREFS_URL: ${{ secrets.PREFS_URL }}
