@@ -554,6 +554,29 @@ def handle_updates(token, admin_chat, base_subs, dry):
     return changed
 
 
+def send_guides(token, subs, dry):
+    """받는 사람 각자에게 명령어 안내를 딱 한 번 보낸다(보냈다는 표시는 설정 저장소에 남음). 새로 추가된 사람도 처음 한 번 받는다."""
+    prefs = load_prefs()
+    todo = [s for s in subs if not (prefs.get(s["chat_id"]) or {}).get("guided")]
+    if not todo:
+        return
+    text = html.escape("📌 알람 설정을 직접 바꿀 수 있어요.\n\n" + HELP_TEXT, quote=False)
+    done = False
+    for sub in todo:
+        if dry:
+            print(f"[명령어 안내 → {sub['name']}] (시험 모드라 보내지 않음)")
+            continue
+        try:
+            send_telegram(text, token, sub["chat_id"])
+        except Exception as e:
+            print(f"(명령어 안내 실패 {sub['name']}: {e})", file=sys.stderr)
+            continue
+        prefs.setdefault(sub["chat_id"], {})["guided"] = True
+        done = True
+    if done:
+        save_prefs(prefs)
+
+
 def apply_prefs(subs, prefs, keep_paused=False):
     """받는 사람 목록에 봇 명령으로 바꾼 설정을 덧씌운다. 멈춘 사람은 뺀다(keep_paused면 둔다)."""
     out = []
@@ -650,6 +673,8 @@ def main():
     base_subs = load_subscribers()
     if token:  # 알람 신청·받는 사람 명령(/섹터 등)을 먼저 처리해서, 이번 발송부터 바뀐 설정을 쓴다
         handle_updates(token, os.environ.get("ADMIN_CHAT_ID", "").strip(), base_subs, args.dry_run)
+        if not args.only:
+            send_guides(token, base_subs, args.dry_run)
     if args.commands_only:
         print("명령 확인 끝")
         return
