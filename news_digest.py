@@ -389,6 +389,32 @@ def send_safely(text, token, chat_id):
         send_safely(second, token, chat_id)
 
 
+def sync_to_script(subs):
+    """PREFS_URL(구글 Apps Script)이 있으면, GitHub의 받는 사람 목록(Secret)과 app.py의 섹터·팀 목록을 거기로 보내
+    구글 쪽을 따로 고치지 않아도 되게 한다. 실패해도 발송은 계속한다. -> 성공 여부"""
+    url = os.environ.get("PREFS_URL", "").strip()
+    if not url or not subs:
+        return False
+    payload = {
+        "sync": True,
+        "subscribers": [{"name": x["name"], "chat_id": x["chat_id"], "sectors": x["sectors"], "modes": x["modes"]} for x in subs],
+        "sectors": list(A.get("ALARM_SECTORS") or []), "modes": list(A.get("ALARM_MODES") or MODES),
+        "teams": {k: list(v) for k, v in (A.get("TEAM_PRESETS") or {}).items()}, "defaults": list(SECTORS),
+    }
+    try:
+        res = requests.post(url, json=payload, timeout=TIMEOUT)
+        res.raise_for_status()
+        try:
+            ok = bool(res.json().get("ok"))
+        except ValueError:
+            ok = False
+        print(f"구글 스크립트와 동기화: {'완료' if ok else '응답을 확인하지 못함'} (받는 사람 {len(subs)}명)")
+        return ok
+    except Exception as e:
+        print(f"(구글 스크립트 동기화 실패: {type(e).__name__})", file=sys.stderr)
+        return False
+
+
 def fetch_remote_prefs():
     """PREFS_URL(구글 Apps Script가 즉시 응답하는 방식)이 있으면 거기서 받는 사람 설정을 읽어 PREFS_FILE에 저장한다.
     못 읽으면 마지막으로 저장해 둔 것을 그대로 쓴다. -> 사용 여부(True/False)"""
@@ -685,6 +711,7 @@ def main():
     ap.add_argument("--force", action="store_true", help="이미 보낸 기사도 다시 보내고, 보낸 기록은 남기지 않음 (시험용)")
     ap.add_argument("--who", action="store_true", help="봇에게 말을 건 사람의 chat id 목록을 보여주고 끝냄")
     ap.add_argument("--guide", action="store_true", help="--only와 같이 써서 명령어 안내를 그 사람에게만 시험으로 보냄 (안내는 평소에도 못 받은 사람에게 한 번 자동으로 감)")
+    ap.add_argument("--sync", action="store_true", help="받는 사람 목록·섹터·팀을 구글 스크립트(PREFS_URL)로 동기화하고 끝냄")
     ap.add_argument("--commands-only", action="store_true", help="뉴스는 보내지 않고, 알람 신청·받는 사람 명령만 처리하고 끝냄 (30분마다 도는 확인용)")
     args = ap.parse_args()
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -693,6 +720,14 @@ def main():
             raise SystemExit("TELEGRAM_BOT_TOKEN이 필요해요.")
         return show_chats(token)
     base_subs = load_subscribers()
+    if args.sync:
+        if not os.environ.get("PREFS_URL", "").strip():
+            raise SystemExit("PREFS_URL이 없어요. GitHub Secrets에 구글 스크립트 주소(PREFS_URL)를 등록하세요.")
+        if not sync_to_script(base_subs):
+            raise SystemExit("동기화에 실패했어요(위 메시지 참고).")
+        return
+    if not args.dry_run and not args.only:
+        sync_to_script(base_subs)  # 발송 때마다 구글 쪽도 최신으로 맞춘다 (실패해도 계속)
     remote = fetch_remote_prefs()  # PREFS_URL이 있으면: 텔레그램이 Apps Script로 바로 보내므로 여기서는 메시지를 읽지 않는다
     if token and not remote:  # 알람 신청·받는 사람 명령(/섹터 등)을 먼저 처리해서, 이번 발송부터 바뀐 설정을 쓴다
         handle_updates(token, os.environ.get("ADMIN_CHAT_ID", "").strip(), base_subs, args.dry_run)
