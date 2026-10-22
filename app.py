@@ -358,7 +358,7 @@ PUBLISHERS = {
 # 언론사 도메인 아래에 있어도 기사가 아닌 곳(커뮤니티·게시판 등)은 뺀다. 필요하면 여기에 추가하세요.
 PUBLISHER_BLOCK = ("mlbpark.donga.com",)
 
-LAST_UPDATED = "2026.10.22 10:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.22 10:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -952,7 +952,16 @@ def parse_provisional(text, rcept_dt):
         return None
     month = int(str(rcept_dt)[4:6])
     year = int(str(rcept_dt)[:4])
-    found = re.search(r"([1-4])\s*분기", text[:3000])
+    head = text[:4000]
+    tag = re.search(r"당기실적\s*\(\s*'?(\d{2})\.\s*([1-4])\s*Q", head) or re.search(r"'(\d{2})\.\s*([1-4])\s*Q", head)
+    period = re.search(r"(20\d\d)-(\d\d)-\d\d\s*\|?\s*~\s*\|?\s*(20\d\d)-(\d\d)-\d\d", head)
+    if tag:  # 열 제목 "당기실적 ('26.3Q)"
+        return {"rev": rev, "op": op, "year": 2000 + int(tag.group(1)), "quarter": int(tag.group(2))}
+    if period and period.group(1) == period.group(3) and period.group(2) in ("01", "04", "07", "10"):
+        # 실적기간 "2026-07-01 ~ 2026-09-30" (당기 3개월 구간일 때만)
+        if int(period.group(4)) - int(period.group(2)) == 2:
+            return {"rev": rev, "op": op, "year": int(period.group(1)), "quarter": int(period.group(4)) // 3}
+    found = re.search(r"([1-4])\s*분기", head)
     if found:
         quarter = int(found.group(1))
     else:  # 원문에 분기 글자가 없으면 접수 시기로 짐작 (1분기 4~5월, 반기 7~8월, 3분기 10~11월, 연간 1~3월)
@@ -975,23 +984,32 @@ def collect_provisional(corp_code, data, start, end):
                if y >= TODAY.year - 1 and quarter_end(y, q) <= TODAY
                and all(data.get((y, q), {}).get(k) is None for k in ("rev", "op", "net"))]
     if not missing:
-        return {}
+        return {}, ""
     since = max(date(min(y for y, _ in missing), 1, 1), TODAY - timedelta(days=400))
     rows, _, _ = collect_disclosures(corp_code, since, TODAY, "I")  # 거래소공시(공정공시 포함), 최신순
     session, store = get_session(), get_cache_store()
-    out = {}
+    out, cands, errors = {}, 0, []
     for r in rows:
         name = disclosure_key(r.get("report_nm", ""))
         if "영업잠정실적" not in name or "연결" not in name:
             continue
+        cands += 1
         try:
             got = parse_provisional(fetch_document_text(session, store, r["rcept_no"]), r.get("rcept_dt", ""))
-        except (AiError, KeyError, ValueError):
+        except (AiError, KeyError, ValueError) as e:
+            errors.append(str(e))
             continue
-        key = got and (got["year"], got["quarter"])
+        if got is None:
+            errors.append("원문 표에서 매출액·영업이익 또는 단위를 찾지 못함")
+            continue
+        key = (got["year"], got["quarter"])
         if key in missing and key not in out:  # 최신 공시가 먼저 오므로 처음 읽은 것이 가장 최근
             out[key] = {"rev": got["rev"], "op": got["op"], "link": DART_VIEW_URL.format(r["rcept_no"])}
-    return out
+    if out:
+        return out, ""
+    if not cands:
+        return out, "연결 영업(잠정)실적 공시를 찾지 못했어요"
+    return out, f"연결 영업(잠정)실적 공시 {cands}건을 찾았지만 읽지 못했어요 ({errors[0] if errors else '이미 확정 보고서가 있는 분기예요'})"
 
 
 def collect_quarterly(corp_code, start, end, tick):
@@ -1019,7 +1037,10 @@ def collect_quarterly(corp_code, start, end, tick):
             records.append(make_record(f"{y} {q}Q", (y, q), cur, yoy=data[(y - 1, q)], qoq=qoq))
     st.session_state["fin_prov_note"] = ""
     try:  # 분기보고서 전 단계: 영업(잠정)실적 공시가 있으면 매출액·영업이익만 보태고 '*'로 표시
-        for (y, q), v in sorted(collect_provisional(corp_code, data, start, end).items()):
+        found, why = collect_provisional(corp_code, data, start, end)
+        if why:
+            st.session_state["fin_prov_note"] = "잠정실적: " + why
+        for (y, q), v in sorted(found.items()):
             cur = {"rev": v["rev"], "op": v["op"], "net": None, "link": v["link"], "bs": None}
             qoq = data.get((y, q - 1)) if q > 1 else data.get((y - 1, 4))
             rec = make_record(f"{y} {q}Q*", (y, q), cur, yoy=data.get((y - 1, q)), qoq=qoq)
