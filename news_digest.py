@@ -412,6 +412,26 @@ def send_failure_alert(kind, token):
         print(f"(실패 알림 전송 오류: {type(e).__name__})", file=sys.stderr)
 
 
+def merge_approved(subs, approved):
+    """앱 '알람 받기' 신청을 관리자가 승인 버튼으로 받아들인 사람들(구글 스크립트가 보관)을 GitHub 명단에 합친다. 이미 명단에 있으면 GitHub 쪽이 우선."""
+    if not isinstance(approved, list):
+        return subs
+    have = {x["chat_id"] for x in subs}
+    out = list(subs)
+    for d in approved:
+        try:
+            cid = str(d["chat_id"]).strip()
+        except (KeyError, TypeError):
+            continue
+        if not cid or cid in have:
+            continue
+        sectors = [x for x in (d.get("sectors") or []) if x in A["NEWS_SECTORS"]] or list(SECTORS)
+        modes = [m for m in (d.get("modes") or []) if m in MODES] or list(MODES)
+        out.append({"name": str(d.get("name") or cid), "chat_id": cid, "sectors": sectors, "modes": modes})
+        have.add(cid)
+    return out
+
+
 def sync_to_script(subs):
     """PREFS_URL(구글 Apps Script)이 있으면, GitHub의 받는 사람 목록(Secret)과 app.py의 섹터·팀 목록을 거기로 보내
     구글 쪽을 따로 고치지 않아도 되게 한다. 실패해도 발송은 계속한다. -> 성공 여부"""
@@ -852,7 +872,10 @@ def main():
         return
     if not args.dry_run and not args.only and not args.mode:  # 15분마다 도는 '단독만' 실행에서는 동기화하지 않음
         sync_to_script(base_subs)  # 발송 때마다 구글 쪽도 최신으로 맞춘다 (실패해도 계속)
-    remote = fetch_remote_prefs()  # PREFS_URL이 있으면: 텔레그램이 Apps Script로 바로 보내므로 여기서는 메시지를 읽지 않는다
+    remote = fetch_remote_prefs()
+    if remote:  # 승인 버튼으로 들어온 사람을 합친다 (구글 연결이 잠깐 끊겨도 마지막으로 받은 명단을 씀)
+        base_subs = merge_approved(base_subs, load_prefs().get("_approved"))
+    # PREFS_URL이 있으면: 텔레그램이 Apps Script로 바로 보내므로 여기서는 메시지를 읽지 않는다
     if token and not remote:  # 알람 신청·받는 사람 명령(/섹터 등)을 먼저 처리해서, 이번 발송부터 바뀐 설정을 쓴다
         handle_updates(token, os.environ.get("ADMIN_CHAT_ID", "").strip(), base_subs, args.dry_run)
         if args.only and args.guide:  # 시험: 그 사람에게만 안내를 (받은 적 있어도) 보낸다
