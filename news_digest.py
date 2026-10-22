@@ -498,7 +498,7 @@ HELP_TEXT = (
     "/섹터 자동차 배터리 - 받을 섹터 바꾸기 (팀 이름 '차팀', '전체'도 돼요)\n"
     "/종류 통신 공시 - 받을 종류 바꾸기 (통신·단독·공시)\n"
     "/시간 8-18 - 받을 시간대 (기본 7~19시)\n"
-    "/요일 월-금, 일 - 받을 요일 (기본 월~금)\n"
+    "/요일 월-금 일 - 받을 요일 (기본 월~금)\n"
     "/끄기 - 알람 잠시 멈추기\n"
     "/켜기 - 다시 받기\n"
     "/도움 - 이 안내 다시 보기\n"
@@ -540,19 +540,19 @@ def parse_days(words):
             if c in "-~,":
                 i += 1
                 continue
-            raise ValueError("알아듣지 못했어요. 예: /요일 월수금  /요일 월-금, 일  (되돌리기: /요일 기본)")
+            raise ValueError("알아듣지 못했어요. 예: /요일 월수금  /요일 월-금 일 (되돌리기: /요일 기본)")
         if i + 2 < len(text) + 0 and text[i + 1] in "-~" and text[i + 2] in DAY_NAMES:
             a, b = DAY_NAMES.index(c), DAY_NAMES.index(text[i + 2])
             ia, ib = order.index(a), order.index(b)
             if ia > ib:
-                raise ValueError("범위는 월→일 순서로 써 주세요. 예: 월-목")
+                raise ValueError("범위는 월→일 순서로 써주세요. 예: 월-목")
             out.update(order[ia:ib + 1])
             i += 3
             continue
         out.add(DAY_NAMES.index(c))
         i += 1
     if not out:
-        raise ValueError("요일을 알려 주세요. 예: /요일 월수금  (되돌리기: /요일 기본)")
+        raise ValueError("요일을 알려주세요. 예: /요일 월-금 일 (되돌리기: /요일 기본)")
     return sorted(out)
 
 
@@ -563,7 +563,7 @@ def parse_hours(words):
         return None
     nums = [int(x) for x in re.findall(r"\d{1,2}", text)]
     if len(nums) != 2:
-        raise ValueError("시간을 두 개 알려 주세요. 예: /시간 8-18  (되돌리기: /시간 기본)")
+        raise ValueError("시간 범위를 알려주세요. 예: /시간 8-18 (되돌리기: /시간 기본)")
     a, b = nums
     if not (HOURS_MIN <= a <= b <= HOURS_MAX):
         raise ValueError(f"{HOURS_MIN}~{HOURS_MAX}시 안에서만 고를 수 있고, 시작은 끝보다 늦을 수 없어요. 예: /시간 8-18")
@@ -626,7 +626,8 @@ def run_command(text, sub, prefs):
         aliases["전체"] = options
         chosen, bad = parse_choice(rest, options, aliases)
         if bad or not chosen:
-            return f"알아듣지 못한 말: {', '.join(bad) or '(없음)'}\n가능한 섹터: {', '.join(options)}\n팀: {', '.join(presets) or '-'} / 전체"
+            head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 섹터를 같이 보내주세요. 예: /섹터 자동차 배터리"
+            return f"{head}\n\n가능한 섹터: {', '.join(options)}\n팀: {', '.join(presets) or '-'} / 전체"
         mine["sectors"] = chosen
         sub["sectors"] = chosen
         return "받을 섹터를 바꿨어요: " + ", ".join(chosen)
@@ -653,7 +654,8 @@ def run_command(text, sub, prefs):
     if cmd in ("종류", "modes", "mode"):
         chosen, bad = parse_choice(rest, list(MODES), {"전체": list(MODES)})
         if bad or not chosen:
-            return f"알아듣지 못한 말: {', '.join(bad) or '(없음)'}\n가능한 종류: {', '.join(MODES)} / 전체"
+            head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 종류를 같이 보내주세요. 예: /종류 통신 공시"
+            return f"{head}\n\n가능한 종류: {', '.join(MODES)} / 전체"
         mine["modes"] = chosen
         sub["modes"] = chosen
         return "받을 종류를 바꿨어요: " + ", ".join(chosen)
