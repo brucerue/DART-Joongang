@@ -432,6 +432,17 @@ def merge_approved(subs, approved):
     return out
 
 
+def report_run(kind, people, delivered, errors, skipped=False):
+    """이번 실행 결과를 구글 스크립트에 알려 둔다(관리자 /상태 명령이 보여줌). 실패해도 무시."""
+    url = os.environ.get("PREFS_URL", "").strip()
+    if not url:
+        return
+    try:
+        requests.post(url, json={"run": True, "kind": kind, "people": people, "delivered": delivered, "errors": errors, "skipped": skipped}, timeout=TIMEOUT)
+    except Exception as e:
+        print(f"(실행 결과 보고 실패: {type(e).__name__})", file=sys.stderr)
+
+
 def sync_to_script(subs):
     """PREFS_URL(구글 Apps Script)이 있으면, GitHub의 받는 사람 목록(Secret)과 app.py의 섹터·팀 목록을 거기로 보내
     구글 쪽을 따로 고치지 않아도 되게 한다. 실패해도 발송은 계속한다. -> 성공 여부"""
@@ -918,6 +929,7 @@ def main():
                 and now.weekday() in x.get("days", DAYS_DEFAULT)]
         if not subs:
             print(f"{now.hour}시({DAY_NAMES[now.weekday()]}): 이 시간에 받을 사람이 없어 건너뜀")
+            report_run("단독" if args.mode == "단독" else "전체", 0, 0, 0, skipped=True)
             return
     cutoff = now - timedelta(hours=LOOKBACK_HOURS)
     seen = {} if args.force else load_seen()
@@ -949,6 +961,7 @@ def main():
     # 2) 받는 사람마다 자기 섹터·모드에서 아직 안 보낸 기사만 골라 보낸다
     #    모드별 결과가 모두 한 통에 들어갈 만큼 적으면 한 메시지로 합치고, 많으면 모드별로 따로 보낸다
     send_errors = 0
+    delivered = 0  # 이번에 새 소식을 받은 사람 수
     for sub in subs:
         chat = sub["chat_id"]
         parts = []  # [(모드, 섹션들, 새 기록 키들)]
@@ -981,6 +994,7 @@ def main():
                     print("-" * 40 + f"\n[{sub['name']}]\n" + text)
                 else:
                     send_safely(text, token, chat)
+            delivered += 1
             if not dry and not args.force:  # 보낸 뒤에만 기록해야 실패한 회차의 기사가 다음에 다시 시도됨
                 for _, _, new_keys in parts:
                     for k in new_keys:
@@ -990,6 +1004,8 @@ def main():
         except Exception as e:  # 한 명이 실패해도(봇 차단 등) 다른 사람에게는 계속 보낸다
             send_errors += 1
             print(f"[{sub['name']}] 발송 실패: {e}", file=sys.stderr)
+    if not dry and not args.only and not args.force:
+        report_run("단독" if args.mode == "단독" else "전체", len(subs), delivered, send_errors)
     if send_errors:
         raise SystemExit(f"{send_errors}건의 발송이 실패했어요. 위 로그를 확인하세요.")
 
