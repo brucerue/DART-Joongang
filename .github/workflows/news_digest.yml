@@ -65,6 +65,7 @@ jobs:
           DIGEST_SUBSCRIBERS: ${{ secrets.DIGEST_SUBSCRIBERS }}
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
+          PREFS_URL: ${{ secrets.PREFS_URL }}  # (선택) 구글 Apps Script 즉시 응답 방식을 쓸 때만
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           IN_ONLY: ${{ inputs.only }}
