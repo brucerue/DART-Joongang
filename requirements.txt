@@ -1,5 +1,5 @@
 streamlit
-opendartreader
+opendartreader==0.2.2  # 0.2.3부터 모듈 이름이 바뀌어 app.py의 import OpenDartReader가 안 됨
 pandas
 openpyxl
 pymupdf
