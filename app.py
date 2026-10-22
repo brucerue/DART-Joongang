@@ -3499,7 +3499,7 @@ def render_financials():
     basis = "연결 기준" if FS_DIV == "CFS" else "별도 기준"  # 지금은 항상 연결재무제표(CFS)로 조회
     st.caption(f"단위: {unit} · {basis}")
     if any(r.get("prov") for r in result["records"]):
-        st.caption("* 잠정실적: 분기보고서 제출 전, '영업(잠정)실적(공정공시)'에서 읽은 매출액·영업이익만 보여줘요(연결 기준). 순이익·재무상태는 분기보고서가 나온 뒤에 표시돼요. 확정치와 다를 수 있어요")
+        st.caption("\\* \\*잠정실적: 분기보고서 제출 전, '영업(잠정)실적(공정공시)'에서 읽은 매출액·영업이익만 보여줘요(연결 기준). 확정치와 다를 수 있어요")
     elif st.session_state.get("fin_prov_note") and result["period"] == "분기별":
         st.caption(st.session_state["fin_prov_note"])
     # 스크롤 없이 전체가 보이도록 높이를 행 수에 맞춘다 (머리글 1줄 + 데이터 행, 한 줄당 약 35px)
@@ -3534,19 +3534,20 @@ def render_financials():
             column_config={"기간": st.column_config.TextColumn("기간", width=95)},
             height=(len(bs_table) + 1) * 35 + 3,
         )
-        if st.toggle("더 보기", key="fin_bs_more"):
+        only_year = "" if yearly else " 현금흐름·이자·EBITDA·ROE는 연도별 조회에서만 나와요."
+        more_help = (
+            "**순차입금비율** = 순차입금 ÷ 자본총계  \n**유동비율** = 유동자산 ÷ 유동부채  \n"
+            "**이자보상배율** = 영업이익 ÷ 이자비용(없으면 현금흐름표의 이자 지급액)  \n"
+            "**EBITDA** = 영업이익 + 감가상각비 + 무형자산상각비  \n**ROE** = 순이익 ÷ 기말 자본총계  \n"
+            "차입금은 재무상태표의 단기차입금·유동성장기부채·사채·장기차입금 등을 더한 값이에요. "
+            "은행·보험·증권사는 계정 구조가 달라 '-'로 나올 수 있어요." + only_year
+        )
+        if st.toggle("더 보기", key="fin_bs_more", help=more_help):
             more = build_bs_more_table(result["records"], result["period"], unit=unit)
             st.dataframe(
                 more, hide_index=True,
                 column_config={"기간": st.column_config.TextColumn("기간", width=95)},
                 height=(len(more) + 1) * 35 + 3,
-            )
-            only_year = "" if yearly else " 현금흐름·이자·EBITDA·ROE는 연도별 조회에서만 나와요."
-            st.caption(
-                "순차입금비율 = 순차입금 ÷ 자본총계 · 유동비율 = 유동자산 ÷ 유동부채 · 이자보상배율 = 영업이익 ÷ 이자비용(없으면 현금흐름표의 이자 지급액) · "
-                "EBITDA = 영업이익 + 감가상각비 + 무형자산상각비 · ROE = 순이익 ÷ 기말 자본총계. "
-                "차입금은 재무상태표의 단기차입금·유동성장기부채·사채·장기차입금 등을 더한 값이에요. "
-                "은행·보험·증권사는 계정 구조가 달라 '-'로 나올 수 있어요." + only_year
             )
 
     render_fin_ai(result)
