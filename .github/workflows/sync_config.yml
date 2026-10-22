@@ -1,0 +1,36 @@
+name: 구글 스크립트와 동기화
+
+# 받는 사람 목록(Secret)과 섹터·팀 목록(app.py)을 구글 Apps Script로 보내
+# 구글 쪽을 따로 고치지 않아도 되게 합니다.
+on:
+  push:
+    branches: [main]
+    paths:
+      - app.py
+      - news_digest.py
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-config
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: 동기화
+        run: python news_digest.py --sync
+        env:
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DIGEST_SUBSCRIBERS: ${{ secrets.DIGEST_SUBSCRIBERS }}
+          PREFS_URL: ${{ secrets.PREFS_URL }}
