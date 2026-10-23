@@ -370,7 +370,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 12:36"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 13:58"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8217,8 +8217,9 @@ def px_names(data):
 
 
 def px_find(names, wanted):
-    key = name_key(wanted)
-    return next((n for n in names if name_key(n) == key), None)
+    """종목명 목록에서 wanted를 찾는다 (표기 차이·'현대차' 같은 줄임말도 인식)"""
+    keys = {name_key(wanted)} | {name_key(a) for a in NEWS_ALIASES.get(wanted, [])}
+    return next((n for n in names if name_key(n) in keys), None)
 
 
 def px_pct(v, digits=1):

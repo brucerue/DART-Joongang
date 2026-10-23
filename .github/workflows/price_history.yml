@@ -10,10 +10,13 @@ on:
     inputs:
       since:
         description: "처음 채울 때 시작할 날짜 (YYYYMMDD). 이미 자료가 있으면 무시"
-        default: "20250101"
+        default: "20251001"
       max_days:
         description: "한 번에 확인할 평일 수 (하루당 KRX 호출 2번)"
         default: "60"
+      reset:
+        description: "true면 지금까지 쌓은 것을 버리고 처음부터 다시 채움"
+        default: "false"
 
 permissions:
   contents: write # prices 브랜치에 올리기 위해 필요
@@ -36,12 +39,18 @@ jobs:
         run: |
           git fetch origin prices --depth=1 || true
           git show origin/prices:prices.json > prev.json 2>/dev/null || rm -f prev.json
+          git fetch origin corp-codes --depth=1 || true
+          git show origin/corp-codes:corp_codes.csv > corp_codes.csv 2>/dev/null || rm -f corp_codes.csv
       - name: 새 거래일 시세 더하기
-        run: python price_history.py --prev prev.json --out prices.json --since "${IN_SINCE:-20250101}" --max-days "${IN_MAX_DAYS:-60}"
+        run: |
+          args=(--prev prev.json --corp corp_codes.csv --out prices.json --since "${IN_SINCE:-20251001}" --max-days "${IN_MAX_DAYS:-60}")
+          [ "$IN_RESET" = "true" ] && args+=(--reset)
+          python price_history.py "${args[@]}"
         env:
           KRX_API_KEY: ${{ secrets.KRX_API_KEY }}
           IN_SINCE: ${{ inputs.since }}
           IN_MAX_DAYS: ${{ inputs.max_days }}
+          IN_RESET: ${{ inputs.reset }}
       - name: prices 브랜치에 올리기 (기록을 남기지 않고 한 커밋으로 덮어씀)
         run: |
           mkdir -p out && cp prices.json out/

@@ -2,13 +2,15 @@
 
 - GitHub Actions(.github/workflows/price_history.yml)가 평일 아침에 실행한다.
 - 추적 종목: 섹터 기업(app.py의 INDUSTRY_GROUPS) + 재계 순위 상위 그룹의 상장 계열사(chaebol_2026.json).
+  회사 이름은 DART 상장사 목록(--corp, corp_codes.csv)으로 종목코드를 찾는다 (KRX 종목명은 '현대차'처럼 줄여 쓰기도 해서). 목록이 없으면 KRX 종목명으로 찾는다.
 - 이전 결과(--prev)에 새 거래일을 이어 붙이고, 오래된 날은 뺀다. 결과 prices.json은 'prices' 브랜치에 올라간다.
 - 처음에는 --since 날짜부터 한 번에 --max-days일씩 채운다 (여러 번 실행하면 따라잡는다).
 - KRX가 하루 호출 한도(429)를 알리면 그때까지 받은 것만 저장하고 끝낸다.
 필요한 환경변수: KRX_API_KEY
-사용: python price_history.py [--prev prices.json] [--out prices.json] [--since 20250101] [--max-days 60] [--keep 260]
+사용: python price_history.py [--prev prices.json] [--corp corp_codes.csv] [--out prices.json] [--since 20251001] [--max-days 60] [--keep 260] [--reset]
 """
 import argparse
+import csv
 import json
 import os
 import re
@@ -116,19 +118,41 @@ def load_chaebol():
         return {"groups": []}
 
 
-def pick_universe(rows):
-    """그날 시세의 이름으로 추적 종목을 찾는다 -> (섹터 기업 코드 집합, {그룹: {rank, codes}})"""
+def load_corp_map(path):
+    """DART 상장사 목록(corp_codes.csv) -> {name_key(회사명): 종목코드}. 파일이 없으면 빈 {}."""
     nk = nd.A["name_key"]
+    out = {}
+    try:
+        with open(path, encoding="utf-8", newline="") as f:
+            for r in csv.DictReader(f):
+                if r.get("stock_code") and r.get("corp_name"):
+                    out.setdefault(nk(r["corp_name"]), r["stock_code"].strip())
+    except OSError:
+        pass
+    return out
+
+
+def pick_universe(rows, corp_map=None):
+    """회사 이름으로 추적 종목을 찾는다 -> ({섹터 기업 코드: 화면에 쓸 이름}, {그룹: {rank, codes}})
+    DART 이름(corp_map)을 먼저 보고, 못 찾으면 그날 KRX 종목명으로 찾는다. 그날 시세에 없는 코드(상장 전·폐지)는 뺀다."""
+    nk = nd.A["name_key"]
+    corp_map = corp_map or {}
     by_key = {}
     for code, r in rows.items():
         if r["n"] and not KRX_PREF.match(r["n"]):
             by_key.setdefault(nk(r["n"]), code)
-    sector_codes = set()
+
+    def find(name):
+        k = nk(name)
+        code = corp_map.get(k) or by_key.get(k)
+        return code if code in rows else None
+
+    sector_codes = {}
     for names in nd.A["INDUSTRY_GROUPS"].values():
         for n in names:
-            code = by_key.get(nk(n))
+            code = find(n)
             if code:
-                sector_codes.add(code)
+                sector_codes.setdefault(code, n)  # 섹터 목록의 이름으로 보여준다 (KRX는 '현대차'처럼 줄여 씀)
     groups = {}
     for g in load_chaebol().get("groups", []):
         rank = int(g.get("rank") or 0)
@@ -136,7 +160,7 @@ def pick_universe(rows):
             continue
         codes = []
         for m in g.get("members") or []:
-            code = by_key.get(nk(m["name"]))
+            code = find(m["name"])
             if code and code not in codes:
                 codes.append(code)
         if codes:
@@ -152,7 +176,7 @@ def weekdays(start, end):
         d += timedelta(days=1)
 
 
-def build(prev, session, key, since, max_days, keep, today):
+def build(prev, session, key, since, max_days, keep, today, corp_map=None):
     data = prev if isinstance(prev, dict) and prev.get("dates") and prev.get("s") is not None else {"dates": [], "s": {}, "g": {}}
     dates, series = list(data["dates"]), data["s"]
     if dates:
@@ -175,11 +199,11 @@ def build(prev, session, key, since, max_days, keep, today):
             break
         if not rows:  # 휴장일이거나 아직 안 올라온 날
             continue
-        sector_codes, new_groups = pick_universe(rows)
+        sector_codes, new_groups = pick_universe(rows, corp_map)
         group_codes = {c for g in new_groups.values() for c in g["codes"]}
-        for code in sector_codes | group_codes:
+        for code in set(sector_codes) | group_codes:
             if code not in tracked:  # 새로 따라가는 종목: 앞쪽 날짜는 빈칸
-                series[code] = {"n": rows[code]["n"], "m": rows[code]["m"], "c": [None] * len(dates), "r": [None] * len(dates),
+                series[code] = {"n": sector_codes.get(code) or rows[code]["n"], "m": rows[code]["m"], "c": [None] * len(dates), "r": [None] * len(dates),
                                 "v": [None] * len(dates), "k": [None] * len(dates)}
                 tracked.add(code)
         if new_groups:
@@ -192,7 +216,7 @@ def build(prev, session, key, since, max_days, keep, today):
                 for f in "crvk":
                     s[f].append(None)
                 continue
-            s["n"], s["m"] = r["n"] or s["n"], r["m"]
+            s["m"] = r["m"]
             s["c"].append(None if r["c"] is None else int(r["c"]))
             s["r"].append(None if r["r"] is None else round(r["r"], 2))
             s["v"].append(None if r["v"] is None else int(round(r["v"] / 1e8)))
@@ -218,7 +242,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prev", default="")
     ap.add_argument("--out", default="prices.json")
-    ap.add_argument("--since", default="20250101")
+    ap.add_argument("--corp", default="")
+    ap.add_argument("--reset", action="store_true", help="이전 결과를 무시하고 처음부터 다시 채움")
+    ap.add_argument("--since", default="20251001")
     ap.add_argument("--max-days", type=int, default=60)
     ap.add_argument("--keep", type=int, default=260)
     args = ap.parse_args()
@@ -226,14 +252,16 @@ def main():
     if not key:
         raise SystemExit("KRX_API_KEY가 없어요. GitHub Secrets에 KRX_API_KEY를 등록하세요.")
     prev = {}
-    if args.prev and os.path.exists(args.prev):
+    if args.prev and os.path.exists(args.prev) and not args.reset:
         try:
             with open(args.prev, encoding="utf-8") as f:
                 prev = json.load(f)
         except ValueError:
             prev = {}
     today = datetime.now(KST).date()
-    out, added, tried, limited = build(prev, requests.Session(), key, args.since, args.max_days, args.keep, today)
+    corp_map = load_corp_map(args.corp) if args.corp else {}
+    print(f"DART 상장사 목록 {len(corp_map)}곳" + (" (없으면 KRX 종목명으로 찾음)" if not corp_map else ""))
+    out, added, tried, limited = build(prev, requests.Session(), key, args.since, args.max_days, args.keep, today, corp_map)
     if not out["dates"]:
         raise SystemExit("받은 시세가 하나도 없어서 파일을 만들지 않았어요 (인증키·이용 승인·날짜를 확인하세요).")
     with open(args.out, "w", encoding="utf-8") as f:
