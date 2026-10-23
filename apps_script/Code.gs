@@ -41,7 +41,7 @@ var HELP_TEXT =
   "/설정 - 지금 설정 보기\n" +
   "/섹터 자동차 배터리 - 받을 섹터 바꾸기 (팀 이름 '차팀', '전체'도 돼요)\n" +
   "/종류 통신 공시 - 받을 종류 바꾸기 (통신·단독·공시)\n" +
-  "/시간 8-18 - 받을 시간대 (기본 7~19시)\n" +
+  "/시간 8-18 - 받을 시간대 (기본 8~19시)\n" +
   "/요일 월-금 일 - 받을 요일 (기본 월~금)\n" +
   "/끄기 - 알람 잠시 멈추기\n" +
   "/켜기 - 다시 받기\n" +
@@ -498,11 +498,11 @@ function runCommand_(text, sub, prefs, cid) {
     var txt = rest.join(" ");
     if (["기본", "전체", "reset", "default"].indexOf(txt.trim()) >= 0) {
       delete mine.hours;
-      return "✅ 받는 시간을 기본(7~19시, 평일)으로 되돌렸어요.\n\n" + describe_(sub, mine);
+      return "✅ 받는 시간을 기본(8~19시, 평일)으로 되돌렸어요.\n\n" + describe_(sub, mine);
     }
     var nums = (txt.match(/\d{1,2}/g) || []).map(Number);
     if (nums.length !== 2) return "시간 범위를 알려주세요. 예: /시간 8-18 (되돌리기: /시간 기본)";
-    if (!(nums[0] >= 7 && nums[0] <= nums[1] && nums[1] <= 19)) return "7~19시 안에서만 고를 수 있고, 시작은 끝보다 늦을 수 없어요. 예: /시간 8-18";
+    if (!(nums[0] >= 8 && nums[0] <= nums[1] && nums[1] <= 19)) return "8~19시 안에서만 고를 수 있고, 시작은 끝보다 늦을 수 없어요. 예: /시간 8-18";
     mine.hours = nums;
     return "✅ 받는 시간을 " + nums[0] + "~" + nums[1] + "시로 바꿨어요. 이 시간 밖에 나온 기사는 시작 시각 기준 12시간 안에 나온 것만 와요.\n\n" + describe_(sub, mine);
   }
@@ -559,7 +559,7 @@ function parseDays_(words) {
 function describe_(sub, mine) {
   return "상태: " + (mine.paused ? "멈춤 (/켜기 로 다시 받아요)" : "받는 중") +
     "\n섹터: " + sub.sectors.join(", ") + "\n종류: " + sub.modes.join(", ") +
-    "\n받는 시간: " + (mine.hours ? mine.hours[0] + "~" + mine.hours[1] + "시" : "7~19시 (기본)") +
+    "\n받는 시간: " + (mine.hours ? mine.hours[0] + "~" + mine.hours[1] + "시" : "8~19시 (기본)") +
     "\n받는 요일: " + (mine.days && mine.days.length ? daysText_(mine.days) : "월~금 (기본)");
 }
 
@@ -665,7 +665,7 @@ function setCommandMenu_() {
     { command: "status", description: "지금 설정 보기 (/설정)" },
     { command: "sectors", description: "받을 섹터 바꾸기 (/섹터)" },
     { command: "modes", description: "받을 종류 바꾸기: 통신·단독·공시 (/종류)" },
-    { command: "hours", description: "받을 시간대 (/시간, 기본 7~19시)" },
+    { command: "hours", description: "받을 시간대 (/시간, 기본 8~19시)" },
     { command: "days", description: "받을 요일 (/요일, 기본 월~금)" },
     { command: "off", description: "알람 잠시 멈추기 (/끄기)" },
     { command: "on", description: "알람 다시 받기 (/켜기)" },

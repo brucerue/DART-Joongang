@@ -260,7 +260,7 @@ def dart_key():
 
 def fetch_dart_feed(now, earn_only=False, wide=False):
     """접수된 전 상장사(코스피·코스닥) 공시. 한 번 받아 모든 섹터가 같이 쓴다.
-    공시 목록에는 날짜만 있고 시각이 없어서, 알림은 'LOOKBACK_HOURS 전이 속한 날짜 ~ 오늘'을 받는다 (오전 7시 회차는 어제+오늘, 낮에는 오늘만).
+    공시 목록에는 날짜만 있고 시각이 없어서, 알림은 'LOOKBACK_HOURS 전이 속한 날짜 ~ 오늘'을 받는다 (오전 8시 회차는 어제+오늘, 낮에는 오늘만).
     earn_only(15분마다 도는 단독 확인 때): 잠정실적만 보면 되므로 오늘 접수된 거래소공시(I)만 받아 가볍게
     wide(기사·공시 수집용): 오늘·어제를 모두 받는다"""
     api_key = dart_key()
@@ -786,7 +786,7 @@ HELP_TEXT = (
     "/설정 - 지금 설정 보기\n"
     "/섹터 자동차 배터리 - 받을 섹터 바꾸기 (팀 이름 '차팀', '전체'도 돼요)\n"
     "/종류 통신 공시 - 받을 종류 바꾸기 (통신·단독·공시)\n"
-    "/시간 8-18 - 받을 시간대 (기본 7~19시)\n"
+    "/시간 8-18 - 받을 시간대 (기본 8~19시)\n"
     "/요일 월-금 일 - 받을 요일 (기본 월~금)\n"
     "/끄기 - 알람 잠시 멈추기\n"
     "/켜기 - 다시 받기\n"
@@ -796,7 +796,7 @@ HELP_TEXT = (
 )
 
 
-HOURS_MIN, HOURS_MAX = 7, 19  # 발송 가능한 전체 시간대(한국시간). 사람마다 이 안에서만 좁힐 수 있다
+HOURS_MIN, HOURS_MAX = 8, 19  # 발송 가능한 전체 시간대(한국시간). 사람마다 이 안에서만 좁힐 수 있다
 
 
 DAY_NAMES = ["월", "화", "수", "목", "금", "토", "일"]  # 번호는 파이썬 weekday()와 같음: 월=0 ... 일=6
@@ -1217,7 +1217,7 @@ def main():
         if args.mode:
             sub["modes"] = [m for m in sub["modes"] if m == args.mode or (earn_only and m == "공시")]
     now = datetime.now(KST)
-    if args.auto:  # 사람마다 받는 시간대(기본 7~19시)가 있고, 그 밖의 회차는 건너뛴다. 못 받은 기사는 기록하지 않으니 시작 시각에 모아서 간다
+    if args.auto:  # 사람마다 받는 시간대(기본 8~19시)가 있고, 그 밖의 회차는 건너뛴다. 못 받은 기사는 기록하지 않으니 시작 시각에 모아서 간다
         subs = [x for x in subs if x.get("paused") or (x.get("hours", (HOURS_MIN, HOURS_MAX))[0] <= now.hour <= x.get("hours", (HOURS_MIN, HOURS_MAX))[1]
                 and now.weekday() in x.get("days", DAYS_DEFAULT))]
         if not any(not x.get("paused") for x in subs):

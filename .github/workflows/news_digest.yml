@@ -1,7 +1,7 @@
 name: 산업 뉴스 텔레그램 발송
 
 on:
-  # 정시 실행은 Cloudflare Worker가 맡아요(apps_script/worker.js: 한국 평일 7~19시 매시 정각에 이 워크플로를 호출).
+  # 정시 실행은 Cloudflare Worker가 맡아요(apps_script/worker.js: 한국 평일 8~19시 매시 정각에 이 워크플로를 호출).
   # GitHub 자체 예약(schedule)은 20~30분씩 밀려서 쓰지 않아요.
   workflow_dispatch: # Actions 탭의 'Run workflow' 버튼으로 원할 때 바로 실행 (아래 항목을 골라 시험 발송 가능)
     inputs:
