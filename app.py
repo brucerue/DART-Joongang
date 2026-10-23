@@ -8477,7 +8477,8 @@ def px_basis(data):
         basis = st.radio("기준", ["장중", "종가"], horizontal=True, key="px_basis")
         if basis == "장중":
             marks = sc.intraday_marks(intra)
-            pick = st.selectbox("시각", ["최신"] + marks, format_func=lambda m: m if m == "최신" else f"{m[:2]}:{m[2:]} 현재", key="px_time")
+            date_text = f"{intra['date'][:4]}.{intra['date'][4:6]}.{intra['date'][6:]}"
+            pick = st.selectbox("시각", ["최신"] + marks, format_func=lambda m: f"{date_text} 최신" if m == "최신" else f"{m[:2]}:{m[2:]} 현재", key="px_time")
             upto = None if pick == "최신" else pick
             snap, last_end = sc.intraday_snapshot(intra, data, upto)
             day = intra["date"]
