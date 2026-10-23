@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 17:09"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 17:12"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3334,18 +3334,18 @@ def name_key(name, words=False):
     return re.sub(r"[\s\-.,&·()/]", "", text)
 
 
-CORP_LIST_URL = "https://raw.githubusercontent.com/brucerue/DART-Joongang/corp-codes/corp_codes.csv"  # GitHub가 매일 만드는 상장사 목록
+CORP_LIST_URL = "https://raw.githubusercontent.com/brucerue/DART-Joongang/corp-codes/corp_codes.csv"  # GitHub가 매일 만드는 DART 기업 전체 목록(비상장 포함)
 
 
 def load_corp_list_file():
-    """GitHub에 올려 둔 상장사 목록(CSV) -> 표. 못 읽거나 이상하면 None (그러면 DART에서 직접 받는다)."""
+    """GitHub에 올려 둔 DART 기업 전체 목록(CSV, 비상장 포함) -> 표. 못 읽거나 이상하면 None (그러면 DART에서 직접 받는다)."""
     try:
         res = requests.get(CORP_LIST_URL, timeout=(10, 30))
         res.raise_for_status()
         df = pd.read_csv(io.StringIO(res.content.decode("utf-8")), dtype=str, keep_default_na=False)
     except Exception:
         return None
-    if not {"corp_code", "corp_name", "stock_code"} <= set(df.columns) or len(df) < 1500:
+    if not {"corp_code", "corp_name", "stock_code"} <= set(df.columns) or len(df) < 50000:  # 비상장이 빠진 작은 목록이면 쓰지 않는다
         return None
     return df[["corp_code", "corp_name", "stock_code"]].copy()
 
