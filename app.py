@@ -370,7 +370,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 14:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 15:29"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8173,7 +8173,7 @@ def render_disclosure_hub():
 
 
 # ------------------------------------------------------------
-# 주가 탭: 라이벌 비교 · 주가+이벤트 · 그룹 시총
+# 주가 탭: 시세판 · 특징주 · 업계 비교 · 주가+이벤트 · 그룹 시총
 # ------------------------------------------------------------
 # 'prices' 브랜치의 prices.json을 읽는다 (.github/workflows/price_history.yml이 평일 아침 KRX 일별 시세를 쌓음).
 # 계산은 stock_calc.py. KRX Open API는 전일 종가 기준이라 장중 시세는 없다.
@@ -8269,7 +8269,7 @@ def px_long(series_by_name):
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=["날짜", "이름", "값"])
 
 
-# ---- 1) 라이벌 비교 ----
+# ---- 업계 비교 ----
 def render_px_rivals(data):
     names = px_names(data)
     presets = {k: [px_find(names, n) for n in v] for k, v in RIVAL_PRESETS.items()}
@@ -8338,7 +8338,7 @@ def render_px_rivals(data):
         st.markdown("##### 기사용 문장")
         st.code(text, language=None)
     wide = pd.concat({**{f"{n} 지수": s for n, s in idx_by.items()}, **{f"{n} 시총(억원)": s for n, s in cap_by.items()}}, axis=1).round(2)
-    st.download_button("표 내려받기 (CSV)", wide.to_csv().encode("utf-8-sig"), file_name="라이벌비교.csv", mime="text/csv", key="px_rv_dl")
+    st.download_button("표 내려받기 (CSV)", wide.to_csv().encode("utf-8-sig"), file_name="업계비교.csv", mime="text/csv", key="px_rv_dl")
 
 
 # ---- 2) 주가 + 이벤트 ----
@@ -8480,16 +8480,141 @@ def render_px_groups(data):
         st.dataframe(pd.DataFrame(firm_rows).drop(columns=["_cap"]).style.map(price_style, subset=["기간 수익률"]), hide_index=True)
 
 
+# ---- 시세판 · 특징주 ----
+def px_sector_codes(data):
+    """{섹터: [종목코드]} - 앱의 섹터 기업 목록(INDUSTRY_GROUPS) 중 시세 자료에 있는 종목"""
+    names = px_names(data)
+    out = {}
+    for sector, companies in INDUSTRY_GROUPS.items():
+        codes = []
+        for n in companies:
+            disp = px_find(names, n)
+            if disp and names[disp] not in codes:
+                codes.append(names[disp])
+        if codes:
+            out[sector] = codes
+    return out
+
+
+def px_labels(data, sectors):
+    """{종목코드: 분류 이름} - 섹터 기업은 섹터, 그 밖의 추적 종목은 재계 그룹"""
+    label = {}
+    for g, v in (data.get("g") or {}).items():
+        for code in v.get("codes") or []:
+            label.setdefault(code, g)
+    for sector, codes in sectors.items():
+        for code in codes:
+            label[code] = sector
+    return label
+
+
+def px_day_picker(data):
+    """기준일 고르기 (최근 60거래일) -> 'YYYYMMDD'"""
+    options = list(reversed(data["dates"][-60:]))
+    return st.selectbox("기준일", options, format_func=lambda d: f"{d[:4]}.{d[4:6]}.{d[6:]}", key="px_day")
+
+
+def px_ratio_text(v):
+    return "-" if v is None or pd.isna(v) else f"{v:.1f}배"
+
+
+def px_val_text(eok):
+    return "-" if eok is None or pd.isna(eok) else px_cap_text(eok)
+
+
+def px_stock_table(snap, labels, ratio_thr=None):
+    """종목 표 (종목·분류·종가·등락률·거래대금·거래대금 배수·시총[·표시])"""
+    rows = []
+    for _, r in snap.iterrows():
+        row = {"종목": r["name"], "분류": labels.get(r["code"], ""), "종가": f"{r['close']:,.0f}원", "등락률": px_pct(r["rate"], 2),
+               "거래대금": px_val_text(r["val"]), "거래대금 배수": px_ratio_text(r["ratio"]), "시총": px_cap_text(r["cap"])}
+        if ratio_thr is not None:
+            row["표시"] = sc.feature_flags(r, ratio_thr)
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def render_px_board(data):
+    """시세판: 섹터별 평균 등락률·오른/내린 종목 수·최고/최저, 섹터 기업 시세"""
+    day = px_day_picker(data)
+    sectors = px_sector_codes(data)
+    snap = sc.snapshot(data, day)
+    summary = sc.sector_summary(snap, sectors)
+    if not summary:
+        st.info("이 날짜에 보여줄 섹터 시세가 없어요.")
+        return
+    rows = [{"섹터": s["sector"], "종목 수": f"{s['n']}곳", "평균 등락률": px_pct(s["avg"], 2), "오른/내린": f"▲{s['up']} ▼{s['down']}",
+             "거래대금 합계": px_val_text(s["val"]), "최고": f"{s['best'][0]} {px_pct(s['best'][1])}", "최저": f"{s['worst'][0]} {px_pct(s['worst'][1])}"} for s in summary]
+    st.dataframe(pd.DataFrame(rows).style.map(price_style, subset=["평균 등락률"]), hide_index=True)
+    st.caption(f"{day[:4]}.{day[4:6]}.{day[6:]} 종가 기준 · 평균은 섹터 기업 시세의 단순 평균이에요 (비상장사 제외, 시총 가중 아님)")
+
+    labels = px_labels(data, sectors)
+    pick = st.selectbox("섹터별 종목 보기", ["전체"] + [s["sector"] for s in summary], key="px_board_sector")
+    codes = {c for cs in sectors.values() for c in cs} if pick == "전체" else set(sectors[pick])
+    detail = snap[snap["code"].isin(codes)].sort_values("rate", ascending=False, na_position="last")
+    st.dataframe(px_stock_table(detail, labels).style.map(price_style, subset=["등락률"]), hide_index=True)
+    st.caption("거래대금 배수는 직전 20거래일 평균 거래대금 대비예요. 시총은 보통주+우선주예요.")
+
+    lines = []
+    for s in summary:
+        if abs(s["avg"]) < 0.05:
+            lines.append(f"{s['sector']} 관련주는 평균 보합을 기록했다.")
+        else:
+            lines.append(f"{s['sector']} 관련주는 평균 {abs(s['avg']):.1f}% {'올랐다' if s['avg'] > 0 else '내렸다'}.")
+    st.markdown("##### 기사용 문장")
+    st.code(f"{px_day_text(pd.Timestamp(day))} 종가 기준 " + " ".join(lines), language=None)
+
+
+def render_px_features(data):
+    """특징주: 등락률이 크거나 거래대금이 갑자기 늘어난 종목과 그 무렵의 기사·공시"""
+    day = px_day_picker(data)
+    sectors = px_sector_codes(data)
+    labels = px_labels(data, sectors)
+    scope = st.radio("대상", ["섹터 기업", "추적 종목 전체"], horizontal=True, key="px_ft_scope")
+    c1, c2 = st.columns(2)
+    rate_thr = c1.slider("등락률 기준 (±%)", 3.0, 15.0, 5.0, 0.5, key="px_ft_rate")
+    ratio_thr = c2.slider("거래대금 배수 (직전 20거래일 평균 대비)", 2.0, 10.0, 3.0, 0.5, key="px_ft_ratio")
+    snap = sc.snapshot(data, day)
+    if scope == "섹터 기업":
+        snap = snap[snap["code"].isin({c for cs in sectors.values() for c in cs})]
+    feats = sc.pick_features(snap, rate_thr, ratio_thr)
+    st.caption(f"{day[:4]}.{day[4:6]}.{day[6:]} 종가 기준 · {scope} {len(snap)}곳 중 등락률 ±{rate_thr:g}% 이상이거나 거래대금이 평균의 {ratio_thr:g}배 이상인 종목")
+    if feats.empty:
+        st.info("기준에 맞는 종목이 없어요. 기준을 낮춰 보세요.")
+        return
+    st.dataframe(px_stock_table(feats, labels, ratio_thr).style.map(price_style, subset=["등락률"]), hide_index=True)
+
+    archive = get_stored("archive.json")
+    names = list(feats["name"])
+    st.markdown("##### 관련 기사·공시")
+    name = st.selectbox("종목", names, key="px_ft_pick")
+    if not archive:
+        st.caption("모아 둔 기사·공시 자료를 불러오지 못했어요.")
+        return
+    d0 = pd.Timestamp(day)
+    events = px_events(archive, name, d0 - pd.Timedelta(days=1), d0)
+    if not events:
+        st.caption("기준일과 그 전날에 모아 둔 기사·공시가 없어요. 섹터 기업의 통신·단독 기사와 주요 공시만 모아요.")
+    for e in events[:10]:
+        title = e["title"].replace("[", "(").replace("]", ")")
+        st.markdown(f"- [{title}]({e['url']}) · {e['kind']} · {e['dt']:%m.%d %H:%M}")
+    st.caption("기사·공시는 원인이 아니라 같은 시기에 나온 것이에요. 공시는 접수 날짜만 알 수 있어요.")
+
+
 def render_stock():
-    """탭: 주가 - 라이벌 비교 / 주가·이벤트 / 그룹 시총 (KRX 일별 종가를 매일 쌓은 자료)"""
+    """탭: 주가 - 시세판 / 특징주 / 업계 비교 / 주가·이벤트 / 그룹 시총 (KRX 일별 종가를 매일 쌓은 자료)"""
     data = get_prices()
     if data is None:
         st.info("시세 자료가 아직 없어요. 매 평일 아침 GitHub 작업이 KRX 시세를 모아 두는데, 처음에는 과거 시세를 채우느라 며칠 걸릴 수 있어요.")
         return
     dates = sc.dates_of(data)
     st.caption(f"KRX 일별 종가 기준 · 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일) · 평일 아침 갱신 · 장중 시세는 아니에요")
-    mode = st.radio("보기", ["라이벌 비교", "주가·이벤트", "그룹 시총"], horizontal=True, key="px_mode", label_visibility="collapsed")
-    if mode == "라이벌 비교":
+    mode = st.radio("보기", ["시세판", "특징주", "업계 비교", "주가·이벤트", "그룹 시총"], horizontal=True, key="px_mode", label_visibility="collapsed")
+    if mode == "시세판":
+        render_px_board(data)
+    elif mode == "특징주":
+        render_px_features(data)
+    elif mode == "업계 비교":
         render_px_rivals(data)
     elif mode == "주가·이벤트":
         render_px_events(data)

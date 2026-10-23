@@ -128,3 +128,64 @@ def event_reaction(df, day, n=3):
     if len(window) == n and window.notna().all():
         r3 = float((1 + window / 100).prod() - 1) * 100
     return r0, r3
+
+
+# ---- 시세판 · 특징주 ----
+SNAP_COLS = ["code", "name", "close", "rate", "val", "cap", "ratio"]
+LIMIT_RATE = 29.0  # 상한가·하한가로 볼 등락률(%) 기준 (가격제한폭 ±30%)
+
+
+def snapshot(data, ymd):
+    """기준일(YYYYMMDD) 하루의 종목별 표: code, name, close(원), rate(%), val(거래대금 억원), cap(시총 억원),
+    ratio(그날 거래대금 ÷ 직전 20거래일 평균, 직전 자료가 10일 미만이면 None). 그날 종가가 없는 종목은 뺀다."""
+    dates = data["dates"]
+    if ymd not in dates:
+        return pd.DataFrame(columns=SNAP_COLS)
+    pos = dates.index(ymd)
+    rows = []
+    for code, s in data["s"].items():
+        close = s["c"][pos]
+        if close is None:
+            continue
+        val = s["v"][pos]
+        prev = [x for x in s["v"][max(0, pos - 20):pos] if x is not None]
+        ratio = None
+        if val is not None and len(prev) >= 10 and sum(prev) > 0:
+            ratio = val / (sum(prev) / len(prev))
+        rows.append({"code": code, "name": s["n"], "close": close, "rate": s["r"][pos], "val": val, "cap": s["k"][pos], "ratio": ratio})
+    return pd.DataFrame(rows, columns=SNAP_COLS)
+
+
+def sector_summary(snap, sector_codes):
+    """{섹터: [종목코드]} -> 섹터별 요약 [{sector, n, avg(단순 평균 등락률), up, down, val(거래대금 합계 억원), best, worst}] (종목이 없는 섹터는 뺌)"""
+    out = []
+    for sector, codes in sector_codes.items():
+        sub = snap[snap["code"].isin(codes)].dropna(subset=["rate"])
+        if sub.empty:
+            continue
+        best, worst = sub.loc[sub["rate"].idxmax()], sub.loc[sub["rate"].idxmin()]
+        out.append({"sector": sector, "n": int(len(sub)), "avg": float(sub["rate"].mean()), "up": int((sub["rate"] > 0).sum()),
+                    "down": int((sub["rate"] < 0).sum()), "val": float(sub["val"].fillna(0).sum()),
+                    "best": (best["name"], float(best["rate"])), "worst": (worst["name"], float(worst["rate"]))})
+    return out
+
+
+def pick_features(snap, rate_thr, ratio_thr):
+    """특징주: 등락률 절댓값이 rate_thr(%) 이상이거나 거래대금이 직전 평균의 ratio_thr배 이상. 등락률 절댓값이 큰 순."""
+    d = snap.dropna(subset=["rate"]).copy()
+    mask = (d["rate"].abs() >= rate_thr) | (d["ratio"].fillna(0) >= ratio_thr)
+    out = d[mask].copy()
+    out["_abs"] = out["rate"].abs()
+    return out.sort_values(["_abs", "ratio"], ascending=False).drop(columns="_abs").reset_index(drop=True)
+
+
+def feature_flags(row, ratio_thr):
+    """특징주 한 줄의 표시: 상한가·하한가·거래대금 급증"""
+    flags = []
+    if row["rate"] >= LIMIT_RATE:
+        flags.append("상한가")
+    elif row["rate"] <= -LIMIT_RATE:
+        flags.append("하한가")
+    if row["ratio"] is not None and not pd.isna(row["ratio"]) and row["ratio"] >= ratio_thr:
+        flags.append("거래대금 급증")
+    return " · ".join(flags)
