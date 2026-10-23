@@ -855,8 +855,13 @@ def parse_hours(words):
     return (a, b)
 
 
+def plain_name(text):
+    """섹터 이름 비교·안내용: 중간점(·ㆍ・•)과 공백을 없앤 글자 (모바일에서 중간점을 치기 어려워 '조선해운'으로도 받는다)"""
+    return re.sub(r"[·ㆍ・•∙\s]", "", str(text))
+
+
 def parse_choice(words, options, aliases=None):
-    """명령 뒤 단어들 -> (고른 항목들, 못 알아본 단어들). 이름이 정확히 같거나, 한 항목에만 들어 있는 글자(예: 조선 -> 조선·해운)면 인정."""
+    """명령 뒤 단어들 -> (고른 항목들, 못 알아본 단어들). 이름이 정확히 같거나(중간점 없이 써도 됨: 조선해운), 한 항목에만 들어 있는 글자(예: 조선 -> 조선·해운)면 인정."""
     chosen, bad = [], []
     for w in words:
         w = w.strip(",;")
@@ -867,7 +872,10 @@ def parse_choice(words, options, aliases=None):
         elif w in options:
             hits = [w]
         else:
-            hits = [o for o in options if len(w) >= 2 and w.lower() in o.lower()]
+            pw = plain_name(w).lower()
+            hits = [o for o in options if pw and plain_name(o).lower() == pw]
+            if not hits:
+                hits = [o for o in options if len(pw) >= 2 and pw in plain_name(o).lower()]
             hits = hits if len(hits) == 1 else []
         if not hits:
             bad.append(w)
@@ -912,7 +920,7 @@ def run_command(text, sub, prefs):
         chosen, bad = parse_choice(rest, options, aliases)
         if bad or not chosen:
             head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 섹터를 같이 보내주세요. 예: /섹터 자동차 배터리"
-            return f"{head}\n\n가능한 섹터: {', '.join(options)}\n팀: {', '.join(presets) or '-'} / 전체"
+            return f"{head}\n\n가능한 섹터: {', '.join(plain_name(o) for o in options)}\n팀: {', '.join(presets) or '-'} / 전체"
         mine["sectors"] = chosen
         sub["sectors"] = chosen
         return "받을 섹터를 바꿨어요: " + ", ".join(chosen)

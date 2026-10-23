@@ -429,6 +429,8 @@ function handleSignup_(chat, cid, secBits, modeBits) {
 }
 
 // ---------------------------------------------------------------- 명령
+function plainName_(t) { return String(t).replace(/[·ㆍ・•∙\s]/g, ""); }  // 모바일에서 중간점을 치기 어려워 '조선해운'으로도 받는다
+
 function parseChoice_(words, options, aliases) {
   var chosen = [], bad = [];
   words.forEach(function (w0) {
@@ -438,7 +440,9 @@ function parseChoice_(words, options, aliases) {
     if (aliases && Object.prototype.hasOwnProperty.call(aliases, w)) hits = aliases[w].slice();
     else if (options.indexOf(w) >= 0) hits = [w];
     else {
-      hits = options.filter(function (o) { return w.length >= 2 && o.toLowerCase().indexOf(w.toLowerCase()) >= 0; });
+      var pw = plainName_(w).toLowerCase();
+      hits = options.filter(function (o) { return pw && plainName_(o).toLowerCase() === pw; });
+      if (!hits.length) hits = options.filter(function (o) { return pw.length >= 2 && plainName_(o).toLowerCase().indexOf(pw) >= 0; });
       if (hits.length !== 1) hits = [];
     }
     if (!hits.length) bad.push(w);
@@ -473,7 +477,7 @@ function runCommand_(text, sub, prefs, cid) {
     var r = parseChoice_(rest, C.sectors, aliases);
     if (r.bad.length || !r.chosen.length) {
       return (r.bad.length ? "알아듣지 못한 말: " + r.bad.join(", ") : "받을 섹터를 같이 보내주세요. 예: /섹터 자동차 배터리") +
-        "\n\n가능한 섹터: " + C.sectors.join(", ") +
+        "\n\n가능한 섹터: " + C.sectors.map(plainName_).join(", ") +
         "\n팀: " + (Object.keys(C.teams).join(", ") || "-") + " / 전체";
     }
     mine.sectors = r.chosen;
