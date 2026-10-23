@@ -44,7 +44,7 @@ jobs:
       - name: 원문 표 읽기 시험
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
-          RNOS: 20260331003582
+          RNOS: 20260331003582 20250331003386 20240329000001
         run: |
           python - <<'PY' 2>&1 | sed "s/$DART_API_KEY/***/g" | tee out.txt
           import ast, html, io, os, re, zipfile, requests
@@ -66,10 +66,6 @@ jobs:
               lines = text.split("\n")
               print("글자", len(text), "줄", len(lines))
               print("파싱 결과:", ns["parse_income_table"](text))
-              hits = [i for i, l in enumerate(lines) if "요약" in l and "손익계산서" in l and len(l) < 30]
-              print("요약 손익계산서 제목:", [(i, lines[i]) for i in hits])
-              for i in hits[:3]:
-                  print("--", i, " / ".join(x.strip(" |") for x in lines[i:i+45]))
           PY
       - name: 결과를 주석으로 남기기
         if: always()

@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 18:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 19:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -933,6 +933,43 @@ def parse_income_table(text):
             for key, names in (("rev", ALT_REV_LABELS), ("op", ALT_OP_LABELS), ("net", ALT_NET_LABELS)):
                 if key not in found and label.startswith(names) and "대비" not in label and "률" not in label:
                     found[key] = vals
+        if found.get("rev") or found.get("op"):
+            return found
+    return parse_summary_flat(lines, unit_at)
+
+
+def parse_summary_flat(lines, unit_at):
+    """칸마다 줄이 나뉜 원문의 '요약 손익계산서'(예: 중앙일보) -> parse_income_table과 같은 모양 또는 None.
+    제목 줄 뒤 칸들을 이어서, 항목 이름 칸 바로 뒤에 나오는 숫자 칸들(당기·전기·전전기)을 읽는다."""
+    for i, ln in enumerate(lines):
+        if "요약" not in ln or "손익계산서" not in ln or len(ln.split("|")[0]) > 40:
+            continue
+        cells, owner = [], []
+        for j in range(i + 1, min(i + 80, len(lines))):
+            for c in lines[j].split("|"):
+                if c.strip():
+                    cells.append(c.strip())
+                    owner.append(j)
+        found, k = {}, 0
+        while k < len(cells):
+            label = re.sub(r"^[\dIVXⅠ-Ⅻ.()\-]+", "", re.sub(r"\s", "", cells[k]))
+            key = next((key for key, names in (("rev", ALT_REV_LABELS), ("op", ALT_OP_LABELS), ("net", ALT_NET_LABELS))
+                        if key not in found and label.startswith(names) and "대비" not in label and "률" not in label), None)
+            k += 1
+            if not key:
+                continue
+            vals = []
+            while k < len(cells) and len(vals) < 3:
+                v = parse_amount_cell(cells[k])
+                if v is not None:
+                    vals.append(v * unit_at[owner[k]])
+                elif cells[k] in ("-", "－", "—"):
+                    vals.append(None)
+                else:
+                    break
+                k += 1
+            if any(v is not None for v in vals):
+                found[key] = vals
         if found.get("rev") or found.get("op"):
             return found
     return None
