@@ -12,6 +12,7 @@ import json
 import os
 import re
 import sys
+import time
 import xml.etree.ElementTree as ET
 
 import requests
@@ -20,6 +21,34 @@ RSS_URL = "https://www.yna.co.kr/rss/sports.xml"
 KEEP_DAYS = 30
 MIN_ITEMS = 3  # RSS에 기사가 이보다 적으면 이상한 응답이므로 파일을 바꾸지 않는다
 UA = {"User-Agent": "Mozilla/5.0 (news-digest sports titles)"}
+TRIES = 4  # 연합뉴스 서버가 가끔 늦어서 몇 번 다시 시도한다 (쉬는 시간 10·30·60초)
+STALE_HOURS = 6  # 이전 목록이 이보다 오래됐으면 접속 실패를 그냥 넘기지 않고 실패로 알린다
+
+
+def fetch_rss(sleep=time.sleep):
+    """RSS 본문. 접속이 안 되면 몇 번 쉬었다 다시 시도하고, 끝내 안 되면 마지막 오류를 낸다."""
+    last = None
+    for i in range(TRIES):
+        try:
+            res = requests.get(RSS_URL, headers=UA, timeout=(15, 60))
+            res.raise_for_status()
+            return res.content
+        except requests.RequestException as e:
+            last = e
+            if i < TRIES - 1:
+                sleep((10, 30, 60)[i])
+    raise last
+
+
+def is_fresh(prev, now=None):
+    """이전 목록이 STALE_HOURS 안에 만들어진 것이면 True"""
+    try:
+        made = dt.datetime.fromisoformat(prev["updated"])
+        if made.tzinfo is None:
+            made = made.replace(tzinfo=dt.timezone.utc)
+        return (now or dt.datetime.now(dt.timezone.utc)) - made < dt.timedelta(hours=STALE_HOURS)
+    except (KeyError, ValueError, TypeError):
+        return False
 
 
 def title_key(title):
@@ -67,11 +96,6 @@ def main():
     ap.add_argument("--prev", default="")
     ap.add_argument("--out", default="sports_titles.json")
     args = ap.parse_args()
-    res = requests.get(RSS_URL, headers=UA, timeout=(15, 60))
-    res.raise_for_status()
-    fresh = feed_items(res.content)
-    if len(fresh) < MIN_ITEMS:
-        raise SystemExit(f"RSS 기사가 {len(fresh)}건뿐이라 목록을 바꾸지 않았어요.")
     prev = {}
     if args.prev and os.path.exists(args.prev):
         try:
@@ -79,6 +103,17 @@ def main():
                 prev = json.load(f)
         except ValueError:
             prev = {}
+    try:
+        fresh = feed_items(fetch_rss())
+    except requests.RequestException as e:
+        if prev.get("items") and is_fresh(prev):  # 한두 번 놓쳐도 목록은 그대로 두고 넘어간다 (오래 안 되면 실패로 알림)
+            with open(args.out, "w", encoding="utf-8") as f:
+                json.dump(prev, f, ensure_ascii=False, indent=1)
+            print(f"RSS 접속 실패({type(e).__name__})라 이번엔 목록을 그대로 두었어요. 보관 {len(prev['items'])}건")
+            return
+        raise
+    if len(fresh) < MIN_ITEMS:
+        raise SystemExit(f"RSS 기사가 {len(fresh)}건뿐이라 목록을 바꾸지 않았어요.")
     today = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date().isoformat()
     data = merge(prev, fresh, today)
     with open(args.out, "w", encoding="utf-8") as f:
