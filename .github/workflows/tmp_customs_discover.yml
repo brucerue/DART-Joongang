@@ -33,20 +33,25 @@ jobs:
               for i in found: ids[i] = True
               if not found: break
           print("후보 ID", len(ids), list(ids)[:60])
+          shown = 0
           for i in ids:
               try:
                   r = requests.get(f"https://www.data.go.kr/catalog/{i}/openapi.json", headers=H, timeout=60)
-                  if r.status_code != 200: print(i, "HTTP", r.status_code); continue
+                  ct = r.headers.get("content-type", "")
+                  if shown < 3:
+                      print("샘플", i, r.status_code, ct[:30], r.text[:300].replace("\n", " ")); shown += 1
                   j = r.json()
               except Exception as e:
-                  print(i, "오류", type(e).__name__); continue
-              title = (j.get("info") or {}).get("title", "?")
-              if "관세청" not in title: continue
+                  print(i, "오류", type(e).__name__, str(e)[:60]); continue
+              info = j.get("info") or {}
               base = ((j.get("servers") or [{}])[0]).get("url", "")
-              for path, spec in (j.get("paths") or {}).items():
+              paths = j.get("paths") or {}
+              for path, spec in paths.items():
                   op = next(iter(spec.values()), {})
                   params = [p.get("name") for p in op.get("parameters", []) if p.get("name") != "serviceKey"]
-                  print(f"{i} | {title} | {base}{path} | {','.join(params)}")
+                  print(f"{i}|{info.get('title','?')[:40]}|{base}{path}|{','.join(params)}")
+              if not paths:
+                  print(i, "paths 없음", list(j)[:6], str(info)[:80])
           PY
       - name: 결과를 주석으로 남기기
         if: always()
