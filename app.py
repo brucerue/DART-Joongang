@@ -368,7 +368,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 10:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 10:27"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3083,6 +3083,18 @@ def is_exclusive(title):
 SPORTS_WORDS = ("농구", "야구", "축구", "배구", "프로골프", "골프대회", "K리그", "KBO", "레이싱", "연패", "연승", "e스포츠")
 
 
+NEWS_BLOCK_TERMS = ("현대차증권", "기아대책")  # 검색어 '현대차'·'기아'에 걸리지만 다른 회사·단체의 기사라서 아예 뺀다
+
+
+def is_blocked(title):
+    """제목에 차단 낱말이 있는지 (뉴스 전체에 적용: 검색·브리핑·알람·타임라인)."""
+    return any(t in str(title) for t in NEWS_BLOCK_TERMS)
+
+
+def drop_blocked(items):
+    return [i for i in items if not is_blocked(i["title"])]
+
+
 SPORTS_TITLES_URL = "https://raw.githubusercontent.com/brucerue/DART-Joongang/sports-titles/sports_titles.json"  # 연합뉴스 스포츠 RSS 제목 (매시간, 30일)
 
 
@@ -5151,7 +5163,7 @@ def render_timeline():
     if data is None:
         st.info("모아 둔 자료를 아직 불러오지 못했어요. 처음이라면 GitHub Actions의 '기사·공시 모아두기'를 한 번 실행해 주세요.")
         return
-    rows = [it for it in map(stored_item, data["items"]) if it]
+    rows = [it for it in map(stored_item, data["items"]) if it and not is_blocked(it["title"])]
     if not rows:
         st.info("모아 둔 기사가 아직 없어요.")
         return
@@ -5264,17 +5276,20 @@ def render_news_search(kind):
                     capped, since = False, None
                     if kind == "통신":  # 통신: 구글 뉴스(연합뉴스·뉴시스·뉴스1 도메인만)로만 검색 -> 네이버 키·한도와 무관
                         items, g_err = google_news(search, NEWS_PERIODS[period], WIRE_DOMAINS[:1] if yna_only else WIRE_DOMAINS)
+                        items = drop_blocked(items)
                         if g_err:
                             raise NewsApiError(g_err)
                         source = "구글 뉴스"
                     else:  # 단독: 구글 뉴스에 네이버 뉴스를 항상 합친다(구글이 늦게 반영하는 기사를 네이버가 메움). 키가 없거나 USE_NAVER=0이면 구글만
                         items, g_err = google_news(search, NEWS_PERIODS[period], list(PUBLISHERS), "단독")
+                        items = drop_blocked(items)
                         source = "구글 뉴스"
                         n_excl = sum(is_exclusive(i["title"]) for i in items)
                         few = n_excl < NEWS_GOOGLE_MIN
                         if USE_NAVER and NAVER_ID and NAVER_SECRET:
                             try:
                                 n_items, capped, since = search_news(search, NEWS_PERIODS[period], keyword=cfg["keyword"])
+                                n_items = drop_blocked(n_items)
                             except NewsApiError as e:
                                 if g_err or not n_excl:  # 보여줄 단독 기사가 하나도 없으면 네이버 오류를 그대로 알림
                                     raise
@@ -7652,6 +7667,7 @@ def collect_brief(name, code, progress):
     # 뉴스는 모두 구글 뉴스로 찾는다 (네이버 키가 없어도 됨)
     def google(terms, days, domains, keyword=""):
         items, err = google_news(terms, days, domains, keyword)
+        items = drop_blocked(items)
         if err:
             raise NewsApiError(err)
         return items
