@@ -25,6 +25,7 @@ COUNTRY_API = "nationtrade/getNationtradeList"
 REGION_API = "economytrade/getEconomytradeList"
 SIDO_API = "sidotrade/getSidotradeList"
 PORT_API = "porttrade/getPorttradeList"
+ITEM_API = "nitemtrade/getNitemtradeList"  # 품목별 국가별: 품목 2자리를 넣으면 4자리 품목 행이 이름과 함께 온다 (앱 '검색'의 품목 이름 목록용)
 TENDAY_APIS = {  # 10일 단위 잠정치: 수출·수입 × 주요 품목·국가
     "exp_item": "prlstMmUtPrviExpAcrs/getPrlstMmUtPrviExpAcrs",
     "exp_cnty": "cntyMmUtPrviExpAcrs/getCntyMmUtPrviExpAcrs",
@@ -127,6 +128,21 @@ def tenday_values(key, ym):
     return out
 
 
+def harvest_hs_names(key, ym):
+    """HS 2자리(01~97)를 하나씩 조회해 4자리 품목 코드와 이름을 모은다 -> {'8542': '이름', ...}. 97번 호출하므로 가끔만 한다."""
+    names = {}
+    for ch in range(1, 98):
+        try:
+            rows = get_items(key, ITEM_API, strtYymm=ym, endYymm=ym, hsSgn=f"{ch:02d}")
+        except RuntimeError:
+            continue
+        for r in rows:
+            code, name = r.get("hsCd", ""), r.get("statKor", "")
+            if len(code) == 4 and code.isdigit() and name and code not in names:
+                names[code] = name if len(name) <= 40 else name[:39] + "…"
+    return names
+
+
 def build(key, prev, now, months=25):
     """prev(이전 trade.json 또는 {}) + 새로 받은 자료 -> 새 trade.json 내용"""
     current = now.strftime("%Y%m")  # 이번 달은 월별 API가 중간 집계를 주므로 월별 자료에서 빼고, 10일 단위 잠정치만 쓴다
@@ -183,6 +199,13 @@ def build(key, prev, now, months=25):
             ten[ym] = got
     keep = set(month_list(now, TENDAY_MONTHS))
     result["tenday"] = {ym: v for ym, v in sorted(ten.items()) if ym in keep}
+    hs = prev.get("hs") or {}
+    if len(hs) < 800:  # 처음 한 번(이후에는 이전 자료를 그대로 쓴다)
+        try:
+            hs = harvest_hs_names(key, done[-1])
+        except RuntimeError as e:
+            errors.append(str(e))
+    result["hs"] = hs
     if errors:
         print(f"(일부 실패 {len(errors)}건) " + "; ".join(errors[:3]), file=sys.stderr)
     return result

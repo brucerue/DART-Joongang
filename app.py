@@ -29,7 +29,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
 from itertools import combinations
 from email.utils import parsedate_to_datetime
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 import importlib
 
@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 00:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 07:58"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8965,7 +8965,13 @@ def run_js(code):
 # 수출 (관세청 수출입 통계: GitHub 'trade' 브랜치의 trade.json, trade_data.py가 매일 모아 둠)
 # ------------------------------------------------------------
 TRADE_BRANCH = "trade"
-TRADE_VIEWS = ["월간 현황", "10일 단위 속보", "국가·경제권", "지역"]
+TRADE_VIEWS = ["검색", "월간 현황", "10일 단위 속보", "국가·경제권", "지역"]
+CUSTOMS_KEY = load_secret("CUSTOMS_API_KEY")  # 공공데이터포털 일반 인증키 (검색 화면이 품목별 국가별 수출입실적 API를 직접 부른다)
+TRADE_ITEM_URL = "https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH
+TRADE_KINDS = ["품목", "국가", "경제권", "시도", "세관", "품목 × 국가"]
+TRADE_HS_PRESETS = {"반도체": ["8541", "8542", "8486"], "승용차": ["8703"], "자동차부품": ["8708"], "배터리": ["8507"], "철강": ["72"], "선박": ["8901"],
+                    "석유제품": ["2710"], "디스플레이": ["8524"], "무선통신기기": ["8517"]}
+TRADE_MAX_SERIES = 12  # 한 번에 보는 항목 수(품목×국가 조합 포함). 조합마다 API를 부르므로 제한한다
 # 10일 단위 잠정치(수출·수입 × 주요 품목·국가)는 항목 이름 없이 1~10번째 금액만 오고, 순번이 고정돼 있다. 순번별 이름은 월별 정식 통계의 금액과 맞춰 확인한 것.
 TRADE_RANK_NAMES = {
     "exp_cnty": {1: "중국", 2: "미국", 3: "EU", 4: "베트남", 5: "홍콩", 6: "일본", 7: "대만", 8: "인도", 9: "싱가포르", 10: "말레이시아"},
@@ -9010,6 +9016,238 @@ def trade_month_pick(data, key):
 
 def trade_styled(table, cols):
     return table.style.map(cb_style, subset=cols)
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False, max_entries=60)
+def trade_query(hs, cnty, start, end):
+    """품목(hs)·국가(cnty) 조건의 월별 행 (관세청 품목별 국가별 수출입실적 API). 같은 조회는 6시간 동안 저장한 결과를 쓴다. 실패는 TradeApiError."""
+    key = unquote(CUSTOMS_KEY) if "%" in CUSTOMS_KEY else CUSTOMS_KEY
+
+    def fetch(params):
+        try:
+            res = requests.get(TRADE_ITEM_URL, params={"serviceKey": key, **params}, timeout=(10, 90))
+            res.raise_for_status()
+        except requests.RequestException as e:
+            raise tc.TradeApiError("관세청 서버에 연결하지 못했어요. 잠시 후 다시 시도해주세요.") from e
+        return res.text
+
+    return tc.query_items(fetch, hs, cnty, start, end)
+
+
+def trade_usd(v):
+    """달러 -> 크기에 맞춘 글자 (12.3억달러 / 3,250만달러 / 8,000달러)"""
+    if v is None:
+        return "-"
+    a = abs(v)
+    if a >= 1e8:
+        return f"{v / 1e8:,.1f}억달러"
+    if a >= 1e4:
+        return f"{v / 1e4:,.0f}만달러"
+    return f"{v:,.0f}달러"
+
+
+def trade_ton(kg):
+    return "-" if kg is None else f"{kg / 1000:,.0f}톤"
+
+
+def trade_hs_options(data):
+    """품목 고르기 선택지 {표시 글: 코드}: 4자리 품목 이름 목록(수집돼 있을 때)"""
+    return {f"{c} {n}": c for c, n in sorted((data.get("hs") or {}).items())}
+
+
+def trade_set_preset():
+    """빠른 선택(섹터 품목 묶음)을 누르면 품목 선택칸을 그 묶음으로 채운다"""
+    name = st.session_state.get("tr_s_preset")
+    opts = st.session_state.get("tr_s_hs_opts") or {}
+    codes = TRADE_HS_PRESETS.get(name, [])
+    st.session_state["tr_s_hs"] = [lab for lab, c in opts.items() if c in codes]
+    st.session_state["tr_s_hs_extra"] = ", ".join(c for c in codes if c not in opts.values())
+
+
+def trade_parse_codes(text):
+    """직접 입력 칸 -> 2·4·6자리 숫자 코드 목록"""
+    out = []
+    for part in re.split(r"[\s,;]+", text or ""):
+        if part.isdigit() and len(part) in (2, 4, 6) and part not in out:
+            out.append(part)
+    return out
+
+
+def trade_shift_year(by_month):
+    """전년 같은 기간의 월별 지표를 올해 달로 옮긴다 ({'2025-03': ..} -> {'2026-03': ..})"""
+    out = {}
+    for k, v in by_month.items():
+        n = tc.month_add(k.replace("-", ""), 12)
+        out[f"{n[:4]}-{n[4:]}"] = v
+    return out
+
+
+def trade_series(data, q):
+    """검색 조건 q -> [{name, month(월별 지표), prev(전년 동기 월별 또는 None), rows(품목 행 또는 None)}]. API 오류는 TradeApiError."""
+    months, kind = data["months"], q["kind"]
+    s_ym, e_ym = q["start"].replace("-", ""), q["end"].replace("-", "")
+    p_s, p_e = tc.month_add(s_ym, -12), tc.month_add(e_ym, -12)
+    out = []
+    stored = {"국가": ("country", 1), "경제권": ("region", 1), "시도": ("sido", 0), "세관": ("port", 0)}
+    if kind in stored:
+        group, off = stored[kind]
+        for name in q["names"]:
+            src = data[group]
+            hit = next((v for k, v in src.items() if (v[0] if off else k) == name), None)
+            if hit is None:
+                continue
+            arrays = (hit[1], hit[2]) if off else (hit[0], hit[1])
+            cur = tc.stored_metrics(arrays, months, q["start"], q["end"])
+            prev = tc.stored_metrics(arrays, months, f"{p_s[:4]}-{p_s[4:]}", f"{p_e[:4]}-{p_e[4:]}")
+            expected = tc.month_span(s_ym, e_ym)
+            out.append({"name": name, "month": cur, "prev": trade_shift_year(prev) if len(prev) == expected else None, "rows": None})
+        return out
+    hs_names = data.get("hs") or {}
+    pairs = [(h, None) for h in q["hs"]] if kind == "품목" else [(h, c) for h in q["hs"] for c in q["cnty"]]
+    for hs, cnty in pairs:
+        rows = trade_query(hs, cnty[0] if cnty else None, s_ym, e_ym)
+        prev_rows = trade_query(hs, cnty[0] if cnty else None, p_s, p_e) if q["compare"] else None
+        label = f"{hs} {hs_names.get(hs[:4], '')}".strip() + (f" × {cnty[1]}" if cnty else "")
+        prev = trade_shift_year(tc.metrics_by_month(prev_rows)) if prev_rows is not None else None
+        out.append({"name": label, "month": tc.metrics_by_month(rows), "prev": prev, "rows": rows})
+    return out
+
+
+def render_trade_search_result(data, q, series):
+    METRIC_KEYS = {"수출금액": "exp", "수입금액": "imp", "무역수지": "bal", "수출 중량": "exp_wgt", "수입 중량": "imp_wgt"}
+    wanted = [m for m in q["metrics"] if m in METRIC_KEYS]
+    if not wanted:
+        wanted = ["수출금액"]
+    months_all = sorted({ym for sr in series for ym in sr["month"]})
+    if not months_all:
+        st.info("이 조건으로 조회된 자료가 없어요. 기간이나 품목을 바꿔 보세요.")
+        return
+    st.markdown(f"##### 결과 · {q['start'].replace('-', '.')} ~ {q['end'].replace('-', '.')}")
+    # 기간 합계
+    rows = []
+    for sr in series:
+        t = tc.totals(sr["month"])
+        tp = tc.totals(sr["prev"]) if sr["prev"] else None
+        row = {"항목": sr["name"]}
+        if "수출금액" in wanted:
+            row["수출"] = trade_usd(t["exp"])
+            if q["compare"]:
+                row["수출 증감"] = px_pct(tc.pct(t["exp"], tp["exp"]) if tp else None)
+        if "수입금액" in wanted:
+            row["수입"] = trade_usd(t["imp"])
+            if q["compare"]:
+                row["수입 증감"] = px_pct(tc.pct(t["imp"], tp["imp"]) if tp else None)
+        if "무역수지" in wanted:
+            row["무역수지"] = trade_usd(t["bal"])
+        if "수출 중량" in wanted and sr["rows"] is not None:
+            row["수출 중량"] = trade_ton(t["exp_wgt"])
+        if "수입 중량" in wanted and sr["rows"] is not None:
+            row["수입 중량"] = trade_ton(t["imp_wgt"])
+        rows.append(row)
+    total_table = pd.DataFrame(rows)
+    chg_cols = [c for c in ("수출 증감", "수입 증감") if c in total_table]
+    st.markdown("**기간 합계**" + (" (증감은 전년 같은 기간 대비)" if q["compare"] else ""))
+    st.dataframe(trade_styled(total_table, chg_cols) if chg_cols else total_table, hide_index=True, height=min(len(total_table) + 1, 14) * 35 + 3)
+    # 월별
+    pick = st.radio("월별 표·그래프의 지표", wanted, horizontal=True, key="tr_s_metric")
+    key = METRIC_KEYS[pick]
+    is_wgt = key.endswith("wgt")
+    month_rows = []
+    for ym in months_all:
+        row = {"월": ym.replace("-", ".")}
+        for sr in series:
+            v = sr["month"].get(ym, {}).get(key)
+            row[sr["name"]] = (trade_ton(v) if is_wgt else trade_usd(v)) if v is not None else "-"
+        month_rows.append(row)
+    month_table = pd.DataFrame(month_rows[::-1])
+    st.markdown(f"**월별 {pick}**")
+    st.dataframe(month_table, hide_index=True, height=min(len(month_table) + 1, 14) * 35 + 3)
+    idx = pd.to_datetime(months_all, format="%Y-%m")
+    scale, unit = (1e3, "톤") if is_wgt else (1e6, "백만달러")
+    px_line_chart(px_long({sr["name"]: pd.Series([sr["month"].get(ym, {}).get(key) / scale if ym in sr["month"] else None for ym in months_all], index=idx).dropna() for sr in series}),
+                  unit, fmt="%Y-%m", axis_fmt="%y.%m")
+    # 품목 조회: 국가별·하위 품목별 내역
+    for sr in series:
+        if sr["rows"] and q["kind"] == "품목":
+            with st.expander(f"{sr['name']} · 국가별·하위 품목별 내역"):
+                c1, c2 = st.columns(2)
+                for col, key2, title, label in ((c1, "cnty", "국가별 (상위 15)", "국가"), (c2, "hs", "하위 품목별 (상위 15)", "품목")):
+                    rr = tc.group_rows(sr["rows"], key2)[:15]
+                    col.markdown(f"**{title}**")
+                    col.dataframe(pd.DataFrame([{label: (r["name"] if key2 == "cnty" else f"{r['code']} {r['name'][:24]}"), "수출": trade_usd(r["exp"]), "수입": trade_usd(r["imp"])} for r in rr]),
+                                  hide_index=True, height=min(len(rr) + 1, 12) * 35 + 3)
+    st.download_button("월별 표 내려받기 (CSV)", pd.DataFrame(month_rows).to_csv(index=False).encode("utf-8-sig"), file_name="수출입검색_월별.csv", mime="text/csv", key="tr_s_dl_m")
+    st.download_button("기간 합계 내려받기 (CSV)", total_table.to_csv(index=False).encode("utf-8-sig"), file_name="수출입검색_합계.csv", mime="text/csv", key="tr_s_dl_t")
+
+
+def render_trade_search(data):
+    """검색: 종류(품목·국가·경제권·시도·세관·품목×국가) -> 세부 선택 -> 기간 -> 지표를 고르면 바로 보여준다"""
+    months = data["months"]
+    kind = st.radio("종류", TRADE_KINDS, horizontal=True, key="tr_s_kind")
+    need_hs = live = kind in ("품목", "품목 × 국가")  # 품목이 들어간 조회는 관세청 API를 직접 부르고, 나머지는 모아 둔 월별 자료를 쓴다
+    if live and not CUSTOMS_KEY:
+        st.info("품목 조회에는 Streamlit Secrets에 CUSTOMS_API_KEY(공공데이터포털 인증키)가 필요해요. 추가하면 바로 쓸 수 있어요.")
+        return
+    q = {"kind": kind, "hs": [], "cnty": [], "names": []}
+    if need_hs:
+        opts = trade_hs_options(data)
+        st.session_state["tr_s_hs_opts"] = opts
+        st.pills("빠른 선택", list(TRADE_HS_PRESETS), key="tr_s_preset", on_change=trade_set_preset, label_visibility="visible")
+        picked = st.multiselect("품목 (이름이나 코드로 검색, 여러 개 가능)", list(opts), key="tr_s_hs", max_selections=6) if opts else []
+        extra = st.text_input("품목코드 직접 입력 (2·4·6자리, 쉼표로 구분)", key="tr_s_hs_extra", placeholder="예: 854231, 87")
+        q["hs"] = list(dict.fromkeys([opts[p] for p in picked] + trade_parse_codes(extra)))
+        if not opts:
+            st.caption("품목 이름 목록을 아직 모으는 중이에요. 우선 코드로 입력해 주세요.")
+    if kind in ("국가", "품목 × 국가"):
+        order = sorted(data["country"].items(), key=lambda kv: -(sum(x or 0 for x in kv[1][1][-12:])))
+        cmap = {v[0]: k for k, v in order}
+        sel = st.multiselect("국가", list(cmap), key="tr_s_cnty", max_selections=8)
+        q["names"] = sel
+        q["cnty"] = [(cmap[n], n) for n in sel]
+    elif kind in ("경제권", "시도", "세관"):
+        src = {"경제권": [v[0] for v in data.get("region", {}).values()], "시도": sorted(data.get("sido", {})),
+               "세관": [n for n, _ in sorted(data.get("port", {}).items(), key=lambda kv: -(sum(x or 0 for x in kv[1][0][-12:])))]}[kind]
+        q["names"] = st.multiselect(kind, src, key=f"tr_s_names_{kind}", max_selections=10)
+    c1, c2 = st.columns(2)
+    default_start = months[-12] if len(months) >= 12 else months[0]
+    start = c1.selectbox("시작월", months, index=months.index(default_start), key="tr_s_start", format_func=lambda m: m.replace("-", "."))
+    end = c2.selectbox("종료월", months, index=len(months) - 1, key="tr_s_end", format_func=lambda m: m.replace("-", "."))
+    metric_opts = ["수출금액", "수입금액", "무역수지"] + (["수출 중량", "수입 중량"] if live else [])
+    q["metrics"] = st.multiselect("지표", metric_opts, default=["수출금액", "수입금액", "무역수지"], key=f"tr_s_metrics_{'live' if live else 'stored'}")
+    q["compare"] = st.toggle("전년 같은 기간과 비교", value=True, key="tr_s_compare")
+    q["start"], q["end"] = start, end
+    if st.button("조회", type="primary", key="tr_s_go"):
+        problems = []
+        if start > end:
+            problems.append("시작월이 종료월보다 늦어요.")
+        if need_hs and not q["hs"]:
+            problems.append("품목을 하나 이상 골라 주세요.")
+        if kind in ("국가", "경제권", "시도", "세관") and not q["names"]:
+            problems.append(f"{kind}을(를) 하나 이상 골라 주세요.")
+        if kind == "품목 × 국가" and not q["cnty"]:
+            problems.append("국가를 하나 이상 골라 주세요.")
+        n = len(q["hs"]) * (len(q["cnty"]) if kind == "품목 × 국가" else 1) if need_hs else len(q["names"])
+        if n > TRADE_MAX_SERIES:
+            problems.append(f"한 번에 {TRADE_MAX_SERIES}개 항목까지만 볼 수 있어요 (지금 {n}개).")
+        if problems:
+            st.warning(" ".join(problems))
+            st.session_state.pop("tr_s_query", None)
+        else:
+            st.session_state["tr_s_query"] = q
+    sq = st.session_state.get("tr_s_query")
+    if not sq:
+        st.caption("조건을 고르고 '조회'를 누르면 결과가 나와요.")
+        return
+    try:
+        with st.spinner("관세청 자료를 불러오는 중입니다..."):
+            series = trade_series(data, sq)
+    except tc.TradeApiError as e:
+        st.error(str(e))
+        return
+    render_trade_search_result(data, sq, series)
+    st.caption("검색 안내", help="품목·국가는 관세청 '품목별 국가별 수출입실적'(통관 기준, 달러)을 바로 불러와요. 품목은 HS 코드 2·4·6자리로 조회하고, 하위 품목·국가별 내역이 함께 나와요.  \n"
+               "국가·경제권·시도·세관은 모아 둔 월별 자료(최근 2년)를 써요.  \n"
+               "증감은 전년 같은 기간 대비이고, 같은 조건을 6시간 안에 다시 보면 저장한 결과를 써요.")
 
 
 def render_trade_monthly(data):
@@ -9133,7 +9371,7 @@ def render_trade():
                f"월별 자료 {months[0].replace('-', '.')} ~ {months[-1].replace('-', '.')} · 자료 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}  \n"
                "증감은 전년 같은 달 대비이고, 파랑은 늘어난 것·빨강은 줄어든 것이에요.")
     view = st.radio("보기", TRADE_VIEWS, horizontal=True, key="tr_view", label_visibility="collapsed")
-    {"월간 현황": render_trade_monthly, "10일 단위 속보": render_trade_tenday, "국가·경제권": render_trade_country, "지역": render_trade_region}[view](data)
+    {"검색": render_trade_search, "월간 현황": render_trade_monthly, "10일 단위 속보": render_trade_tenday, "국가·경제권": render_trade_country, "지역": render_trade_region}[view](data)
 
 
 TAB_NAMES = ["기업 브리핑", "재무 조회", "주가", "수출", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]

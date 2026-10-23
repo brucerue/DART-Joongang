@@ -115,3 +115,143 @@ def tenday_items(data, ym, kind, period):
         p = prev[rank] if prev else None
         out.append({"rank": rank, "cur": c, "prev": p, "yoy": pct(c, p)})
     return out
+
+
+# ---- 검색 (품목별 국가별 수출입실적 API로 품목·국가 조합을 바로 조회) ----
+ITEM_API_PATH = "nitemtrade/getNitemtradeList"
+MAX_CHUNK_MONTHS = 12  # API는 한 번에 1년 이내만 조회된다
+
+
+class TradeApiError(Exception):
+    """관세청 API 오류 (사용자에게 알릴 글을 담는다)"""
+
+
+def month_add(ym, n):
+    """'202609' + n개월 -> 'YYYYMM'"""
+    y, m = int(ym[:4]), int(ym[4:])
+    t = y * 12 + (m - 1) + n
+    return f"{t // 12}{t % 12 + 1:02d}"
+
+
+def month_span(start, end):
+    """시작~끝 월 수 (포함)"""
+    return (int(end[:4]) - int(start[:4])) * 12 + int(end[4:]) - int(start[4:]) + 1
+
+
+def chunk_months(start, end):
+    """시작~끝 월을 12개월 이하 구간들로 나눈다 -> [(시작, 끝)]"""
+    out, cur = [], start
+    while cur <= end:
+        last = min(month_add(cur, MAX_CHUNK_MONTHS - 1), end)
+        out.append((cur, last))
+        cur = month_add(last, 1)
+    return out
+
+
+def _to_int(text):
+    try:
+        return int(float(str(text).replace(",", "") or 0))
+    except ValueError:
+        return 0
+
+
+def parse_items(xml_text):
+    """API 응답(XML 글) -> [{ym, hs, name, cnty, cnty_name, exp, imp, exp_wgt, imp_wgt}] (기간 합계 '총계' 행은 뺀다).
+    오류 응답이면 TradeApiError, 자료가 없으면 []."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        raise TradeApiError("관세청 응답을 읽지 못했어요.") from e
+    code = root.findtext(".//resultCode")
+    msg = root.findtext(".//resultMsg") or root.findtext(".//returnAuthMsg") or root.findtext(".//errMsg") or ""
+    if code not in (None, "00"):
+        raise TradeApiError(f"관세청 API: {msg}".strip())
+    if code is None and msg:  # 포털 쪽 오류(서비스키 등)
+        raise TradeApiError(f"관세청 API: {msg}")
+    out = []
+    for it in root.findall(".//item"):
+        row = {c.tag: (c.text or "").strip() for c in it}
+        ym = row.get("year", "")
+        if len(ym) != 7 or ym[4] != ".":  # '총계' 등
+            continue
+        out.append({"ym": ym.replace(".", "-"), "hs": row.get("hsCd", ""), "name": row.get("statKor", ""), "cnty": row.get("statCd", ""),
+                    "cnty_name": row.get("statCdCntnKor1", ""), "exp": _to_int(row.get("expDlr")), "imp": _to_int(row.get("impDlr")),
+                    "exp_wgt": _to_int(row.get("expWgt")), "imp_wgt": _to_int(row.get("impWgt"))})
+    return out
+
+
+def query_items(fetch, hs, cnty, start, end):
+    """품목·국가 조건으로 월별 행을 모두 받는다. fetch(params dict) -> 응답 글. 1년 넘는 기간은 나눠서 받는다.
+    hs: 2·4·6자리 코드 또는 None, cnty: 2글자 국가코드 또는 None (둘 중 하나는 있어야 함)"""
+    if not hs and not cnty:
+        raise TradeApiError("품목이나 국가 중 하나는 골라야 해요.")
+    rows = []
+    for s, e in chunk_months(start, end):
+        params = {"strtYymm": s, "endYymm": e}
+        if hs:
+            params["hsSgn"] = hs
+        if cnty:
+            params["cntyCd"] = cnty
+        rows += parse_items(fetch(params))
+    return rows
+
+
+def metrics_by_month(rows):
+    """행들 -> {ym: {exp, imp, bal, exp_wgt, imp_wgt}} (같은 달 행을 모두 더함)"""
+    out = {}
+    for r in rows:
+        m = out.setdefault(r["ym"], {"exp": 0, "imp": 0, "exp_wgt": 0, "imp_wgt": 0})
+        for k in ("exp", "imp", "exp_wgt", "imp_wgt"):
+            m[k] += r[k]
+    for m in out.values():
+        m["bal"] = m["exp"] - m["imp"]
+    return out
+
+
+def totals(by_month):
+    """월별 -> 기간 합계"""
+    t = {"exp": 0, "imp": 0, "exp_wgt": 0, "imp_wgt": 0}
+    for m in by_month.values():
+        for k in t:
+            t[k] += m[k]
+    t["bal"] = t["exp"] - t["imp"]
+    return t
+
+
+def group_rows(rows, key):
+    """기간 전체를 key('hs' 하위 품목 / 'cnty' 국가)별로 더해 수출이 큰 순 -> [{code, name, exp, imp, bal}]"""
+    acc = {}
+    for r in rows:
+        code = r[key]
+        a = acc.setdefault(code, {"code": code, "name": r["name"] if key == "hs" else r["cnty_name"], "exp": 0, "imp": 0})
+        a["exp"] += r["exp"]
+        a["imp"] += r["imp"]
+    out = list(acc.values())
+    for a in out:
+        a["bal"] = a["exp"] - a["imp"]
+    out.sort(key=lambda a: (-a["exp"], -a["imp"]))
+    return out
+
+
+def stored_metrics(arrays, months, start, end):
+    """trade.json의 월별 배열 -> {ym: {exp, imp, bal}} (시작~끝 'YYYY-MM' 포함). arrays: (수출 배열, 수입 배열), 없는 달은 건너뜀"""
+    exp, imp = arrays
+    out = {}
+    for i, ym in enumerate(months):
+        if start <= ym <= end and (exp[i] is not None or imp[i] is not None):
+            e, m = exp[i] or 0, imp[i] or 0
+            out[ym] = {"exp": e, "imp": m, "bal": e - m, "exp_wgt": 0, "imp_wgt": 0}
+    return out
+
+
+def sum_metrics(parts):
+    """여러 {ym: 지표} 를 달별로 더한다"""
+    out = {}
+    for p in parts:
+        for ym, m in p.items():
+            a = out.setdefault(ym, {"exp": 0, "imp": 0, "bal": 0, "exp_wgt": 0, "imp_wgt": 0})
+            for k in a:
+                a[k] += m.get(k, 0)
+    return out
