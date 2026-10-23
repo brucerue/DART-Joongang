@@ -5466,7 +5466,7 @@ def render_news_search(kind):
     notes.append(res.get("source", ""))
     st.caption(" · ".join(notes))
     if res.get("naver_note"):
-        st.caption(f"구글 뉴스 결과가 적어 네이버로 보충하려 했지만 실패했어요: {res['naver_note']}")
+        st.caption(f"네이버 뉴스를 함께 불러오지 못해 구글 뉴스 결과만 보여줘요: {res['naver_note']}")
     if res["capped"]:
         since = f"{res['oldest']:%m.%d %H:%M}" if res.get("oldest") else "?"
         st.warning(
