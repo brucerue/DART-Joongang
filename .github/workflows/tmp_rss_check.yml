@@ -1,0 +1,13 @@
+name: tmp rss check
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch
+        run: |
+          curl -sS -m 30 -o rss.xml -w "HTTP %{http_code} size %{size_download}\n" https://www.yna.co.kr/rss/sports.xml || true
+          head -c 300 rss.xml; echo
+          echo "items: $(grep -o '<item' rss.xml | wc -l)"
+          grep -o '<title>[^<]*</title>' rss.xml | head -6
