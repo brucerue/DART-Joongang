@@ -370,7 +370,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 15:29"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 16:08"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8250,15 +8250,15 @@ def px_period_controls(key, data):
     return sc.period_start(period, first, last), last
 
 
-def px_line_chart(long_df, y_title, zero=False):
-    """long_df: 날짜·이름·값 열의 긴 표 -> 선 그래프"""
+def px_line_chart(long_df, y_title, zero=False, fmt="%Y-%m-%d", axis_fmt=None):
+    """long_df: 날짜·이름·값 열의 긴 표 -> 선 그래프 (fmt: 마우스를 올릴 때 날짜·시각 표기, axis_fmt: 가로축 표기)"""
     import altair as alt
 
     chart = alt.Chart(long_df).mark_line().encode(
-        x=alt.X("날짜:T", title=None),
+        x=alt.X("날짜:T", title=None, axis=alt.Axis(format=axis_fmt) if axis_fmt else alt.Axis()),
         y=alt.Y("값:Q", title=y_title, scale=alt.Scale(zero=zero)),
         color=alt.Color("이름:N", title=None, legend=alt.Legend(orient="bottom")),
-        tooltip=[alt.Tooltip("날짜:T", format="%Y-%m-%d"), "이름:N", alt.Tooltip("값:Q", format=",.1f")],
+        tooltip=[alt.Tooltip("날짜:T", format=fmt), "이름:N", alt.Tooltip("값:Q", format=",.2f" if axis_fmt else ",.1f")],
     ).properties(height=300)
     st.altair_chart(chart)
 
@@ -8514,6 +8514,49 @@ def px_day_picker(data):
     return st.selectbox("기준일", options, format_func=lambda d: f"{d[:4]}.{d[4:6]}.{d[6:]}", key="px_day")
 
 
+INTRADAY_BRANCH = "intraday"
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _fetch_intraday():
+    res = requests.get(f"https://raw.githubusercontent.com/{DATA_REPO}/{INTRADAY_BRANCH}/intraday.json", timeout=(10, 30))
+    res.raise_for_status()
+    return res.json()
+
+
+def get_intraday():
+    """오늘 장중 5분봉 자료 (intraday 브랜치). 없거나 이상하면 None."""
+    try:
+        data = _fetch_intraday()
+    except Exception:
+        return None
+    return data if isinstance(data, dict) and data.get("t") and isinstance(data.get("s"), dict) and data["s"] else None
+
+
+def px_basis(data):
+    """시세 기준 고르기. 장중 자료가 KRX 자료보다 새 날이면 '장중/종가'를 고르게 하고, 아니면 종가(기준일 선택)만.
+    -> {"snap": 종목 표, "day": 'YYYYMMDD', "intraday": bool, "label": 설명, "phrase": 기사 문장 앞머리, "intra": 장중 자료, "upto": 시각 또는 None}"""
+    intra = get_intraday()
+    if sc.intraday_ready(intra, data):
+        basis = st.radio("기준", ["장중", "종가"], horizontal=True, key="px_basis")
+        if basis == "장중":
+            marks = sc.intraday_marks(intra)
+            pick = st.selectbox("시각", ["최신"] + marks, format_func=lambda m: m if m == "최신" else f"{m[:2]}:{m[2:]} 현재", key="px_time")
+            upto = None if pick == "최신" else pick
+            snap, last_end = sc.intraday_snapshot(intra, data, upto)
+            day = intra["date"]
+            ts = pd.Timestamp(day)
+            at = f"{int(last_end[:2])}시 {last_end[3:]}분" if last_end else ""
+            fetched = str(intra.get("fetched", ""))[11:16]
+            label = (f"{day[:4]}.{day[4:6]}.{day[6:]} 장중 · 마지막 봉 {last_end or '-'} · 자료 갱신 {fetched or '-'} · "
+                     "야후 파이낸스(비공식) 5분봉이라 지연·오차가 있을 수 있어요")
+            return {"snap": snap, "day": day, "intraday": True, "label": label, "intra": intra, "upto": upto,
+                    "phrase": f"{px_day_text(ts)} {at} 현재(비공식 장중 시세 기준)"}
+    day = px_day_picker(data)
+    return {"snap": sc.snapshot(data, day), "day": day, "intraday": False, "label": f"{day[:4]}.{day[4:6]}.{day[6:]} 종가 기준", "intra": None, "upto": None,
+            "phrase": f"{px_day_text(pd.Timestamp(day))} 종가 기준"}
+
+
 def px_ratio_text(v):
     return "-" if v is None or pd.isna(v) else f"{v:.1f}배"
 
@@ -8534,26 +8577,47 @@ def px_stock_table(snap, labels, ratio_thr=None):
     return pd.DataFrame(rows)
 
 
+def render_px_intraday_flow(data, b, sectors):
+    """장중 시세판: 시간대별 섹터 평균 등락률 표와 추이 그래프"""
+    intra = b["intra"]
+    curve = sc.intraday_sector_curve(intra, data, sectors)
+    if b["upto"]:
+        curve = curve[curve.index.strftime("%H%M") <= b["upto"]]
+    if curve.empty:
+        return
+    hourly = sc.intraday_hourly(curve, sc.INTRADAY_MARKS)
+    latest = curve.iloc[[-1]].copy()
+    latest.index = [f"{latest.index[0]:%H:%M} (최신)"]
+    table = pd.concat([hourly, latest]) if latest.index[0][:5] not in set(hourly.index) else hourly
+    show = table.map(lambda v: px_pct(v, 2)).reset_index().rename(columns={"index": "시각"})
+    st.markdown("##### 시간대별 섹터 평균 등락률 (전일 종가 대비)")
+    st.dataframe(show.style.map(price_style, subset=[c for c in show.columns if c != "시각"]), hide_index=True)
+    px_line_chart(px_long({name: curve[name].dropna() for name in curve.columns}), "등락률(%)", zero=True, fmt="%H:%M", axis_fmt="%H:%M")
+
+
 def render_px_board(data):
     """시세판: 섹터별 평균 등락률·오른/내린 종목 수·최고/최저, 섹터 기업 시세"""
-    day = px_day_picker(data)
+    b = px_basis(data)
+    snap = b["snap"]
     sectors = px_sector_codes(data)
-    snap = sc.snapshot(data, day)
     summary = sc.sector_summary(snap, sectors)
     if not summary:
-        st.info("이 날짜에 보여줄 섹터 시세가 없어요.")
+        st.info("이 기준에 보여줄 섹터 시세가 없어요.")
         return
     rows = [{"섹터": s["sector"], "종목 수": f"{s['n']}곳", "평균 등락률": px_pct(s["avg"], 2), "오른/내린": f"▲{s['up']} ▼{s['down']}",
              "거래대금 합계": px_val_text(s["val"]), "최고": f"{s['best'][0]} {px_pct(s['best'][1])}", "최저": f"{s['worst'][0]} {px_pct(s['worst'][1])}"} for s in summary]
     st.dataframe(pd.DataFrame(rows).style.map(price_style, subset=["평균 등락률"]), hide_index=True)
-    st.caption(f"{day[:4]}.{day[4:6]}.{day[6:]} 종가 기준 · 평균은 섹터 기업 시세의 단순 평균이에요 (비상장사 제외, 시총 가중 아님)")
+    st.caption(f"{b['label']} · 평균은 섹터 기업 시세의 단순 평균이에요 (비상장사 제외, 시총 가중 아님)")
+    if b["intraday"]:
+        render_px_intraday_flow(data, b, sectors)
 
     labels = px_labels(data, sectors)
     pick = st.selectbox("섹터별 종목 보기", ["전체"] + [s["sector"] for s in summary], key="px_board_sector")
     codes = {c for cs in sectors.values() for c in cs} if pick == "전체" else set(sectors[pick])
     detail = snap[snap["code"].isin(codes)].sort_values("rate", ascending=False, na_position="last")
     st.dataframe(px_stock_table(detail, labels).style.map(price_style, subset=["등락률"]), hide_index=True)
-    st.caption("거래대금 배수는 직전 20거래일 평균 거래대금 대비예요. 시총은 보통주+우선주예요.")
+    st.caption("거래대금 배수는 직전 20거래일 평균 거래대금 대비예요. 시총은 보통주+우선주예요."
+               + (" 장중에는 5분봉으로 추정한 누적 거래대금 기준이고, 시총은 전일 시총을 가격 변화율로 늘린 근사값이에요." if b["intraday"] else ""))
 
     lines = []
     for s in summary:
@@ -8562,23 +8626,25 @@ def render_px_board(data):
         else:
             lines.append(f"{s['sector']} 관련주는 평균 {abs(s['avg']):.1f}% {'올랐다' if s['avg'] > 0 else '내렸다'}.")
     st.markdown("##### 기사용 문장")
-    st.code(f"{px_day_text(pd.Timestamp(day))} 종가 기준 " + " ".join(lines), language=None)
+    st.code(f"{b['phrase']} " + " ".join(lines), language=None)
 
 
 def render_px_features(data):
     """특징주: 등락률이 크거나 거래대금이 갑자기 늘어난 종목과 그 무렵의 기사·공시"""
-    day = px_day_picker(data)
+    b = px_basis(data)
+    day = b["day"]
     sectors = px_sector_codes(data)
     labels = px_labels(data, sectors)
     scope = st.radio("대상", ["섹터 기업", "추적 종목 전체"], horizontal=True, key="px_ft_scope")
     c1, c2 = st.columns(2)
     rate_thr = c1.slider("등락률 기준 (±%)", 3.0, 15.0, 5.0, 0.5, key="px_ft_rate")
     ratio_thr = c2.slider("거래대금 배수 (직전 20거래일 평균 대비)", 2.0, 10.0, 3.0, 0.5, key="px_ft_ratio")
-    snap = sc.snapshot(data, day)
+    snap = b["snap"]
     if scope == "섹터 기업":
         snap = snap[snap["code"].isin({c for cs in sectors.values() for c in cs})]
     feats = sc.pick_features(snap, rate_thr, ratio_thr)
-    st.caption(f"{day[:4]}.{day[4:6]}.{day[6:]} 종가 기준 · {scope} {len(snap)}곳 중 등락률 ±{rate_thr:g}% 이상이거나 거래대금이 평균의 {ratio_thr:g}배 이상인 종목")
+    st.caption(f"{b['label']} · {scope} {len(snap)}곳 중 등락률 ±{rate_thr:g}% 이상이거나 거래대금이 평균의 {ratio_thr:g}배 이상인 종목"
+               + (" (장중에는 누적 거래대금 기준)" if b["intraday"] else ""))
     if feats.empty:
         st.info("기준에 맞는 종목이 없어요. 기준을 낮춰 보세요.")
         return

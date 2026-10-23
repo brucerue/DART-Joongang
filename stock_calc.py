@@ -189,3 +189,90 @@ def feature_flags(row, ratio_thr):
     if row["ratio"] is not None and not pd.isna(row["ratio"]) and row["ratio"] >= ratio_thr:
         flags.append("거래대금 급증")
     return " · ".join(flags)
+
+
+# ---- 장중 (intraday.json: 오늘 5분봉) ----
+# intraday.json: {"date": "YYYYMMDD", "interval": 5, "fetched": "2026-10-26T10:35", "t": ["0900", "0905", ...(봉 시작 시각)],
+#                 "s": {"005930": {"c": [봉 종가...], "v": [봉 거래량(주)...]}}}
+# 전일 종가·시총·평균 거래대금은 KRX 자료(data)에서 가져온다.
+INTRADAY_MARKS = ["0930", "1000", "1100", "1200", "1300", "1400", "1500", "1530"]
+
+
+def bar_end_text(t, interval=5):
+    """봉 시작 시각 'HHMM' -> 끝 시각 'HH:MM' (0955 -> 10:00)"""
+    total = int(t[:2]) * 60 + int(t[2:]) + int(interval)
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
+def intraday_ready(intra, data):
+    """장중 자료가 KRX 시세 자료의 마지막 날보다 새 거래일 것이면 True (KRX에 그날이 들어오면 장중은 쓰지 않는다)"""
+    try:
+        return bool(intra and intra.get("t") and intra.get("s") and intra["date"] > data["dates"][-1])
+    except (KeyError, TypeError, IndexError):
+        return False
+
+
+def intraday_marks(intra):
+    """고를 수 있는 시각('HHMM') 목록: 마지막 봉이 끝난 시각 이하의 정시·반 (09:30, 10:00 … 15:30)"""
+    last_end = bar_end_text(intra["t"][-1], intra.get("interval", 5))
+    return [m for m in INTRADAY_MARKS if f"{m[:2]}:{m[2:]}" <= last_end]
+
+
+def _prev_pos(intra, data):
+    return max(i for i, d in enumerate(data["dates"]) if d < intra["date"])
+
+
+def intraday_snapshot(intra, data, upto=None):
+    """장중 시세를 시세판 표(snapshot과 같은 열)로: 전일 종가 대비 등락률, 거래대금은 5분봉 종가×거래량의 합(추정, 억원),
+    시총은 전일 시총을 가격 변화율로 늘린 근사, ratio는 누적 거래대금 ÷ 직전 20거래일 평균.
+    upto: None이면 최신 봉까지, 'HHMM'이면 그 시각 전에 시작한 봉까지. -> (표, 마지막 봉 끝 시각 'HH:MM' 또는 None)"""
+    k = len(intra["t"]) if upto is None else sum(1 for t in intra["t"] if t < upto)
+    if k == 0:
+        return pd.DataFrame(columns=SNAP_COLS), None
+    pos = _prev_pos(intra, data)
+    rows = []
+    for code, s in intra["s"].items():
+        base = data["s"].get(code)
+        if base is None:
+            continue
+        prev_close = base["c"][pos]
+        closes, vols = s["c"][:k], s["v"][:k]
+        price = next((c for c in reversed(closes) if c is not None), None)
+        if not prev_close or price is None:
+            continue
+        val = sum(c * v for c, v in zip(closes, vols) if c is not None and v is not None) / 1e8
+        prev_vals = [x for x in base["v"][max(0, pos - 19):pos + 1] if x is not None]
+        ratio = val / (sum(prev_vals) / len(prev_vals)) if len(prev_vals) >= 10 and sum(prev_vals) > 0 else None
+        prev_cap = base["k"][pos]
+        rows.append({"code": code, "name": base["n"], "close": price, "rate": (price / prev_close - 1) * 100, "val": val,
+                     "cap": None if prev_cap is None else prev_cap * price / prev_close, "ratio": ratio})
+    return pd.DataFrame(rows, columns=SNAP_COLS), bar_end_text(intra["t"][k - 1], intra.get("interval", 5))
+
+
+def intraday_sector_curve(intra, data, sector_codes):
+    """섹터별 평균 등락률(전일 종가 대비 %)의 봉별 추이 -> 표 (행: 봉 끝 시각 Timestamp, 열: 섹터)"""
+    pos = _prev_pos(intra, data)
+    interval = intra.get("interval", 5)
+    index = pd.to_datetime([intra["date"] + bar_end_text(t, interval).replace(":", "") for t in intra["t"]], format="%Y%m%d%H%M")
+    rates = {}
+    for code, s in intra["s"].items():
+        base = data["s"].get(code)
+        prev_close = base["c"][pos] if base else None
+        if not prev_close:
+            continue
+        price = pd.Series(s["c"], index=index, dtype="float64").ffill()
+        rates[code] = (price / prev_close - 1) * 100
+    cols = {}
+    for sector, codes in sector_codes.items():
+        part = [rates[c] for c in codes if c in rates]
+        if part:
+            cols[sector] = pd.concat(part, axis=1).mean(axis=1)
+    return pd.DataFrame(cols, index=index)
+
+
+def intraday_hourly(curve, marks):
+    """봉별 추이에서 고른 시각(marks, 'HHMM')만 뽑은 표 (행 이름 'HH:MM')"""
+    stamp = curve.index.strftime("%H%M")
+    pick = curve[[s in set(marks) for s in stamp]].copy()
+    pick.index = pick.index.strftime("%H:%M")
+    return pick

@@ -17,6 +17,7 @@
 - `news_digest.py`: 텔레그램 발송. `app.py`의 상수·함수를 AST로 읽어 쓴다(앱을 고치면 알람도 따라 바뀜). `--sync`, `--auto`, `--alert 종류` 옵션.
 - `collect_data.py` + `.github/workflows/collect_data.yml`: 매시간 40분, 기사·공시를 `data` 브랜치(`archive.json` 6개월, `recent.json` 7일)에 저장. 앱의 '이슈 타임라인'이 읽음(`archive.json`). `recent.json`은 지금 앱에서 쓰지 않음(빠르게 보기 버튼은 의논 끝에 뺌).
 - `stock_calc.py`(주가 탭의 계산, 화면 없음) + `price_history.py` + `.github/workflows/price_history.yml`: 평일 09:40 KRX 일별 시세(섹터 기업 + 재계 상위 50개 그룹 상장 계열사)를 `prices` 브랜치(`prices.json`, 약 1년)에 한 커밋으로 덮어써 저장. GitHub Secrets에 `KRX_API_KEY` 필요. 앱 '주가' 탭이 읽음. KRX는 전일 종가 기준이라 장중 시세 없음.
+- `intraday.py` + `.github/workflows/intraday.yml`: 평일 장중(09:05~15:35) 30분마다 추적 종목의 오늘 5분봉(야후 파이낸스 yfinance, 비공식)을 `intraday` 브랜치(`intraday.json`, 한 커밋으로 덮어씀)에 저장. 앱 시세판·특징주의 '장중' 기준이 읽음(전일 종가는 KRX 자료). 야후 자료는 지연·오차가 있을 수 있음.
 - `.github/workflows/news_digest.yml`: Cloudflare Worker가 15분마다 호출(정각 전체, 15·30·45분 `단독`).
 - `.github/workflows/sync_config.yml`: app.py/news_digest.py 푸시 + 매시 17분에 구글 스크립트로 동기화.
 - `apps_script/Code.gs`(텔레그램 명령·승인·백업), `apps_script/worker.js`(Cloudflare Worker). 수정 후 Apps Script는 **새 버전으로 배포**해야 반영됨.
