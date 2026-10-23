@@ -68,9 +68,9 @@ def load_app_data():
     consts, funcs = {}, {}
     want_consts = {"LETTER_NAMES", "WORD_READINGS", "PUBLISHERS", "SIMILAR_TITLE", "NEWS_ALIASES", "NAME_READINGS",
                    "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "TEAM_PRESETS",
-                   "PROV_REV_LABELS", "PROV_OP_LABELS"}
+                   "PROV_REV_LABELS", "PROV_OP_LABELS", "SPORTS_WORDS"}
     want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "disclosure_key",
-                  "parse_amount_cell", "parse_provisional", "doc_text_from_zip"}  # 뒤의 셋: 잠정실적 원문 읽기 (앱 '재무 조회'와 같은 규칙)
+                  "parse_amount_cell", "parse_provisional", "doc_text_from_zip", "is_sports"}  # 뒤의 셋: 잠정실적 원문 읽기 (앱 '재무 조회'와 같은 규칙)
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
@@ -521,7 +521,7 @@ def collect(mode, sector, cutoff):
         items, err = google_search(search, list(WIRE_DOMAINS), "", cutoff)
         if err:
             raise RuntimeError(f"구글 뉴스 오류: {err}")
-        items = [i for i in items if i["category"] == "통신사" and i["publisher"] == "연합뉴스"]
+        items = [i for i in items if i["category"] == "통신사" and i["publisher"] == "연합뉴스" and not A["is_sports"](i["title"])]
     else:
         items, err = google_search(search, list(A["PUBLISHERS"]), "단독", cutoff)
         if USE_NAVER and os.environ.get("NAVER_CLIENT_ID"):  # 구글 뉴스에 네이버 뉴스를 항상 합친다(구글이 늦게 반영하는 기사를 네이버가 메움)

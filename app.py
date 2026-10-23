@@ -368,7 +368,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 08:25"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 10:14"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3079,6 +3079,16 @@ def is_exclusive(title):
     return bool(re.search(r"[\[\(<【〈]\s*단독\s*[\]\)>】〉]|^\s*단독\s*[:,\-…]|^\s*단독\s", title))
 
 
+# 통신 기사에서 뺄 스포츠 낱말. 기업명(예: 현대모비스 농구단, LG 농구팀)이 들어간 스포츠 기사가 기업 기사로 잡히는 것을 막는다.
+SPORTS_WORDS = ("농구", "야구", "축구", "배구", "프로골프", "골프대회", "K리그", "KBO", "레이싱", "연패", "연승", "e스포츠")
+
+
+def is_sports(title):
+    """제목에 스포츠 낱말이 있는지 (통신 기사 제외용). '전적으로' 같은 말과 헷갈리지 않게 낱말을 고른다."""
+    t = str(title).lower()
+    return any(w.lower() in t for w in SPORTS_WORDS)
+
+
 def title_key(title):
     """제목 비교용: 기호·공백을 지우고 소문자로."""
     return re.sub(r"[^0-9a-z가-힣]", "", title.lower())
@@ -5263,6 +5273,8 @@ def render_news_search(kind):
                     total = len(items)
                     want = "통신사" if kind == "통신" else None  # 통신: 연합뉴스·뉴시스·뉴스1만 / 단독: 목록에 있는 언론사 모두
                     items = [i for i in items if (i["category"] == want if want else i["category"])]
+                    if kind == "통신":  # 통신: 스포츠 기사는 기업명이 들어 있어도 뺀다
+                        items = [i for i in items if not is_sports(i["title"])]
                     if yna_only:  # 연합만: 연합뉴스 아닌 기사(뉴시스·뉴스1 등)는 뺀다
                         items = [i for i in items if i["publisher"] == "연합뉴스"]
                     keys = {t: name_key(t) for t in owner}
@@ -7638,7 +7650,7 @@ def collect_brief(name, code, progress):
         names = news_names(name)
         items = google(names, BRIEF_TREND_DAYS, list(WIRE_DOMAINS))
         keys = [name_key(t) for t in names]
-        items = [i for i in items if i["category"] == "통신사" and any(k in name_key(i["title"]) for k in keys)]
+        items = [i for i in items if i["category"] == "통신사" and not is_sports(i["title"]) and any(k in name_key(i["title"]) for k in keys)]
         return cluster_news(items)[:BRIEF_WIRE_MAX]
 
     b["wire"] = step("최근 통신 기사를 찾는 중...", "wire", wire)
