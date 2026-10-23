@@ -43,7 +43,7 @@ SEEN_FILE = os.path.join(HERE, "digest_seen.json")
 PREFS_FILE = os.path.join(HERE, "digest_prefs.json")  # 받는 사람이 봇 명령으로 바꾼 설정(회차 사이에 캐시로 이어짐)
 
 # ---------- 설정: 받고 싶은 섹터·조회 방식 ----------
-SECTORS = ["자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재"]
+SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지·소재"]
 MODES = ["통신", "단독", "공시"]
 LOOKBACK_HOURS = 12  # 발송 시각 기준 이 시간 안에 올라온 기사만 (쉬는 요일·시간 뒤에 다시 받을 때도 같은 기준. 이미 보낸 기사는 기록으로 걸러냄)
 MAX_PER_SECTOR = 100  # 섹터마다 메시지에 싣는 최대 묶음 수 (넘으면 '외 N건'). 길면 텔레그램 메시지가 여러 통으로 나뉨
@@ -68,7 +68,7 @@ def load_app_data():
     tree = ast.parse(src)
     consts, funcs = {}, {}
     want_consts = {"LETTER_NAMES", "WORD_READINGS", "PUBLISHERS", "SIMILAR_TITLE", "NEWS_ALIASES", "NAME_READINGS",
-                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "TEAM_PRESETS",
+                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "TEAM_PRESETS", "HEAVY_NAME", "HEAVY_PARTS",
                    "PROV_REV_LABELS", "PROV_OP_LABELS", "SPORTS_WORDS", "NEWS_BLOCK_TERMS"}
     want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "disclosure_key",
                   "parse_amount_cell", "parse_provisional", "doc_text_from_zip", "is_sports", "is_blocked", "key_in_title"}  # 뒤의 셋: 잠정실적 원문 읽기 (앱 '재무 조회'와 같은 규칙)
@@ -111,6 +111,19 @@ def aliases_of(term):
         if any(name_key(g) == key for g in group):
             names += [g for g in group if g not in names]
     return names
+
+
+def migrate_sectors(sectors):
+    """옛 섹터 이름(조선·해운, 방산, 철강)을 '중후장대'로 바꾼다 (순서 유지, 중복 제거).
+    -> (새 목록, 세 섹터 중 일부만 받던 사람인지). 일부만 받던 사람은 묶음으로 넓어지므로 첫 회차에 조용히 기록만 한다."""
+    parts, name = set(A["HEAVY_PARTS"]), A["HEAVY_NAME"]
+    old = list(sectors or [])
+    out = []
+    for x in old:
+        y = name if x in parts else x
+        if y not in out:
+            out.append(y)
+    return out, bool(parts & set(old)) and not parts <= set(old)
 
 
 def sector_terms(sector):
@@ -289,7 +302,8 @@ def disclosure_items(feed, sector, earn_only=False, use_skip=True):
     """시장 전체 공시 중 섹터 기업의 '주요 공시'만 골라, 뉴스 항목과 같은 모양으로 돌려준다 (최신순).
     잠정실적은 같은 회사가 연결 기준을 냈으면 별도 기준은 빼고(중복), 수치를 붙일 수 있게 표시해 둔다.
     earn_only면 잠정실적만. use_skip: 알림에서 뺄 보고서(DISCLOSURE_SKIP)를 뺄지 (수집은 끔)."""
-    keys = {name_key(n) for n in A["INDUSTRY_GROUPS"].get(sector, [])}
+    companies = [n for part in A["HEAVY_PARTS"] for n in A["INDUSTRY_GROUPS"].get(part, [])] if sector == A["HEAVY_NAME"] else A["INDUSTRY_GROUPS"].get(sector, [])
+    keys = {name_key(n) for n in companies}
     major = [A["disclosure_key"](w) for ws in A["MAJOR_DISCLOSURES"].values() for w in ws]
     skip = [A["disclosure_key"](w) for w in DISCLOSURE_SKIP] if use_skip else []
     has_cons = {r.get("corp_code") or r.get("corp_name") for r in feed if earn_kind(r.get("report_nm", "")) == "연결"}
@@ -921,6 +935,8 @@ def run_command(text, sub, prefs):
         options = list(A.get("ALARM_SECTORS") or SECTORS)
         aliases = {t: v for t, v in presets.items()}
         aliases["전체"] = options
+        for old in ("조선·해운", "조선해운", "조선", "해운", "방산", "철강"):  # 옛 섹터 이름은 중후장대로 받는다
+            aliases.setdefault(old, [A["HEAVY_NAME"]])
         chosen, bad = parse_choice(rest, options, aliases)
         if bad or not chosen:
             head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 섹터를 같이 보내주세요. 예: /섹터 자동차 배터리"
@@ -1071,7 +1087,9 @@ def apply_prefs(subs, prefs, keep_paused=False):
         if isinstance(ra, (int, float)) and ra > 0:
             new["since"] = datetime.fromtimestamp(ra / 1000, KST)
         if mine.get("sectors"):
-            new["sectors"] = [x for x in mine["sectors"] if x in A["NEWS_SECTORS"]] or sub["sectors"]
+            moved, partial = migrate_sectors(mine["sectors"])
+            new["sectors"] = [x for x in moved if x in A["NEWS_SECTORS"]] or sub["sectors"]
+            new["heavy_partial"] = partial
         if mine.get("modes"):
             new["modes"] = [x for x in mine["modes"] if x in MODES] or sub["modes"]
         h = mine.get("hours")
@@ -1120,12 +1138,14 @@ def load_subscribers():
         if bad_teams:
             raise SystemExit(f"{d.get('name', d.get('chat_id'))}: 알 수 없는 팀 {bad_teams} (가능: {', '.join(presets) or '없음'})")
         team_sectors = [x for t in teams for x in presets[t]]
-        sectors = list(dict.fromkeys(list(d.get("sectors") or []) + team_sectors)) or SECTORS  # 팀 + 개별 섹터를 합쳐서, 둘 다 없으면 전부
+        explicit, partial = migrate_sectors(d.get("sectors") or [])  # 옛 이름(조선·해운·방산·철강)은 중후장대로
+        partial = partial and A["HEAVY_NAME"] not in team_sectors
+        sectors = list(dict.fromkeys(explicit + team_sectors)) or SECTORS  # 팀 + 개별 섹터를 합쳐서, 둘 다 없으면 전부
         modes = d.get("modes") or MODES
         bad = [x for x in sectors if x not in A["NEWS_SECTORS"]] + [m for m in modes if m not in MODES]
         if bad:
             raise SystemExit(f"{d.get('name', d.get('chat_id'))}: 알 수 없는 섹터/모드 {bad}")
-        subs.append({"name": d.get("name") or str(d["chat_id"]), "chat_id": str(d["chat_id"]), "sectors": list(sectors), "modes": list(modes)})
+        subs.append({"name": d.get("name") or str(d["chat_id"]), "chat_id": str(d["chat_id"]), "sectors": list(sectors), "modes": list(modes), "heavy_partial": partial})
     return subs
 
 
@@ -1226,7 +1246,7 @@ def main():
             return
     cutoff = now - timedelta(hours=LOOKBACK_HOURS)
     seen = {} if args.force else load_seen()
-    seen = {k: v for k, v in seen.items() if v >= (now - timedelta(days=7)).isoformat()}  # 7일 지난 기록은 정리
+    seen = {k: v for k, v in seen.items() if v >= (now - timedelta(days=7)).isoformat() or k.startswith("migrate|")}  # 7일 지난 기록은 정리 (이전 표시는 남김)
 
     # 1) 필요한 (모드, 섹터) 조합을 한 번씩만 조회한다 (받는 사람이 겹쳐도 검색은 한 번)
     need = sorted({(m, s) for sub in subs for m in sub["modes"] for s in sub["sectors"]},
@@ -1268,6 +1288,9 @@ def main():
     for sub in subs:
         chat = sub["chat_id"]
         parts = []  # [(모드, 섹션들, 새 기록 키들)]
+        base_key = f"migrate|heavy|{chat}"
+        baseline = bool(sub.get("heavy_partial")) and base_key not in seen and not dry and not args.force and not args.only
+        quiet_keys = []  # 중후장대로 묶이기 전 일부만 받던 사람: 넓어진 범위의 기존 기사는 보내지 않고 '받은 것으로만' 기록
         for mode in sub["modes"]:
             sections, placed, new_keys = [], set(), []
             for sector in sub["sectors"]:
@@ -1286,6 +1309,10 @@ def main():
                     placed.add(k)
                     fresh.append(i)
                 clusters = [{"rep": i, "others": []} for i in fresh] if mode == "공시" else cluster_news(fresh)
+                if baseline and sector == A["HEAVY_NAME"]:
+                    for c in clusters:
+                        quiet_keys += [f"{chat}|{mode}|{it['key'] if mode == '공시' else title_key(it['title'])}" for it in [c["rep"]] + c["others"]]
+                    continue
                 for c in clusters:
                     new_keys += [f"{chat}|{mode}|{it['key'] if mode == '공시' else title_key(it['title'])}" for it in [c["rep"]] + c["others"]]
                 if clusters:
@@ -1293,6 +1320,12 @@ def main():
             print(f"[{sub['name']}/{mode}] 새 묶음 {sum(len(c) + h for _, c, h in sections)}건 ({len(sections)}개 섹터)")
             if sections:
                 parts.append((mode, sections, new_keys))
+        if baseline:
+            for k in quiet_keys:
+                seen[k] = now.isoformat()
+            seen[base_key] = now.isoformat()
+            seen_dirty = True
+            print(f"[{sub['name']}] 섹터가 중후장대로 묶여 기존 기사 {len(quiet_keys)}건은 알림 없이 기록만 했어요")
         if not parts:
             continue
         if sub.get("paused"):  # 멈춘 사람: 보내지 않고 '받은 것으로만' 기록한다 -> 켜면 그 뒤에 나온 것만 받는다

@@ -24,7 +24,7 @@
 - 문서: `업데이트_기록.md`(기능 변경 로그), `뉴스_자동발송_사용법.md`, `관리자_명령어_정리.md`, `앱_데이터모으기_사용법.md`, `apps_script/*.md`.
 
 ## 주의할 함정
-- 산업 뉴스·공시 분석·실적 캘린더 섹터는 조선·해운/방산/철강을 '중후장대'로 묶어 보여준다(`HEAVY_*`, `CAL_GROUPS`, 뒤쪽에서 다시 만드는 `NEWS_SECTORS`). 재무 조회·주가(`INDUSTRY_GROUPS`)와 텔레그램 알람(`ALARM_SECTORS`, `NEWS_SECTORS` 처음 리터럴 정의)은 옛 섹터 그대로. `news_digest.py`는 `NEWS_SECTORS`의 첫 정의만 읽으니 그 리터럴을 지우지 말 것.
+- 산업 뉴스·공시 분석·실적 캘린더·텔레그램 알람의 섹터는 조선·해운/방산/철강을 '중후장대'로 묶어 쓴다(`HEAVY_*`, `NEWS_SECTORS`·`ALARM_SECTORS`·`TEAM_PRESETS`, `CAL_GROUPS`). 재무 조회·주가(`INDUSTRY_GROUPS`)는 옛 섹터 그대로. 옛 이름으로 저장된 받는 사람 설정은 `news_digest.py`(`migrate_sectors`)와 `Code.gs`(`migrateSectors_`)가 읽을 때 중후장대로 바꾼다(알림 없음). `news_digest.py`는 `NEWS_SECTORS`의 첫 정의만 읽으니 그 리터럴을 지우지 말 것.
 - Worker Cron은 Cron expression `*/15 * * * *` (UTC 기준 아님, 주기 형식).
 - 텔레그램 `/` 메뉴 이름은 소문자 영어만 가능(status, sectors, modes, hours, days, off, on, help). 한글 명령은 직접 입력.
 - JS 블록 주석 안에 `*/`를 쓰면 주석이 끝난다.

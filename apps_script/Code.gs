@@ -19,10 +19,11 @@
  */
 
 // ---- 기본값: 평소에는 GitHub가 동기화(sync)로 아래 값과 받는 사람 목록을 최신으로 덮어쓴다. 동기화가 한 번도 없었을 때만 쓰인다 ----
-var ALARM_SECTORS = ["자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재", "반도체", "IT·통신"];
+var ALARM_SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지·소재", "반도체", "IT·통신"];
 var ALARM_MODES = ["통신", "단독", "공시"];
-var TEAM_PRESETS = { "차팀": ["자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재"] };
-var DEFAULT_SECTORS = ["자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재"]; // 목록에 섹터를 안 적은 사람의 기본값(news_digest.py의 SECTORS)
+var TEAM_PRESETS = { "차팀": ["자동차", "배터리", "중후장대", "정유·석화", "에너지·소재"] };
+var HEAVY_NAME = "중후장대", HEAVY_PARTS = ["조선·해운", "방산", "철강"];   // 옛 섹터 이름은 중후장대로 읽는다
+var DEFAULT_SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지·소재"]; // 목록에 섹터를 안 적은 사람의 기본값(news_digest.py의 SECTORS)
 
 // 현재 설정: 동기화로 받은 것(CONFIG)이 있으면 그것, 없으면 위의 기본값
 function cfg_() {
@@ -429,6 +430,13 @@ function handleSignup_(chat, cid, secBits, modeBits) {
 }
 
 // ---------------------------------------------------------------- 명령
+// 저장된 옛 섹터 이름(조선·해운·방산·철강)을 중후장대로 바꾼다 (순서 유지, 중복 제거). 알림은 보내지 않는다.
+function migrateSectors_(list) {
+  var out = [];
+  (list || []).forEach(function (x) { var y = HEAVY_PARTS.indexOf(x) >= 0 ? HEAVY_NAME : x; if (out.indexOf(y) < 0) out.push(y); });
+  return out;
+}
+
 function plainName_(t) { return String(t).replace(/[·ㆍ・•∙\s]/g, ""); }  // 모바일에서 중간점을 치기 어려워 '조선해운'으로도 받는다
 
 function parseChoice_(words, options, aliases) {
@@ -474,6 +482,7 @@ function runCommand_(text, sub, prefs, cid) {
     var C = cfg_(), aliases = {};
     Object.keys(C.teams).forEach(function (t) { aliases[t] = C.teams[t]; });
     aliases["전체"] = C.sectors;
+    ["조선·해운", "조선해운", "조선", "해운", "방산", "철강"].forEach(function (o) { if (!(o in aliases)) aliases[o] = [HEAVY_NAME]; });   // 옛 이름은 중후장대로
     var r = parseChoice_(rest, C.sectors, aliases);
     if (r.bad.length || !r.chosen.length) {
       return (r.bad.length ? "알아듣지 못한 말: " + r.bad.join(", ") : "받을 섹터를 같이 보내주세요. 예: /섹터 자동차 배터리") +
@@ -574,7 +583,7 @@ function loadSubscribers_() {
     var teamSectors = [];
     (d.teams || []).forEach(function (t) { teamSectors = teamSectors.concat(C.teams[t] || []); });
     var sectors = [];
-    (d.sectors || []).concat(teamSectors).forEach(function (s) { if (sectors.indexOf(s) < 0) sectors.push(s); });
+    migrateSectors_(d.sectors).concat(teamSectors).forEach(function (s) { if (sectors.indexOf(s) < 0) sectors.push(s); });
     return {
       name: d.name || String(d.chat_id), chat_id: String(d.chat_id),
       sectors: sectors.length ? sectors : C.defaults.slice(),
@@ -587,7 +596,7 @@ function applyPrefs_(sub, prefs) {
   var mine = prefs[sub.chat_id] || {};
   return {
     name: sub.name, chat_id: sub.chat_id,
-    sectors: (mine.sectors && mine.sectors.length) ? mine.sectors : sub.sectors,
+    sectors: (mine.sectors && mine.sectors.length) ? migrateSectors_(mine.sectors) : sub.sectors,
     modes: (mine.modes && mine.modes.length) ? mine.modes : sub.modes
   };
 }
