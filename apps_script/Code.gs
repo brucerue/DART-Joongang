@@ -463,7 +463,8 @@ function runCommand_(text, sub, prefs, cid) {
   }
   if (["켜기", "on", "resume", "재개"].indexOf(cmd) >= 0) {
     delete mine.paused;
-    return "알람을 다시 켰어요.\n\n" + describe_(sub, mine);
+    mine.resumed_at = nowMs_();   // 켠 시각: 이보다 먼저 나온 기사·공시는 보내지 않는다 (뉴스 발송이 읽어 감)
+    return "알람을 다시 켰어요. 지금부터 나오는 소식만 받아요.\n\n" + describe_(sub, mine);
   }
   if (["섹터", "sectors", "sector"].indexOf(cmd) >= 0) {
     var C = cfg_(), aliases = {};
@@ -487,7 +488,7 @@ function runCommand_(text, sub, prefs, cid) {
       return "✅ 받는 요일을 기본(월~금)으로 되돌렸어요.\n\n" + describe_(sub, mine);
     }
     mine.days = pd.days;
-    return "✅ 받는 요일을 " + daysText_(pd.days) + "로 바꿨어요. 쉬는 날 나온 기사는 다음 받는 날 첫 시간에 한꺼번에 와요.\n\n" + describe_(sub, mine);
+    return "✅ 받는 요일을 " + daysText_(pd.days) + "로 바꿨어요. 쉬는 날 나온 기사는 다음 받는 날 첫 시간 기준 12시간 안에 나온 것만 와요.\n\n" + describe_(sub, mine);
   }
   if (["시간", "hours", "hour", "time"].indexOf(cmd) >= 0) {
     var txt = rest.join(" ");
@@ -499,7 +500,7 @@ function runCommand_(text, sub, prefs, cid) {
     if (nums.length !== 2) return "시간 범위를 알려주세요. 예: /시간 8-18 (되돌리기: /시간 기본)";
     if (!(nums[0] >= 7 && nums[0] <= nums[1] && nums[1] <= 19)) return "7~19시 안에서만 고를 수 있고, 시작은 끝보다 늦을 수 없어요. 예: /시간 8-18";
     mine.hours = nums;
-    return "✅ 받는 시간을 " + nums[0] + "~" + nums[1] + "시로 바꿨어요. 이 시간 밖에 나온 기사는 시작 시각에 한꺼번에 와요.\n\n" + describe_(sub, mine);
+    return "✅ 받는 시간을 " + nums[0] + "~" + nums[1] + "시로 바꿨어요. 이 시간 밖에 나온 기사는 시작 시각 기준 12시간 안에 나온 것만 와요.\n\n" + describe_(sub, mine);
   }
   if (["종류", "modes", "mode"].indexOf(cmd) >= 0) {
     var r2 = parseChoice_(rest, cfg_().modes, { "전체": cfg_().modes });

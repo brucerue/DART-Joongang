@@ -44,7 +44,7 @@ PREFS_FILE = os.path.join(HERE, "digest_prefs.json")  # 받는 사람이 봇 명
 # ---------- 설정: 받고 싶은 섹터·조회 방식 ----------
 SECTORS = ["자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재"]
 MODES = ["통신", "단독", "공시"]
-LOOKBACK_HOURS = 36  # 이 시간 안에 올라온 기사만 (이미 보낸 기사는 기록으로 걸러냄)
+LOOKBACK_HOURS = 12  # 발송 시각 기준 이 시간 안에 올라온 기사만 (쉬는 요일·시간 뒤에 다시 받을 때도 같은 기준. 이미 보낸 기사는 기록으로 걸러냄)
 MAX_PER_SECTOR = 100  # 섹터마다 메시지에 싣는 최대 묶음 수 (넘으면 '외 N건'). 길면 텔레그램 메시지가 여러 통으로 나뉨
 USE_NAVER = os.environ.get("USE_NAVER", "1").strip().lower() in ("1", "true", "yes", "on")  # 기본은 켜짐(네이버 키가 있을 때만 실제로 사용). 끄려면 환경변수 USE_NAVER=0
 WIRE_DOMAINS = ("yna.co.kr",)  # 통신 모드: 연합뉴스만 (늘리려면 "newsis.com", "news1.kr" 추가)
@@ -257,11 +257,18 @@ def dart_key():
     return api_key
 
 
-def fetch_dart_feed(now, earn_only=False):
-    """오늘·어제(한국 날짜)에 접수된 전 상장사(코스피·코스닥) 공시. 한 번 받아 모든 섹터가 같이 쓴다.
-    earn_only(15분마다 도는 단독 확인 때): 잠정실적만 보면 되므로 오늘 접수된 거래소공시(I)만 받아 가볍게"""
+def fetch_dart_feed(now, earn_only=False, wide=False):
+    """접수된 전 상장사(코스피·코스닥) 공시. 한 번 받아 모든 섹터가 같이 쓴다.
+    공시 목록에는 날짜만 있고 시각이 없어서, 알림은 'LOOKBACK_HOURS 전이 속한 날짜 ~ 오늘'을 받는다 (오전 7시 회차는 어제+오늘, 낮에는 오늘만).
+    earn_only(15분마다 도는 단독 확인 때): 잠정실적만 보면 되므로 오늘 접수된 거래소공시(I)만 받아 가볍게
+    wide(기사·공시 수집용): 오늘·어제를 모두 받는다"""
     api_key = dart_key()
-    days = [now.strftime("%Y%m%d")] if earn_only else [(now - timedelta(days=d)).strftime("%Y%m%d") for d in range(DISCLOSURE_DAYS)]
+    if earn_only:
+        days = [now.strftime("%Y%m%d")]
+    elif wide:
+        days = [(now - timedelta(days=d)).strftime("%Y%m%d") for d in range(DISCLOSURE_DAYS)]
+    else:
+        days = sorted({(now - timedelta(hours=LOOKBACK_HOURS)).strftime("%Y%m%d"), now.strftime("%Y%m%d")})
     rows = []
     for ymd in days:
         for cls in ("Y", "K"):
@@ -301,7 +308,7 @@ def disclosure_items(feed, sector, earn_only=False, use_skip=True):
             continue
         no = str(r.get("rcept_no", ""))
         item = {"title": f"[{r.get('corp_name', '')}] {str(r.get('report_nm', '')).strip()}", "url": DART_VIEW_URL.format(no),
-                "publisher": "DART", "key": no}
+                "publisher": "DART", "key": no, "day": str(r.get("rcept_dt", ""))}
         if kind:
             item.update(earn=kind, corp=str(r.get("corp_name", "")), rcept_dt=str(r.get("rcept_dt", "")),
                         fix="정정" in str(r.get("report_nm", "")))
@@ -1046,6 +1053,11 @@ def apply_prefs(subs, prefs, keep_paused=False):
         if mine.get("paused") and not keep_paused:
             continue
         new = dict(sub)
+        if mine.get("paused"):
+            new["paused"] = True  # 멈춘 사람: 보내지는 않지만 '받은 것으로' 기록해 둔다 (켠 이후 것만 받게)
+        ra = mine.get("resumed_at")  # 마지막으로 /켜기 한 시각(밀리초). 이전에 나온 기사·공시는 보내지 않는다
+        if isinstance(ra, (int, float)) and ra > 0:
+            new["since"] = datetime.fromtimestamp(ra / 1000, KST)
         if mine.get("sectors"):
             new["sectors"] = [x for x in mine["sectors"] if x in A["NEWS_SECTORS"]] or sub["sectors"]
         if mine.get("modes"):
@@ -1168,9 +1180,9 @@ def main():
     if args.commands_only:
         print("명령 확인 끝")
         return
-    subs = apply_prefs(base_subs, load_prefs())
+    subs = apply_prefs(base_subs, load_prefs(), keep_paused=True)  # 멈춘 사람도 둔다(보내지 않고 기록만)
     print(f"설정 확인: 봇 토큰 {'있음' if token else '없음'} / DIGEST_SUBSCRIBERS {'있음' if os.environ.get('DIGEST_SUBSCRIBERS', '').strip() else '없음'} "
-          f"/ TELEGRAM_CHAT_ID {'있음' if os.environ.get('TELEGRAM_CHAT_ID') else '없음'} / 받는 사람 {len(subs)}명")
+          f"/ TELEGRAM_CHAT_ID {'있음' if os.environ.get('TELEGRAM_CHAT_ID') else '없음'} / 받는 사람 {sum(1 for x in subs if not x.get('paused'))}명 (멈춤 {sum(1 for x in subs if x.get('paused'))}명)")
     if not subs:
         print("※ 받는 사람 목록이 비어 있어요. GitHub Secrets에 DIGEST_SUBSCRIBERS(또는 TELEGRAM_CHAT_ID)가 등록돼 있는지, "
               "이름 철자가 같은지, 'Repository secrets'에 넣었는지 확인하세요.", file=sys.stderr)
@@ -1194,9 +1206,9 @@ def main():
             sub["modes"] = [m for m in sub["modes"] if m == args.mode or (earn_only and m == "공시")]
     now = datetime.now(KST)
     if args.auto:  # 사람마다 받는 시간대(기본 7~19시)가 있고, 그 밖의 회차는 건너뛴다. 못 받은 기사는 기록하지 않으니 시작 시각에 모아서 간다
-        subs = [x for x in subs if x.get("hours", (HOURS_MIN, HOURS_MAX))[0] <= now.hour <= x.get("hours", (HOURS_MIN, HOURS_MAX))[1]
-                and now.weekday() in x.get("days", DAYS_DEFAULT)]
-        if not subs:
+        subs = [x for x in subs if x.get("paused") or (x.get("hours", (HOURS_MIN, HOURS_MAX))[0] <= now.hour <= x.get("hours", (HOURS_MIN, HOURS_MAX))[1]
+                and now.weekday() in x.get("days", DAYS_DEFAULT))]
+        if not any(not x.get("paused") for x in subs):
             print(f"{now.hour}시({DAY_NAMES[now.weekday()]}): 이 시간에 받을 사람이 없어 건너뜀")
             report_run("단독" if args.mode == "단독" else "전체", 0, 0, 0, skipped=True)
             return
@@ -1228,7 +1240,7 @@ def main():
         raise SystemExit("모든 조회가 실패했어요.")
 
     # 1-2) 이번에 누군가에게 새로 갈 잠정실적 공시는 원문에서 매출·영업이익·순이익을 읽어 붙인다
-    earn_new = [i for sub in subs if "공시" in sub["modes"] for s in sub["sectors"]
+    earn_new = [i for sub in subs if "공시" in sub["modes"] and not sub.get("paused") for s in sub["sectors"]
                 for i in found.get(("공시", s), []) if i.get("earn") and f"{sub['chat_id']}|공시|{i['key']}" not in seen]
     seen_dirty = False
     if earn_new:
@@ -1250,9 +1262,12 @@ def main():
                 if (mode, sector) not in found:
                     continue
                 fresh = []
+                since = sub.get("since")
                 for i in found[(mode, sector)]:
                     if i.get("hold"):  # 원문이 올라오면 수치와 함께 보낸다 (다음 회차)
                         continue
+                    if since and ((i.get("dt") and i["dt"] < since) or (i.get("day") and i["day"] < since.strftime("%Y%m%d"))):
+                        continue  # /켜기 하기 전에 나온 기사·공시(공시는 날짜 기준)는 보내지 않는다
                     k = f"{chat}|{mode}|{i['key'] if mode == '공시' else title_key(i['title'])}"
                     if k in seen or k in placed:
                         continue
@@ -1267,6 +1282,14 @@ def main():
             if sections:
                 parts.append((mode, sections, new_keys))
         if not parts:
+            continue
+        if sub.get("paused"):  # 멈춘 사람: 보내지 않고 '받은 것으로만' 기록한다 -> 켜면 그 뒤에 나온 것만 받는다
+            if not dry and not args.force:
+                for _, _, new_keys in parts:
+                    for k in new_keys:
+                        seen[k] = now.isoformat()
+                seen_dirty = True
+            print(f"[{sub['name']}] 멈춤 상태라 보내지 않고 기록만 했어요")
             continue
         combined = combine_messages(now, parts, earn_only)
         try:
@@ -1289,7 +1312,7 @@ def main():
         with open(SEEN_FILE, "w", encoding="utf-8") as f:
             json.dump(seen, f, ensure_ascii=False)
     if not dry and not args.only and not args.force:
-        report_run("단독" if args.mode == "단독" else "전체", len(subs), delivered, send_errors)
+        report_run("단독" if args.mode == "단독" else "전체", sum(1 for x in subs if not x.get("paused")), delivered, send_errors)
     if send_errors:
         raise SystemExit(f"{send_errors}건의 발송이 실패했어요. 위 로그를 확인하세요.")
 

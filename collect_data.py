@@ -89,7 +89,7 @@ def main():
             added += merge(store, [to_row(i, mode, sector) for i in items])
     if os.environ.get("DART_API_KEY", "").strip():
         try:
-            feed = nd.fetch_dart_feed(now)
+            feed = nd.fetch_dart_feed(now, wide=True)
             for sector in nd.SECTORS:
                 added += merge(store, disclosure_rows(feed, sector))
         except Exception as e:
