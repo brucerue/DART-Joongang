@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 18:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 18:35"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7861,20 +7861,18 @@ def brief_glance_cards(b, pr):
     q = b.get("quote") if isinstance(b.get("quote"), dict) else None
     if pr and pr["rate"] is not None:
         tone = "down" if pr["rate"] > 0 else "up" if pr["rate"] < 0 else "flat"  # 증시 관행(상승=빨강)에 맞춰 뒤집음
-        cards.append((f"등락률 ({pr['when']})", pct_text(pr["rate"], 2), None, tone))
-        if pr["sector_avg"] is not None:
-            diff = pr["rate"] - pr["sector_avg"]
-            cards.append((f"{pr['sector']} 평균 대비", f"{diff:+.2f}%p", f"섹터 평균 {pr['sector_avg']:+.2f}% ({pr['n']}곳)",
-                          "down" if diff > 0 else "up" if diff < 0 else "flat"))
+        cards.append((f"{'오늘 주가' if pr['when'].endswith('현재') else '주가'} ({pr['when']})", pct_text(pr["rate"], 2), None, tone))
     elif q and q["row"].rate is not None:
         r = q["row"]
-        cards.append((f"등락률 ({q['day']:%m.%d} 종가)", pct_text(r.rate, 2), None, "down" if r.rate > 0 else "up" if r.rate < 0 else "flat"))
+        cards.append((f"주가 ({q['day']:%m.%d} 종가)", pct_text(r.rate, 2), None, "down" if r.rate > 0 else "up" if r.rate < 0 else "flat"))
     cap = pr["cap"] * 1e8 if pr and pr["cap"] else (q["caps"] if q else None)
     if cap:
         cards.insert(0, ("시가총액", won_text(cap), None, "flat"))
     recs = sorted_records(b.get("records") or [])
     if recs:
         r = recs[-1]
+        ryoy = fmt_change(r["rev_yoy"]) if r.get("rev_yoy") is not None else None
+        cards.append((f"{r['label']} 매출액", won_text(r["rev"]) if r.get("rev") is not None else "-", f"전년比 {ryoy}" if ryoy else None, "flat"))
         yoy = fmt_change(r["op_yoy"]) if r.get("op_yoy") is not None else None
         cards.append((f"{r['label']} 영업이익", won_text(r["op"]) if r.get("op") is not None else "-", f"전년比 {yoy}" if yoy else None, "flat"))
     return cards
