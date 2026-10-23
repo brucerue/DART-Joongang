@@ -1,20 +1,20 @@
-name: MTI 검색 실제 응답 확인 (임시)
+name: MTI 20대 품목 수치 수집 (임시)
 
-# 앱의 산업부 품목(MTI) 검색이 쓰는 코드(trade_calc.query_mti)를 실제 관세청 응답으로 돌려 보고 걸리는 시간을 재는 임시 수동 작업입니다. 확인이 끝나면 지웁니다.
+# 2026년 9월 MTI 6자리별 수출액을 받아 산업부 보도자료의 20대 주력품목 수치와 맞춰 보는 임시 수동 작업입니다. 확인이 끝나면 지웁니다.
 on:
   workflow_dispatch:
 
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install requests
-      - name: 확인
+      - name: 수집
         env:
           KEY: ${{ secrets.CUSTOMS_API_KEY }}
         run: |
@@ -24,24 +24,39 @@ jobs:
           key = os.environ["KEY"].strip()
           key = urllib.parse.unquote(key) if "%" in key else key
           def fetch(params):
-              for a in range(3):
+              for a in range(4):
                   try:
                       r = requests.get("https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH, params={"serviceKey": key, **params}, timeout=(10, 90)); r.raise_for_status(); return r.text
                   except requests.RequestException:
                       time.sleep(1 + a)
               raise tc.TradeApiError("접속 실패")
           mti = tc.load_mti("mti_map.json")
-          for code, cn, s, e in (("831", None, "202510", "202609"), ("831", None, "202509", "202509"), ("831", None, "202609", "202609"), ("741", None, "202510", "202609"), ("831110", "US", "202510", "202609"), ("61", None, "202609", "202609")):
-              t0 = time.time()
-              rows, skipped = tc.query_mti(fetch, mti, code, cn, s, e)
-              bm = tc.metrics_by_month(rows); t = tc.totals(bm)
-              print(f"\n## MTI {code} {tc.mti_name(mti, code)} 국가 {cn} {s}~{e}: 행 {len(rows)} 월 {len(bm)}개 건너뜀 {skipped} | {time.time()-t0:.1f}초")
-              print(f"   합계 수출 {t['exp']/1e8:,.1f}억달러 수입 {t['imp']/1e8:,.1f}억달러")
-              print("   하위:", [(g['code'], g['name'], round(g['exp']/1e8, 1)) for g in tc.group_mti(rows, mti, tc.next_level(code) or 6)[:5]])
-              if s == e: print(f"   (그 달 천달러 합계 {t['exp']/1000:,.0f})")
+          table = tc.mti_table_for_year(mti, 2026)
+          # 2026.09 전체 HS 6자리를 한 번씩만 조회 (MTI에 묶인 모든 HS6)
+          hs6 = sorted({h[:6] for h in table["hsk_to_mti"]})
+          from concurrent.futures import ThreadPoolExecutor
+          acc = {}
+          def one(h):
+              rows = tc.query_items(fetch, h, None, "202609", "202609")
+              out = {}
+              for r in rows:
+                  m = table["hsk_to_mti"].get(r["hs"])
+                  if m: out[m] = out.get(m, 0) + r["exp"]
+              return out
+          t0 = time.time()
+          with ThreadPoolExecutor(12) as pool:
+              for part in pool.map(one, hs6):
+                  for m, v in part.items(): acc[m] = acc.get(m, 0) + v
+          print(f"HS6 {len(hs6)}개 조회 {time.time()-t0:.0f}초, MTI 6자리 {len(acc)}개, 수출 합계 {sum(acc.values())/1e8:,.1f}억달러")
+          print("DATA " + " ".join(f"{m}:{v}" for m, v in sorted(acc.items())))
           PY
       - name: 결과를 주석으로 남기기
         if: always()
         run: |
-          msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' out.txt | head -c 3800)
-          echo "::notice title=MTI검색확인::${msg}"
+          split -b 2800 -d out.txt part_
+          n=0
+          for f in part_*; do
+            n=$((n+1))
+            msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' "$f")
+            echo "::notice title=MTI수집 $n::${msg}"
+          done
