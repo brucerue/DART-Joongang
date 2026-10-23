@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 19:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 19:45"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -6139,7 +6139,7 @@ def collect_quote(code):
     if not row or row.close is None:
         return None
     market = [row.market]
-    q = {"day": day, "row": row, "market": row.market, "caps": krx_caps(rows).get(code, row.cap), "ret": {}}
+    q = {"code": code, "day": day, "row": row, "market": row.market, "caps": krx_caps(rows).get(code, row.cap), "ret": {}}
     targets = [(label, day - timedelta(days=n)) for label, n in BRIEF_RETURNS] + [("연초 이후", date(day.year - 1, 12, 31))]
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         got = list(pool.map(lambda t: krx_on_or_before(t[1], market), targets))
@@ -6149,23 +6149,43 @@ def collect_quote(code):
     return q
 
 
+def quote_range(data, code, close, days=250):
+    """시세 자료(prices.json)의 최근 약 1년 종가로 52주(자료 기간) 최고·최저와 현재가의 거리.
+    -> {"hi", "lo", "from_hi"(%), "from_lo"(%), "n"(일수), "ratio"(직전 20거래일 평균 대비 마지막 날 거래대금 배수 또는 None)} 또는 None"""
+    s = (data or {}).get("s", {}).get(code)
+    if not s or not close:
+        return None
+    closes = [c for c in s["c"][-days:] if c]
+    if len(closes) < 20:
+        return None
+    hi, lo = max(closes + [close]), min(closes + [close])
+    ratio = None
+    snap = sc.snapshot(data, data["dates"][-1])
+    row = snap[snap["code"] == code]
+    if not row.empty and not pd.isna(row.iloc[0]["ratio"]):
+        ratio = float(row.iloc[0]["ratio"])
+    return {"hi": hi, "lo": lo, "from_hi": (close / hi - 1) * 100, "from_lo": (close / lo - 1) * 100, "n": len(closes), "ratio": ratio}
+
+
 def render_quote(q):
-    st.markdown("##### 주가·시가총액")
+    st.markdown("##### 주가 지표")
     if q is None:
         st.info("KRX에서 이 종목의 시세를 찾지 못했어요. 비상장사이거나 코넥스 종목일 수 있어요.")
         return
     r = q["row"]
-    cards = [
-        ("종가", f"{r.close:,.0f}원", pct_text(r.rate, 2) + " (전일比)" if r.rate is not None else None,
-         None if r.rate is None else ("down" if r.rate > 0 else "up" if r.rate < 0 else "flat")),  # 카드 색은 증시 관행(상승=빨강)에 맞춰 뒤집는다
-        ("시가총액", won_text(q["caps"]) if q["caps"] else "-", "보통주+우선주", "flat"),
-        ("거래대금", won_text(r.val) if r.val else "-", f"{r.vol:,.0f}주" if r.vol else None, "flat"),
-        ("상장주식수", f"{r.shares:,.0f}주" if r.shares else "-", q["market"], "flat"),
-    ]
+    try:
+        rng = quote_range(get_prices(), q.get("code"), r.close)
+    except Exception:
+        rng = None
+    cards = [("거래대금", won_text(r.val) if r.val else "-", f"직전 20일 평균의 {rng['ratio']:.1f}배" if rng and rng["ratio"] else (f"{r.vol:,.0f}주" if r.vol else None), "flat")]
+    if rng:
+        cards.append(("52주 최고 대비", pct_text(rng["from_hi"], 1), f"최고가 {rng['hi']:,.0f}원", None))
+        cards.append(("52주 최저 대비", pct_text(rng["from_lo"], 1), f"최저가 {rng['lo']:,.0f}원", None))
+    cards.append(("상장주식수", f"{r.shares:,.0f}주" if r.shares else "-", q["market"], "flat"))
     st.markdown(cb_cards(cards), unsafe_allow_html=True)
     ret = pd.DataFrame([{"기간": k, "수익률": pct_text(v)} for k, v in q["ret"].items()]).set_index("기간").T
     st.dataframe(ret.style.map(price_style), height=(len(ret) + 1) * 35 + 3)
-    st.caption(f"KRX {q['day']:%Y.%m.%d} 종가 기준")
+    st.caption(f"KRX {q['day']:%Y.%m.%d} 종가 기준" + (f" · 52주는 종가 기준 최근 {rng['n']}거래일" if rng else ""))
 
 
 # --- 3) 배당수익률 직접 계산 ---
