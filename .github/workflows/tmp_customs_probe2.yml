@@ -1,0 +1,58 @@
+name: 관세청 최신 자료 시험 (임시)
+
+# 10일 단위 잠정치의 전체 칸과 최신 달 자료가 있는지 확인하는 임시 수동 작업입니다. 확인이 끝나면 지웁니다.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 시험
+        env:
+          KEY: ${{ secrets.CUSTOMS_API_KEY }}
+        run: |
+          python - <<'PY' 2>&1 | sed "s/$(printf '%s' "$KEY" | sed 's/[][\.*^$/]/\\&/g')/***KEY***/g" | tee out.txt
+          import os, urllib.parse, requests
+          import xml.etree.ElementTree as ET
+          key = os.environ["KEY"].strip()
+          if "%" in key: key = urllib.parse.unquote(key)
+          B = "https://apis.data.go.kr/1220000/"
+          def get(path, **p):
+              r = requests.get(B + path, params={"serviceKey": key, **p}, timeout=90)
+              try: root = ET.fromstring(r.text)
+              except ET.ParseError: return None, r.text[:200]
+              return root, None
+          def show(path, label, **p):
+              root, err = get(path, **p)
+              if root is None: print(f"{label}: 파싱 실패 {err}"); return
+              items = root.findall(".//item")
+              print(f"\\n## {label}: {root.findtext('.//resultCode')} {root.findtext('.//resultMsg')} | item {len(items)}")
+              for it in items[:3]: print("  ", {c.tag: (c.text or '').strip() for c in it})
+          for ym in ("202510", "202609", "202509"):
+              show("prlstMmUtPrviExpAcrs/getPrlstMmUtPrviExpAcrs", f"수출 주요품목 10일 {ym}", strtYymm=ym, endYymm=ym)
+          show("cntyMmUtPrviExpAcrs/getCntyMmUtPrviExpAcrs", "수출 주요국가 10일 202510", strtYymm="202510", endYymm="202510")
+          show("prlstMmUtPrviImpAcrs/getPrlstMmUtPrviImpAcrs", "수입 주요품목 10일 202510", strtYymm="202510", endYymm="202510")
+          show("Newtrade/getNewtradeList", "수출입총괄 202510~202609 (12개월)", strtYymm="202510", endYymm="202609")
+          show("nationtrade/getNationtradeList", "국가별 202609", strtYymm="202609", endYymm="202609")
+          show("economytrade/getEconomytradeList", "경제권별 202609", strtYymm="202609", endYymm="202609")
+          root, _ = get("sidotrade/getSidotradeList", strtYymm="202609", endYymm="202609")
+          if root is not None: print("\\n## 시도별 202609 칸:", [{c.tag: (c.text or '').strip() for c in it} for it in root.findall('.//item')[:2]])
+          root, _ = get("porttrade/getPorttradeList", strtYymm="202609", endYymm="202609")
+          if root is not None: print("\\n## 항구별 202609 item", len(root.findall('.//item')), {c.tag: (c.text or '').strip() for c in root.findall('.//item')[3]} if len(root.findall('.//item'))>3 else "")
+          PY
+      - name: 결과를 주석으로 남기기
+        if: always()
+        run: |
+          split -b 2800 -d out.txt part_
+          n=0
+          for f in part_*; do
+            n=$((n+1))
+            msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' "$f")
+            echo "::notice title=관세청최신시험 $n::${msg}"
+          done
