@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 19:45"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 20:15"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -892,6 +892,7 @@ ALT_REV_LABELS = ("매출액", "영업수익", "수익(매출액)")
 ALT_OP_LABELS = ("영업이익", "영업손익", "영업손실")
 ALT_NET_LABELS = ("당기순이익", "당기순손익", "당기순손실", "분기순이익", "분기순손익", "반기순이익", "반기순손익", "연결당기순이익")
 ALT_HEAD = re.compile(r"^(?:[가-하]\.)?(?:연결)?(?:포괄)?손익계산서\.{0,}$")
+SUMMARY_PERIOD = re.compile(r"(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\s*~\s*(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})")
 ALT_STOP = re.compile(r"현금흐름표|자본변동표|이익잉여금처분계산서|결손금처리계산서|재무상태표")
 
 
@@ -951,6 +952,13 @@ def parse_summary_flat(lines, unit_at):
                     cells.append(c.strip())
                     owner.append(j)
         found, k = {}, 0
+        hdr = []  # 이름 칸이 나오기 전의 열 제목들에서 기간 (시작연, 시작월, 끝연, 끝월)
+        while k < len(cells) and not re.sub(r"\s", "", cells[k]).startswith(ALT_REV_LABELS + ALT_OP_LABELS + ALT_NET_LABELS):
+            m = SUMMARY_PERIOD.search(cells[k])
+            if m:
+                hdr.append(tuple(int(m.group(g)) for g in (1, 2, 4, 5)))
+            k += 1
+        k = 0
         while k < len(cells):
             label = re.sub(r"^[\dIVXⅠ-Ⅻ.()\-]+", "", re.sub(r"\s", "", cells[k]))
             key = next((key for key, names in (("rev", ALT_REV_LABELS), ("op", ALT_OP_LABELS), ("net", ALT_NET_LABELS))
@@ -959,7 +967,7 @@ def parse_summary_flat(lines, unit_at):
             if not key:
                 continue
             vals = []
-            while k < len(cells) and len(vals) < 3:
+            while k < len(cells) and len(vals) < 6:
                 v = parse_amount_cell(cells[k])
                 if v is not None:
                     vals.append(v * unit_at[owner[k]])
@@ -971,8 +979,19 @@ def parse_summary_flat(lines, unit_at):
             if any(v is not None for v in vals):
                 found[key] = vals
         if found.get("rev") or found.get("op"):
+            if hdr:
+                found["hdr"] = hdr
             return found
     return None
+
+
+def summary_columns(got):
+    """parse_income_table 결과에 열 제목 기간이 있으면 -> [(끝 연도, 끝 월, 개월 수, {rev, op, net})] (없으면 None).
+    3개월짜리 열이 없는 회사(반기·3분기 보고서가 누적만 싣는 곳)도 열 기간으로 구분할 수 있다."""
+    hdr = got.get("hdr")
+    if not hdr:
+        return None
+    return [(ey, em, (ey - sy) * 12 + em - sm + 1, {k: alt_col(got, k, i) for k in ("rev", "op", "net")}) for i, (sy, sm, ey, em) in enumerate(hdr)]
 
 
 def alt_col(got, key, i):
@@ -1038,6 +1057,13 @@ def collect_alt_quarterly(corp_code, data, start, end):
     4분기 = 사업보고서 연간 - 3분기 누적. 한 보고서에 전년도 같은 분기도 있으니 두 해가 함께 채워진다."""
     session, store = get_session(), get_cache_store()
     how, docs = {}, 0
+    cum_all = {}  # 열 제목 기간으로 읽은 값: {(끝 연도, 끝 월, 개월 수): (값, 원문 링크)}
+
+    def take_columns(got, link):
+        cols = summary_columns(got)
+        for yy, em, months, vals in cols or []:
+            cum_all.setdefault((yy, em, months), (vals, link))
+        return bool(cols)
 
     def put(y, q, vals, link):
         key = (y, q)
@@ -1062,6 +1088,8 @@ def collect_alt_quarterly(corp_code, data, start, end):
             got, link = alt_report_doc(corp_code, y, reprt, session, store)
             if not got:
                 continue
+            if take_columns(got, link):  # 열 제목에 기간이 있으면 아래 합산·차감으로 한꺼번에 채운다
+                continue
             n = max(len(got.get("rev") or []), len(got.get("op") or []), len(got.get("net") or []))
             if q == 1:
                 put(y, 1, vals_at(got, 0), link)
@@ -1074,11 +1102,42 @@ def collect_alt_quarterly(corp_code, data, start, end):
         if need[4] and docs < 12:  # 4분기 = 연간 - 3분기 누적
             docs += 1
             got, link = alt_report_doc(corp_code, y, ANNUAL, session, store)
-            if got:
+            if got and take_columns(got, link):
+                pass
+            elif got:
                 for i, yy in ((0, y), (1, y - 1)):
                     if yy in cum9:
                         ann, cum = vals_at(got, i), cum9[yy]
                         put(yy, 4, {k: (ann[k] - cum[k] if ann[k] is not None and cum[k] is not None else None) for k in ("rev", "op", "net")}, link)
+
+    def minus(a, b):
+        return {k: (a[k] - b[k] if a.get(k) is not None and b.get(k) is not None else None) for k in ("rev", "op", "net")}
+
+    for yy in sorted({k[0] for k in cum_all}):  # 열 기간으로 읽은 값에서 분기 만들기: 3개월 열이 있으면 그대로, 없으면 누적에서 앞 분기를 뺀다
+        def col(em, months):
+            hit = cum_all.get((yy, em, months))
+            return hit if hit else (None, None)
+
+        def have(q):
+            cur = data.get((yy, q))
+            return cur if cur and not is_empty(cur) else None
+
+        q1, l1 = col(3, 3)
+        q1 = q1 or have(1)
+        h1, l2 = col(6, 6)
+        q2, l2b = col(6, 3)
+        q3, l3b = col(9, 3)
+        n9, l3 = col(9, 9)
+        ann, l4 = col(12, 12)
+        if q1:
+            put(yy, 1, q1, l1 or "")
+        if q2 or (h1 and q1):
+            put(yy, 2, q2 or minus(h1, q1), l2b or l2)
+        cum6 = h1 or (minus(q2, {k: (-q1[k] if q1[k] is not None else None) for k in q1}) if q1 and q2 else None)  # 2분기 3개월 열만 있으면 1분기와 더해 상반기
+        if q3 or (n9 and cum6):
+            put(yy, 3, q3 or minus(n9, cum6), l3b or l3)
+        if ann and n9:
+            put(yy, 4, minus(ann, n9), l4)
     return how
 
 
