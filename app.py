@@ -370,7 +370,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 16:08"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 16:12"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8549,7 +8549,7 @@ def px_basis(data):
             at = f"{int(last_end[:2])}시 {last_end[3:]}분" if last_end else ""
             fetched = str(intra.get("fetched", ""))[11:16]
             label = (f"{day[:4]}.{day[4:6]}.{day[6:]} 장중 · 마지막 봉 {last_end or '-'} · 자료 갱신 {fetched or '-'} · "
-                     "야후 파이낸스(비공식) 5분봉이라 지연·오차가 있을 수 있어요")
+                     "야후 파이낸스(비공식) 5분봉이라 지연·오차가 있을 수 있어요 · 마감 가격은 다음 영업일 아침 종가 자료가 정확해요")
             return {"snap": snap, "day": day, "intraday": True, "label": label, "intra": intra, "upto": upto,
                     "phrase": f"{px_day_text(ts)} {at} 현재(비공식 장중 시세 기준)"}
     day = px_day_picker(data)
@@ -8674,7 +8674,7 @@ def render_stock():
         st.info("시세 자료가 아직 없어요. 매 평일 아침 GitHub 작업이 KRX 시세를 모아 두는데, 처음에는 과거 시세를 채우느라 며칠 걸릴 수 있어요.")
         return
     dates = sc.dates_of(data)
-    st.caption(f"KRX 일별 종가 기준 · 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일) · 평일 아침 갱신 · 장중 시세는 아니에요")
+    st.caption(f"종가는 KRX 일별 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일, 평일 아침 갱신) · 장중은 야후 파이낸스 5분봉(비공식)을 장중 30분마다 갱신")
     mode = st.radio("보기", ["시세판", "특징주", "업계 비교", "주가·이벤트", "그룹 시총"], horizontal=True, key="px_mode", label_visibility="collapsed")
     if mode == "시세판":
         render_px_board(data)
