@@ -54,7 +54,7 @@ DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 DART_VIEW_URL = "https://dart.fss.or.kr/dsaf001/main.do?rcpNo={}"
 DISCLOSURE_DAYS = 2  # 공시 모드: 오늘과 어제 접수분을 확인 (이미 보낸 공시는 기록으로 걸러냄)
 MAX_DART_PAGES = 30  # 시장마다 하루 최대 3,000건까지만 확인
-DISCLOSURE_SKIP = []  # 알림에서 뺄 보고서명 단어 (예: ["소유상황"] 이면 임원·주요주주 지분 보고는 안 보냄)
+DISCLOSURE_SKIP = ["소유상황보고서", "소유주식변동신고서"]  # 텔레그램 알림에서 뺄 보고서명 단어: 임원·주요주주 특정증권등 소유상황보고서, 최대주주등 소유주식변동신고서 (공백·가운뎃점 무시, 수집·타임라인에는 적용 안 함)
 DART_DOC_URL = "https://opendart.fss.or.kr/api/document.xml"  # 공시 원문(zip). 잠정실적 수치를 읽을 때 쓴다
 PROV_UNITS = {"원": 1, "천원": 10**3, "백만원": 10**6, "억원": 10**8, "십억원": 10**9, "조원": 10**12}  # 잠정실적 표의 단위 (app.py와 같게)
 EARN_WAIT_MINUTES = 30  # 잠정실적 원문이 DART에 아직 안 올라왔으면 이 시간까지는 기다렸다가(다음 회차에) 수치와 함께 보낸다
@@ -277,13 +277,13 @@ def earn_kind(report_nm):
     return "연결" if "연결" in rk else "별도"
 
 
-def disclosure_items(feed, sector, earn_only=False):
+def disclosure_items(feed, sector, earn_only=False, use_skip=True):
     """시장 전체 공시 중 섹터 기업의 '주요 공시'만 골라, 뉴스 항목과 같은 모양으로 돌려준다 (최신순).
     잠정실적은 같은 회사가 연결 기준을 냈으면 별도 기준은 빼고(중복), 수치를 붙일 수 있게 표시해 둔다.
-    earn_only면 잠정실적만."""
+    earn_only면 잠정실적만. use_skip: 알림에서 뺄 보고서(DISCLOSURE_SKIP)를 뺄지 (수집은 끔)."""
     keys = {name_key(n) for n in A["INDUSTRY_GROUPS"].get(sector, [])}
     major = [A["disclosure_key"](w) for ws in A["MAJOR_DISCLOSURES"].values() for w in ws]
-    skip = [A["disclosure_key"](w) for w in DISCLOSURE_SKIP]
+    skip = [A["disclosure_key"](w) for w in DISCLOSURE_SKIP] if use_skip else []
     has_cons = {r.get("corp_code") or r.get("corp_name") for r in feed if earn_kind(r.get("report_nm", "")) == "연결"}
     out = []
     for r in feed:

@@ -54,7 +54,7 @@ def merge(store, rows):
 
 def disclosure_rows(feed, sector):
     out = []
-    for it in nd.disclosure_items(feed, sector):
+    for it in nd.disclosure_items(feed, sector, use_skip=False):
         no = it["key"]
         try:
             when = datetime.strptime(no[:8], "%Y%m%d").replace(tzinfo=KST)
