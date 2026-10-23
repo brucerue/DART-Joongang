@@ -66,11 +66,10 @@ jobs:
               lines = text.split("\n")
               print("글자", len(text), "줄", len(lines))
               print("파싱 결과:", ns["parse_income_table"](text))
-              hits = [i for i, l in enumerate(lines) if re.search(r"손익계산서\s*$", l.split("|")[0]) and len(l.split("|")[0]) < 30]
-              print("손익계산서 제목 줄:", [(i, lines[i][:30]) for i in hits[:12]])
-              for i in hits[:4]:
-                  print("-- 제목 뒤 (", i, ")")
-                  for l in lines[i:i+9]: print("   ", l[:100])
+              hits = [i for i, l in enumerate(lines) if "요약" in l and "손익계산서" in l and len(l) < 30]
+              print("요약 손익계산서 제목:", [(i, lines[i]) for i in hits])
+              for i in hits[:3]:
+                  print("--", i, " / ".join(x.strip(" |") for x in lines[i:i+45]))
           PY
       - name: 결과를 주석으로 남기기
         if: always()
