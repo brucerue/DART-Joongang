@@ -368,7 +368,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 10:14"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 10:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3083,10 +3083,28 @@ def is_exclusive(title):
 SPORTS_WORDS = ("농구", "야구", "축구", "배구", "프로골프", "골프대회", "K리그", "KBO", "레이싱", "연패", "연승", "e스포츠")
 
 
-def is_sports(title):
-    """제목에 스포츠 낱말이 있는지 (통신 기사 제외용). '전적으로' 같은 말과 헷갈리지 않게 낱말을 고른다."""
+SPORTS_TITLES_URL = "https://raw.githubusercontent.com/brucerue/DART-Joongang/sports-titles/sports_titles.json"  # 연합뉴스 스포츠 RSS 제목 (매시간, 30일)
+
+
+def is_sports(title, feed_keys=()):
+    """스포츠 기사인지 (통신 기사 제외용). 낱말 목록에 걸리거나, 연합뉴스 스포츠 RSS에 실린 제목이면 True.
+    feed_keys: 스포츠 RSS 제목의 비교용 글자(title_key). 구글 뉴스 제목 끝에 '- 연합뉴스'가 붙어도 앞부분으로 맞춘다."""
     t = str(title).lower()
-    return any(w.lower() in t for w in SPORTS_WORDS)
+    if any(w.lower() in t for w in SPORTS_WORDS):
+        return True
+    k = title_key(title)
+    return any(len(fk) >= 8 and k.startswith(fk) for fk in feed_keys)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_sports_keys():
+    """GitHub에 모아 둔 스포츠 RSS 제목 목록 -> 비교용 글자 목록. 못 읽으면 빈 목록(낱말 목록만 쓴다)."""
+    try:
+        res = requests.get(SPORTS_TITLES_URL, timeout=(10, 30))
+        res.raise_for_status()
+        return tuple(it["k"] for it in res.json().get("items", []) if it.get("k"))
+    except Exception:
+        return ()
 
 
 def title_key(title):
@@ -5273,8 +5291,9 @@ def render_news_search(kind):
                     total = len(items)
                     want = "통신사" if kind == "통신" else None  # 통신: 연합뉴스·뉴시스·뉴스1만 / 단독: 목록에 있는 언론사 모두
                     items = [i for i in items if (i["category"] == want if want else i["category"])]
-                    if kind == "통신":  # 통신: 스포츠 기사는 기업명이 들어 있어도 뺀다
-                        items = [i for i in items if not is_sports(i["title"])]
+                    if kind == "통신":  # 통신: 스포츠 기사는 기업명이 들어 있어도 뺀다 (낱말 + 연합뉴스 스포츠 제목 목록)
+                        sports_keys = load_sports_keys()
+                        items = [i for i in items if not is_sports(i["title"], sports_keys)]
                     if yna_only:  # 연합만: 연합뉴스 아닌 기사(뉴시스·뉴스1 등)는 뺀다
                         items = [i for i in items if i["publisher"] == "연합뉴스"]
                     keys = {t: name_key(t) for t in owner}
@@ -7650,7 +7669,8 @@ def collect_brief(name, code, progress):
         names = news_names(name)
         items = google(names, BRIEF_TREND_DAYS, list(WIRE_DOMAINS))
         keys = [name_key(t) for t in names]
-        items = [i for i in items if i["category"] == "통신사" and not is_sports(i["title"]) and any(k in name_key(i["title"]) for k in keys)]
+        sports_keys = load_sports_keys()
+        items = [i for i in items if i["category"] == "통신사" and not is_sports(i["title"], sports_keys) and any(k in name_key(i["title"]) for k in keys)]
         return cluster_news(items)[:BRIEF_WIRE_MAX]
 
     b["wire"] = step("최근 통신 기사를 찾는 중...", "wire", wire)

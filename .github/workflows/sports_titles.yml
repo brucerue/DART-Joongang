@@ -1,0 +1,51 @@
+name: 스포츠 기사 제목 모으기
+
+# 매시간 연합뉴스 스포츠 RSS의 제목을 모아 'sports-titles' 브랜치에 저장합니다(30일 보관).
+# 앱과 알람은 이 목록에 있는 제목의 기사를 통신 기사에서 뺍니다.
+on:
+  schedule:
+    - cron: "35 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write # sports-titles 브랜치에 올리기 위해 필요
+
+concurrency:
+  group: sports-titles
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 지금까지 모은 제목 가져오기
+        run: |
+          git fetch origin sports-titles --depth=1 || true
+          git show origin/sports-titles:sports_titles.json > prev.json 2>/dev/null || rm -f prev.json
+      - name: RSS 제목 더하기
+        run: python sports_titles.py --prev prev.json --out sports_titles.json
+      - name: sports-titles 브랜치에 올리기 (기록은 한 커밋으로 덮어씀)
+        run: |
+          mkdir -p out && cp sports_titles.json out/
+          cd out
+          git init -q -b sports-titles
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sports_titles.json
+          git commit -q -m "sports titles $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" sports-titles
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 실패 알림
+        if: failure()
+        run: python news_digest.py --alert sports
+        env:
+          PREFS_URL: ${{ secrets.PREFS_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}

@@ -515,13 +515,29 @@ def enrich_earnings(items, seen, now, dry=False):
     return changed
 
 
+SPORTS_RSS_URL = "https://www.yna.co.kr/rss/sports.xml"
+
+
+def sports_feed_keys():
+    """연합뉴스 스포츠 RSS의 제목 -> 비교용 글자 목록. 못 읽으면 빈 목록(낱말 목록만 쓴다)."""
+    try:
+        res = requests.get(SPORTS_RSS_URL, headers={"User-Agent": "Mozilla/5.0 (news-digest)"}, timeout=(10, 30))
+        res.raise_for_status()
+        root = ET.fromstring(res.content)
+        return tuple(A["title_key"](t) for t in (it.findtext("title") or "" for it in root.iter("item")) if t.strip())
+    except Exception as e:
+        print(f"스포츠 RSS를 읽지 못해 낱말 목록만 씁니다: {e}", file=sys.stderr)
+        return ()
+
+
 def collect(mode, sector, cutoff):
     search, owner = sector_terms(sector)
     if mode == "통신":
         items, err = google_search(search, list(WIRE_DOMAINS), "", cutoff)
         if err:
             raise RuntimeError(f"구글 뉴스 오류: {err}")
-        items = [i for i in items if i["category"] == "통신사" and i["publisher"] == "연합뉴스" and not A["is_sports"](i["title"])]
+        sports_keys = sports_feed_keys()  # 연합뉴스 스포츠 RSS의 제목 (낱말 목록과 함께 스포츠 기사를 뺀다)
+        items = [i for i in items if i["category"] == "통신사" and i["publisher"] == "연합뉴스" and not A["is_sports"](i["title"], sports_keys)]
     else:
         items, err = google_search(search, list(A["PUBLISHERS"]), "단독", cutoff)
         if USE_NAVER and os.environ.get("NAVER_CLIENT_ID"):  # 구글 뉴스에 네이버 뉴스를 항상 합친다(구글이 늦게 반영하는 기사를 네이버가 메움)
@@ -643,7 +659,7 @@ def send_failure_alert(kind, token):
     """발송 실행이 실패했을 때 관리자(나)에게 텔레그램으로 알린다. 구글 스크립트(PREFS_URL)가 있으면 거기로 보내(같은 종류 1시간 1회 제한),
     없으면 봇 토큰으로 직접 보낸다. 알림이 안 가도 오류로 끝내지 않는다."""
     run_url = "/".join(filter(None, [os.environ.get("GITHUB_SERVER_URL"), os.environ.get("GITHUB_REPOSITORY"), "actions/runs", os.environ.get("GITHUB_RUN_ID")]))
-    what = {"digest": "뉴스 발송", "sync": "동기화", "collect": "기사·공시 모으기", "corp": "기업 목록 만들기"}.get(kind, kind)
+    what = {"digest": "뉴스 발송", "sync": "동기화", "collect": "기사·공시 모으기", "corp": "기업 목록 만들기", "sports": "스포츠 제목 모으기"}.get(kind, kind)
     mode = os.environ.get("IN_MODE", "").strip()
     text = f"{what} 실행이 실패했어요{' (' + mode + ')' if mode and mode != '전체' else ''}.\n아래 링크에서 원인을 볼 수 있어요.\n{run_url}"
     url = os.environ.get("PREFS_URL", "").strip()
