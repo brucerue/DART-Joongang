@@ -70,7 +70,7 @@ def load_app_data():
                    "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "TEAM_PRESETS",
                    "PROV_REV_LABELS", "PROV_OP_LABELS", "SPORTS_WORDS", "NEWS_BLOCK_TERMS"}
     want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "disclosure_key",
-                  "parse_amount_cell", "parse_provisional", "doc_text_from_zip", "is_sports", "is_blocked"}  # 뒤의 셋: 잠정실적 원문 읽기 (앱 '재무 조회'와 같은 규칙)
+                  "parse_amount_cell", "parse_provisional", "doc_text_from_zip", "is_sports", "is_blocked", "key_in_title"}  # 뒤의 셋: 잠정실적 원문 읽기 (앱 '재무 조회'와 같은 규칙)
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
@@ -561,7 +561,7 @@ def collect(mode, sector, cutoff):
     out = []
     for i in items:
         tk = name_key(i["title"])
-        hits = [n for n, k in keys.items() if k in tk]  # 제목에 검색어(줄임말 포함)가 있는 기사만
+        hits = [n for n, k in keys.items() if A["key_in_title"](k, tk, i["title"])]  # 제목에 검색어(줄임말 포함)가 있는 기사만 (짧은 한글 낱말은 띄어쓰기도 확인)
         if hits:
             out.append(dict(i, tags=list(dict.fromkeys(owner[h] for h in hits))))
     return out

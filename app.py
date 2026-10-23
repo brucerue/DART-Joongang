@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 17:12"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 17:54"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3318,9 +3318,10 @@ FAMOUS = [
 ]
 
 
-def name_key(name, words=False):
+def name_key(name, words=False, keep_space=False):
     """기업명을 비교용으로 정리: 소문자, (주)·공백·기호 제거, 영문은 한글 발음으로.
-    기본은 한 글자씩(SK -> 에스케이). words=True면 단어로 읽는 영문은 단어 발음으로(NAVER -> 네이버)."""
+    기본은 한 글자씩(SK -> 에스케이). words=True면 단어로 읽는 영문은 단어 발음으로(NAVER -> 네이버).
+    keep_space=True면 띄어쓰기는 한 칸으로 남긴다 (key_in_title에서 단어 경계를 확인할 때)."""
     text = unicodedata.normalize("NFKC", str(name)).lower()  # 전각 영문(ＳＫ)도 일반 영문으로
     text = re.sub(r"\(주\)|㈜|주식회사|\(유\)|유한회사", "", text)
 
@@ -3331,7 +3332,20 @@ def name_key(name, words=False):
         return "".join(LETTER_NAMES.get(ch, ch) for ch in w)
 
     text = re.sub(r"[a-z]+", latin, text)  # 띄어쓰기·기호를 지우기 전에 영문 단어 단위로 바꾼다
+    if keep_space:
+        return re.sub(r"\s+", " ", re.sub(r"[\-.,&·()/]", "", text)).strip()
     return re.sub(r"[\s\-.,&·()/]", "", text)
+
+
+def key_in_title(k, tk, title):
+    """검색어 키 k(name_key 결과)가 제목에 들어 있는지. tk는 name_key(title).
+    띄어쓰기를 지우고 비교하다 보니 '개원 전'이 '원전'과 일치하는 식으로 두 단어가 우연히 이어 붙을 수 있어서,
+    짧은 한글 낱말(3글자 이하)은 띄어쓰기를 지킨 제목에서도 한 번 더 확인한다."""
+    if k not in tk:
+        return False
+    if len(k) <= 3 and re.fullmatch(r"[가-힣]+", k):
+        return k in name_key(title, keep_space=True)
+    return True
 
 
 CORP_LIST_URL = "https://raw.githubusercontent.com/brucerue/DART-Joongang/corp-codes/corp_codes.csv"  # GitHub가 매일 만드는 DART 기업 전체 목록(비상장 포함)
@@ -5192,7 +5206,7 @@ def render_timeline():
         if it["kind"] not in kinds or it["dt"] < since:
             continue
         tk = name_key(it["title"])
-        if any(k in tk for k in keys) or any(name_key(g) in keys for g in it["g"]):
+        if any(key_in_title(k, tk, it["title"]) for k in keys) or any(name_key(g) in keys for g in it["g"]):
             picked.append(dict(it, tags=[it["kind"]]))
     if not picked:
         st.warning("조건에 맞는 기사·공시가 없어요. 기간을 늘리거나 이름을 바꿔 보세요. (섹터 대표 기업·키워드만 모아 두고 있어요)")
@@ -5321,7 +5335,7 @@ def render_news_search(kind):
                     tagged = []
                     for i in items:
                         tk = name_key(i["title"])
-                        hits = [t for t, nk in keys.items() if nk in tk]  # 제목에 들어 있는 검색어(줄임말 포함)
+                        hits = [t for t, nk in keys.items() if key_in_title(nk, tk, i["title"])]  # 제목에 들어 있는 검색어(줄임말 포함)
                         if in_title and not hits:
                             continue
                         tags = list(dict.fromkeys(owner[t] for t in hits)) if len(terms) > 1 else []
@@ -7682,7 +7696,7 @@ def collect_brief(name, code, progress):
         names = news_names(name)
         items = google(names, BRIEF_NEWS_DAYS, list(PUBLISHERS), "단독")
         keys = [name_key(t) for t in names]
-        items = [i for i in items if i["category"] and is_exclusive(i["title"]) and any(k in name_key(i["title"]) for k in keys)]
+        items = [i for i in items if i["category"] and is_exclusive(i["title"]) and any(key_in_title(k, name_key(i["title"]), i["title"]) for k in keys)]
         return cluster_news(items)[:BRIEF_NEWS_MAX]
 
     b["news"] = step("최근 단독 뉴스를 찾는 중...", "news", news)
@@ -7692,7 +7706,7 @@ def collect_brief(name, code, progress):
         items = google(names, BRIEF_TREND_DAYS, list(WIRE_DOMAINS))
         keys = [name_key(t) for t in names]
         sports_keys = load_sports_keys()
-        items = [i for i in items if i["category"] == "통신사" and not is_sports(i["title"], sports_keys) and any(k in name_key(i["title"]) for k in keys)]
+        items = [i for i in items if i["category"] == "통신사" and not is_sports(i["title"], sports_keys) and any(key_in_title(k, name_key(i["title"]), i["title"]) for k in keys)]
         return cluster_news(items)[:BRIEF_WIRE_MAX]
 
     b["wire"] = step("최근 통신 기사를 찾는 중...", "wire", wire)
@@ -8347,7 +8361,7 @@ def px_events(archive, name, start, end):
         if not it or it["dt"].replace(tzinfo=None) < start or it["dt"].replace(tzinfo=None) >= end + pd.Timedelta(days=1):
             continue
         tk = name_key(it["title"])
-        if not any(k in tk for k in keys) or is_blocked(it["title"]) or (it["kind"] == "통신" and is_sports(it["title"])):
+        if not any(key_in_title(k, tk, it["title"]) for k in keys) or is_blocked(it["title"]) or (it["kind"] == "통신" and is_sports(it["title"])):
             continue
         sig = title_key(it["title"])
         if sig in seen:
