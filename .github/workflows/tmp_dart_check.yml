@@ -44,9 +44,9 @@ jobs:
       - name: 원문 표 읽기 시험
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
-          RNOS: 20260331003582 20250331003386
+          RNOS: 20260331003582
         run: |
-          python - <<'PY' 2>&1 | sed "s/$DART_API_KEY/***/g" | tee -a out.txt
+          python - <<'PY' 2>&1 | sed "s/$DART_API_KEY/***/g" | tee out.txt
           import ast, html, io, os, re, zipfile, requests
           src = open("app.py", encoding="utf-8").read()
           ns = {"re": re, "html": html, "io": io, "zipfile": zipfile, "AiError": Exception}
@@ -67,10 +67,10 @@ jobs:
               print("글자", len(text), "줄", len(lines))
               print("파싱 결과:", ns["parse_income_table"](text))
               hits = [i for i, l in enumerate(lines) if "손익계산서" in l.split("|")[0]]
-              print("손익계산서 제목 줄:", [(i, lines[i][:50]) for i in hits[:8]])
-              for i in hits[:2]:
+              print("손익계산서 제목 줄:", [(i, lines[i][:30]) for i in hits[:10]])
+              for i in hits[1:3]:
                   print("-- 제목 뒤 12줄 (", i, ")")
-                  for l in lines[i:i+12]: print("   ", l[:150])
+                  for l in lines[i:i+14]: print("   ", l[:110])
               ys = [i for i, l in enumerate(lines) if re.match(r"\s*(매출액|영업수익|영업이익|수익)", l)][:6]
               print("매출 비슷한 줄:", [(i, lines[i][:100]) for i in ys])
           PY
