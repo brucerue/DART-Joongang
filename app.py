@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 16:47"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 17:09"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8177,7 +8177,7 @@ def render_disclosure_hub():
 
 
 # ------------------------------------------------------------
-# 주가 탭: 시세판 · 특징주 · 업계 비교 · 주가+이벤트 · 그룹 시총
+# 주가 탭: 시세판 · 특징주 · 업계 비교 · 주가+이벤트
 # ------------------------------------------------------------
 # 'prices' 브랜치의 prices.json을 읽는다 (.github/workflows/price_history.yml이 평일 아침 KRX 일별 시세를 쌓음).
 # 계산은 stock_calc.py. KRX Open API는 전일 종가 기준이라 장중 시세는 없다.
@@ -8416,65 +8416,6 @@ def render_px_events(data):
                      column_config={"원문": st.column_config.LinkColumn("원문", display_text="열기")})
 
 
-# ---- 3) 그룹 시총 추이 ----
-def render_px_groups(data):
-    caps = sc.all_group_caps(data)
-    if not caps:
-        st.info("그룹 시총을 계산할 자료가 아직 없어요.")
-        return
-    start, end = px_period_controls("px_gr", data)
-    c1, c2 = st.columns(2)
-    top_n = c1.radio("상위 그룹 수", [5, 10, 15, 20], index=1, horizontal=True, key="px_gr_n")
-    show = c2.radio("그래프", ["시총(조원)", "시작=100"], horizontal=True, key="px_gr_show")
-
-    def at(series, day):
-        s = series.loc[:day].dropna()
-        return float(s.iloc[-1]) if len(s) else None
-
-    end_caps = {g: at(s, end) for g, s in caps.items()}
-    ranked = [g for g in sorted(caps, key=lambda g: -(end_caps[g] or 0)) if end_caps[g]]
-    start_caps = {g: at(caps[g], start) for g in ranked}
-    start_rank = {g: i + 1 for i, g in enumerate(sorted([g for g in ranked if start_caps[g]], key=lambda g: -start_caps[g]))}
-    top = ranked[:top_n]
-    n_firms = {g: len(data["g"][g]["codes"]) for g in top}
-    rows = []
-    for i, g in enumerate(top, 1):
-        sr = start_rank.get(g)
-        move = "-" if sr is None else ("▲%d" % (sr - i) if sr > i else "▼%d" % (i - sr) if sr < i else "=")
-        chg = None if not start_caps[g] else (end_caps[g] / start_caps[g] - 1) * 100
-        rows.append({"순위": i, "그룹": g, "상장 계열사": f"{n_firms[g]}곳", "시총(기준일)": px_cap_text(end_caps[g]), "기간 증감": px_pct(chg),
-                     "시작 때 순위": f"{sr}위" if sr else "-", "순위 변동": move})
-    st.dataframe(pd.DataFrame(rows).style.map(price_style, subset=["기간 증감"]), hide_index=True)
-    st.caption(f"{start:%Y.%m.%d} ~ {end:%Y.%m.%d} · 지금 상장돼 있는 계열사들의 시총(보통주+우선주) 합계예요. 과거에도 같은 회사들을 합산해서 신규 상장·편입은 반영되지 않아요. "
-               "그룹 명단은 재계 순위 탭과 같은 공정위 지정 기준이고, 상위 50개 그룹까지만 따라가요.")
-    series = {}
-    for g in top:
-        s = caps[g].loc[start:end].dropna()
-        if len(s) < 2:
-            continue
-        series[g] = s / 1e4 if show == "시총(조원)" else s / s.iloc[0] * 100
-    if series:
-        st.markdown("##### 그룹 시총 추이")
-        px_line_chart(px_long(series), "조원" if show == "시총(조원)" else "지수")
-    flips = sc.rank_flips(caps, top[:10], start, end)
-    if flips:
-        st.markdown("##### 그룹 순위가 바뀐 날 (상위 10개 그룹 기준)")
-        for day, up, down in flips[:10]:
-            st.write(f"- {day:%m.%d} {up}이(가) {down}을(를) 시총에서 앞섰어요")
-    with st.expander("그룹 구성 종목 보기"):
-        g = st.selectbox("그룹", top, key="px_gr_pick")
-        firm_rows = []
-        for code in data["g"][g]["codes"]:
-            if code not in data["s"]:
-                continue
-            df = sc.cut(sc.frame(data, code), start, end)
-            cap = df["cap"].dropna()
-            firm_rows.append({"회사": data["s"][code]["n"], "시총(기준일)": px_cap_text(cap.iloc[-1] if len(cap) else None), "기간 수익률": px_pct(sc.period_return(df)),
-                              "_cap": float(cap.iloc[-1]) if len(cap) else 0.0})
-        firm_rows.sort(key=lambda r: -r["_cap"])
-        st.dataframe(pd.DataFrame(firm_rows).drop(columns=["_cap"]).style.map(price_style, subset=["기간 수익률"]), hide_index=True)
-
-
 # ---- 시세판 · 특징주 ----
 def px_sector_codes(data):
     """{섹터: [종목코드]} - 앱의 섹터 기업 목록(INDUSTRY_GROUPS) 중 시세 자료에 있는 종목"""
@@ -8650,24 +8591,22 @@ def render_px_features(data):
 
 
 def render_stock():
-    """탭: 주가 - 시세판 / 특징주 / 업계 비교 / 주가·이벤트 / 그룹 시총 (KRX 일별 종가를 매일 쌓은 자료)"""
+    """탭: 주가 - 시세판 / 특징주 / 업계 비교 / 주가·이벤트 (KRX 일별 종가를 매일 쌓은 자료)"""
     data = get_prices()
     if data is None:
         st.info("시세 자료가 아직 없어요. 매 평일 아침 GitHub 작업이 KRX 시세를 모아 두는데, 처음에는 과거 시세를 채우느라 며칠 걸릴 수 있어요.")
         return
     dates = sc.dates_of(data)
     st.caption("자료 기준", help=f"종가는 KRX 일별 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일, 평일 아침 갱신)  \n장중은 야후 파이낸스 5분봉(비공식)을 장중 30분마다 갱신")
-    mode = st.radio("보기", ["시세판", "특징주", "업계 비교", "주가·이벤트", "그룹 시총"], horizontal=True, key="px_mode", label_visibility="collapsed")
+    mode = st.radio("보기", ["시세판", "특징주", "업계 비교", "주가·이벤트"], horizontal=True, key="px_mode", label_visibility="collapsed")
     if mode == "시세판":
         render_px_board(data)
     elif mode == "특징주":
         render_px_features(data)
     elif mode == "업계 비교":
         render_px_rivals(data)
-    elif mode == "주가·이벤트":
-        render_px_events(data)
     else:
-        render_px_groups(data)
+        render_px_events(data)
 
 
 def run_js(code):

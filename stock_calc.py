@@ -1,4 +1,4 @@
-"""주가 탭의 계산 (화면 없이 숫자만). prices.json -> 기간 수익률·시총 비교·그룹 시총·이벤트 반응.
+"""주가 탭의 계산 (화면 없이 숫자만). prices.json -> 기간 수익률·시총 비교·이벤트 반응.
 
 prices.json 모양 (price_history.py가 매일 만든다):
   {"updated": "2026-10-23T09:40", "dates": ["20251023", ...],
@@ -6,8 +6,6 @@ prices.json 모양 (price_history.py가 매일 만든다):
    "g": {"삼성": {"rank": 1, "codes": ["005930", ...]}}}
   배열은 dates와 같은 길이이고, 그 날 값이 없으면 null.
 """
-from itertools import combinations
-
 import numpy as np
 import pandas as pd
 
@@ -82,38 +80,6 @@ def crossings(a, b):
             out.append((day, "a" if sg > 0 else "b"))
         prev = sg
     return out
-
-
-def group_caps(data, codes):
-    """그룹의 상장 계열사 시총 합계 (억원). 거래정지 등으로 하루 비는 값은 직전 값으로 메운다."""
-    cols = {}
-    for code in codes:
-        if code in data["s"]:
-            cols[code] = frame(data, code)["cap"].ffill()
-    if not cols:
-        return pd.Series(dtype="float64")
-    return pd.DataFrame(cols).sum(axis=1, min_count=1)
-
-
-def all_group_caps(data):
-    """{그룹 이름: 시총 합계 Series} (상장 계열사가 있는 그룹만)"""
-    out = {}
-    for name, g in (data.get("g") or {}).items():
-        s = group_caps(data, g.get("codes") or [])
-        if not s.empty and s.notna().any():
-            out[name] = s
-    return out
-
-
-def rank_flips(caps, names, start, end, limit=15):
-    """names(상위 그룹들) 사이에서 시총 순서가 바뀐 날 -> [(날짜, 앞선 그룹, 밀린 그룹)] 최신순"""
-    events = []
-    for a, b in combinations(names, 2):
-        sa, sb = caps[a].loc[start:end], caps[b].loc[start:end]
-        for day, who in crossings(sa, sb):
-            events.append((day, a, b) if who == "a" else (day, b, a))
-    events.sort(key=lambda e: e[0], reverse=True)
-    return events[:limit]
 
 
 def event_reaction(df, day, n=3):
