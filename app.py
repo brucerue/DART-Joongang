@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 08:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 08:46"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8970,8 +8970,6 @@ CUSTOMS_KEY = load_secret("CUSTOMS_API_KEY")  # 공공데이터포털 일반 인
 TRADE_ITEM_URL = "https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH
 TRADE_KINDS = ["품목", "산업부 품목(MTI)", "국가", "경제권", "시도", "세관", "품목 × 국가"]
 MTI_FILE = "mti_map.json"  # mti_build.py가 무역협회 HSK-MTI 연계표(엑셀)로 만든 파일 (앱과 같은 폴더)
-TRADE_MTI_PRESETS = {"반도체": "831", "자동차": "741", "자동차부품": "742", "선박": "746", "석유제품": "133", "무선통신기기": "812", "컴퓨터": "813",
-                     "철강제품": "61", "축전지": "836", "평판디스플레이": "837", "바이오헬스": "93", "석유화학": "21", "반도체 장비": "732"}  # 산업부 MTI 코드(이름은 연계표에서 읽음)
 TRADE_MTI_WARN_CALLS = 300  # 한 조회가 이만큼 넘는 관세청 호출이 필요하면 오래 걸린다고 알린다
 TRADE_HS_PRESETS = {"반도체": ["8541", "8542", "8486"], "승용차": ["8703"], "자동차부품": ["8708"], "배터리": ["8507"], "철강": ["72"], "선박": ["8901"],
                     "석유제품": ["2710"], "디스플레이": ["8524"], "무선통신기기": ["8517"]}
@@ -9050,9 +9048,9 @@ def trade_fetch_text(params):
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False, max_entries=40)
-def trade_mti_query(prefix, cnty, start, end):
-    """산업부 품목(MTI prefix 이하)의 월별 행 -> (행들, 건너뛴 기간). 묶인 HS 6자리마다 관세청 API를 불러 합치므로 몇 초~수십 초 걸린다. 같은 조회는 6시간 저장."""
-    return tc.query_mti(trade_fetch_text, get_mti(), prefix, cnty, start, end)
+def trade_mti_query(key, cnty, start, end):
+    """산업부 품목(MTI 코드 또는 '@주력품목')의 월별 행 -> (행들, 건너뛴 기간). 묶인 HS 4·6자리마다 관세청 API를 불러 합치므로 몇 초~수십 초 걸린다. 같은 조회는 6시간 저장."""
+    return tc.query_mti(trade_fetch_text, get_mti(), key, cnty, start, end)
 
 
 def trade_usd(v):
@@ -9088,14 +9086,6 @@ def trade_set_preset():
 TRADE_MTI_MAX_CALLS = 1500
 
 
-def trade_set_mti_preset():
-    """MTI 빠른 선택을 누르면 코드 입력칸에 그 코드를 넣고, 목록에 있으면 목록 선택도 채운다"""
-    code = TRADE_MTI_PRESETS.get(st.session_state.get("tr_s_mti_preset"))
-    opts = st.session_state.get("tr_s_mti_opts") or {}
-    st.session_state["tr_s_mti"] = [lab for lab, c in opts.items() if c == code]
-    st.session_state["tr_s_mti_extra"] = "" if st.session_state["tr_s_mti"] else (code or "")
-
-
 def trade_parse_mti(text, mti):
     """직접 입력 칸 -> 연계표에 있는 1~6자리 MTI 코드 목록"""
     codes = []
@@ -9105,13 +9095,16 @@ def trade_parse_mti(text, mti):
     return codes
 
 
-def trade_mti_calls(mti, code, start, end):
-    """산업부 품목 조회에 필요한 관세청 호출 수 (HS 6자리 수 × 12개월 구간 수)"""
+def trade_mti_calls(mti, key, start, end):
+    """산업부 품목 조회에 필요한 관세청 호출 수 (HS 4·6자리 조회 수 × 12개월 구간 수)"""
     s_ym, e_ym = start.replace("-", ""), end.replace("-", "")
+    include, exclude = tc.mti_spec(key)
     total = 0
     for table, s, e in tc.mti_segments(mti, s_ym, e_ym):
-        hs6 = {h[:6] for h in tc.mti_hsk(table, code)}
-        total += len(hs6) * len(tc.chunk_months(s, e))
+        hsk = tc.mti_hsk(table, include, exclude)
+        if hsk:
+            j4, j6 = tc.mti_plan(table, hsk)
+            total += (len(j4) + len(j6)) * len(tc.chunk_months(s, e))
     return total
 
 
@@ -9162,7 +9155,7 @@ def trade_series(data, q):
                 prev = None
                 if q["compare"]:
                     prev = trade_shift_year(tc.metrics_by_month(trade_mti_query(code, cc, p_s, p_e)[0]))
-                label = f"{code} {tc.mti_name(mti, code)}" + (f" × {cnty[1]}" if cnty else "")
+                label = tc.mti_label(mti, code) + (f" × {cnty[1]}" if cnty else "")
                 out.append({"name": label, "month": tc.metrics_by_month(rows), "prev": prev, "rows": rows, "skipped": skipped, "mti_code": code})
         return out
     hs_names = data.get("hs") or {}
@@ -9238,7 +9231,7 @@ def render_trade_search_result(data, q, series):
             hs4 = sorted({r["hs"][:4] for r in sr["rows"]})
             with st.expander(f"{sr['name']} · 하위 MTI·국가·HS 품목별 내역"):
                 st.caption("묶인 HS 4자리: " + ", ".join(hs4[:20]) + (" …" if len(hs4) > 20 else "") + " (HS 10자리 중 이 MTI에 연결된 것만 합산)")
-                lvl = tc.next_level(code)
+                lvl = tc.mti_group_level(code)
                 c1, c2, c3 = st.columns(3)
                 parts = []
                 if lvl:
@@ -9281,10 +9274,11 @@ def render_trade_search(data):
             return
         opts = {f"{c} {n}": c for c, n in sorted(mti["names"].items()) if len(c) in (2, 3, 4)}
         st.session_state["tr_s_mti_opts"] = opts
-        st.pills("빠른 선택", list(TRADE_MTI_PRESETS), key="tr_s_mti_preset", on_change=trade_set_mti_preset)
-        picked = st.multiselect("산업부 품목 (이름이나 MTI 코드로 검색, 여러 개 가능)", list(opts), key="tr_s_mti", max_selections=6)
+        groups = st.multiselect("산업부 20대 주력 수출품목", list(tc.MTI_GROUPS), key="tr_s_mti_group", max_selections=8,
+                                help="산업부 월간 수출입 동향 보도자료의 20대 주력품목을 MTI 코드로 옮긴 것이에요(2026년 9월 보도자료의 품목별 수출액과 맞춰 확인). 석유제품은 나프타 제외, 일반기계는 반도체·디스플레이 제조장비 제외로 맞췄어요.")
+        picked = st.multiselect("세부 MTI 품목 (이름이나 MTI 코드로 검색)", list(opts), key="tr_s_mti", max_selections=6)
         extra = st.text_input("MTI 코드 직접 입력 (1~6자리, 쉼표로 구분)", key="tr_s_mti_extra", placeholder="예: 831110 (D램), 8312")
-        q["mti"] = list(dict.fromkeys([opts[p] for p in picked] + trade_parse_mti(extra, mti)))
+        q["mti"] = list(dict.fromkeys([tc.GROUP_PREFIX + g for g in groups] + [opts[p] for p in picked] + trade_parse_mti(extra, mti)))
         st.caption("산업부(MOTIE)가 발표에 쓰는 품목 분류예요. 같은 이름이라도 HS 코드 하나가 아니라 여러 HS 코드를 묶은 것이에요(예: 반도체 = 집적회로·반도체 소자·웨이퍼 등).")
     if need_hs:
         opts = trade_hs_options(data)

@@ -303,11 +303,47 @@ def mti_segments(mti, start, end):
     return out
 
 
-def mti_hsk(table, prefix):
-    """MTI 코드(앞자리 prefix) 아래 묶인 HS 10자리 집합"""
+# 산업부 '20대 주력 수출품목'을 MTI 코드로 옮긴 것 (포함할 코드 앞자리들, 뺄 코드 앞자리들).
+# 산업부 2026년 9월 수출입 동향 보도자료의 품목별 수출액과 맞춰 확인함(반올림 오차 이내). 일반기계·석유제품·농수산식품은 아래 설명대로 맞춘 구성.
+MTI_GROUPS = {
+    "반도체": (("831",), ()), "디스플레이": (("837",), ()), "무선통신기기": (("812",), ()), "컴퓨터": (("813",), ()),
+    "자동차": (("741",), ()), "자동차부품": (("742",), ()), "선박": (("746",), ()),
+    "석유제품": (("133",), ("1334",)),  # 광물성연료 중 석유제품에서 나프타 제외 (72.2억달러와 일치)
+    "석유화학": (("21",), ()), "이차전지": (("8361",), ()),
+    "일반기계": (("71", "72", "73", "75", "76"), ("732", "736")),  # 기계류에서 수송기계·반도체/디스플레이 제조용 장비 제외 (40.7억달러에 근접)
+    "전기기기": (("84",), ()), "철강": (("61",), ()), "비철금속": (("62",), ()),
+    "농수산식품": (("0",), ()), "화장품": (("227",), ()), "생활용품": (("5",), ()), "섬유": (("4",), ()), "가전": (("82",), ()), "바이오헬스": (("93",), ()),
+}
+GROUP_PREFIX = "@"
+
+
+def mti_spec(key):
+    """검색 항목(코드 '831110' 또는 주력품목 '@반도체') -> (포함 앞자리들, 뺄 앞자리들)"""
+    if key.startswith(GROUP_PREFIX):
+        return MTI_GROUPS[key[len(GROUP_PREFIX):]]
+    return (key,), ()
+
+
+def mti_label(mti, key):
+    """검색 항목 이름 ('반도체' 또는 '831110 D램')"""
+    return key[len(GROUP_PREFIX):] if key.startswith(GROUP_PREFIX) else f"{key} {mti_name(mti, key)}"
+
+
+def mti_group_level(key):
+    """내역 표에서 묶을 MTI 자릿수: 코드 하나면 한 단계 아래, 주력품목이면 그 구성의 한 단계 아래(여러 개면 3자리)"""
+    include, _ = mti_spec(key)
+    if len(include) == 1:
+        return next_level(include[0])
+    return 3
+
+
+def mti_hsk(table, include, exclude=()):
+    """MTI 코드(앞자리 include 아래, exclude 아래는 뺌)에 묶인 HS 10자리 집합. include·exclude는 글자 하나 또는 글자 목록"""
+    inc = (include,) if isinstance(include, str) else tuple(include)
+    exc = (exclude,) if isinstance(exclude, str) else tuple(exclude)
     out = set()
     for m, hs in table["mti"].items():
-        if m.startswith(prefix):
+        if m.startswith(inc) and not (exc and m.startswith(exc)):
             out.update(hs)
     return out
 
@@ -317,25 +353,65 @@ def next_level(code):
     return {1: 2, 2: 3, 3: 4, 4: 6, 5: 6}.get(len(code))
 
 
-def query_mti(fetch, mti, prefix, cnty, start, end, workers=6):
-    """MTI 품목(prefix 이하)의 월별 행. 묶인 HS 10자리의 HS 6자리마다 조회해서 그 10자리 행만 남기고, 각 행에 'mti'(6자리)를 붙인다.
-    fetch는 여러 스레드에서 불린다. 묶인 코드가 없는 기간이 있으면 skipped에 그 기간을 모아 함께 돌려준다 -> (행들, [건너뛴 기간])"""
+def mti_plan(table, hsk):
+    """조회 계획 -> (hs4_jobs {HS4: {HS6: MTI}}, hs6_jobs {HS6: 묶인 HS10 집합}).
+    한 HS6의 HS10이 모두 묶음 안에 있고 MTI가 하나뿐이면(단순) HS 4자리로 한꺼번에 조회해 HS6 행으로 받고(호출이 훨씬 적음),
+    그렇지 않거나 한 HS4에 단순 HS6가 하나뿐이면 HS 6자리로 조회해 HS10 행을 받아 거른다."""
+    by6 = table.get("by_hs6")
+    if by6 is None:
+        by6 = {}
+        for h in table["hsk_to_mti"]:
+            by6.setdefault(h[:6], []).append(h)
+        table["by_hs6"] = by6
+    simple, other = {}, {}
+    for h6 in {h[:6] for h in hsk}:
+        children = by6[h6]
+        inside = {c for c in children if c in hsk}
+        mtis = {table["hsk_to_mti"][c] for c in children}
+        if len(inside) == len(children) and len(mtis) == 1:
+            simple[h6] = next(iter(mtis))
+        else:
+            other[h6] = inside
+    by4 = {}
+    for h6, m in simple.items():
+        by4.setdefault(h6[:4], {})[h6] = m
+    hs4_jobs = {}
+    for h4, d in by4.items():
+        if len(d) >= 2:
+            hs4_jobs[h4] = d
+        else:
+            for h6 in d:
+                other[h6] = {c for c in by6[h6]}
+    return hs4_jobs, other
+
+
+def query_mti(fetch, mti, key, cnty, start, end, workers=8):
+    """MTI 품목(코드 key 이하, 또는 '@주력품목')의 월별 행 -> (행들, [건너뛴 기간]). 각 행에 'mti'(6자리)를 붙인다.
+    HS 4자리·6자리로 나눠 조회하고(mti_plan) 묶음에 든 행만 남긴다. 연계표에 이 코드가 없는 기간은 건너뛴 기간으로 알린다. fetch는 여러 스레드에서 불린다."""
     from concurrent.futures import ThreadPoolExecutor
 
     jobs, skipped = [], []
+    include, exclude = mti_spec(key)
     for table, s, e in mti_segments(mti, start, end):
-        hsk = mti_hsk(table, prefix)
+        hsk = mti_hsk(table, include, exclude)
         if not hsk:
             skipped.append(f"{s[:4]}.{s[4:]}~{e[:4]}.{e[4:]}")
             continue
-        for h6 in sorted({h[:6] for h in hsk}):
-            jobs.append((table, hsk, h6, s, e))
+        hs4_jobs, hs6_jobs = mti_plan(table, hsk)
+        for h4, d in hs4_jobs.items():
+            jobs.append(("4", table, h4, d, s, e))
+        for h6, inside in hs6_jobs.items():
+            jobs.append(("6", table, h6, inside, s, e))
 
     def one(job):
-        table, hsk, h6, s, e = job
+        kind, table, code, info, s, e = job
         out = []
-        for r in query_items(fetch, h6, cnty, s, e):
-            if r["hs"] in hsk:
+        for r in query_items(fetch, code, cnty, s, e):
+            if kind == "4":
+                m = info.get(r["hs"])  # HS4 조회 행은 HS6 단위
+                if m:
+                    out.append(dict(r, mti=m))
+            elif r["hs"] in info:
                 out.append(dict(r, mti=table["hsk_to_mti"][r["hs"]]))
         return out
 
