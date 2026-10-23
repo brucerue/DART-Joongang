@@ -18,6 +18,8 @@ from datetime import datetime, timedelta, timezone
 KST = timezone(timedelta(hours=9))
 INTERVAL_MIN = 5
 CHUNK = 80  # 한 번에 요청할 종목 수
+CLOSE_FIX_AFTER = (15, 40)  # 이 시각(한국시간) 이후 실행에서는 일봉 종가로 마지막 구간(15:00~15:30)을 채운다
+CLOSE_BAR = "1525"  # 채워 넣는 마지막 봉의 시작 시각 (5분봉이라 끝은 15:30)
 MIN_COVERAGE = 0.3  # 이 비율보다 적은 종목만 받아지면 이상한 응답으로 보고 파일을 만들지 않는다
 
 
@@ -34,6 +36,17 @@ def default_download(tickers):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return yf.download(tickers, period="1d", interval=f"{INTERVAL_MIN}m", group_by="ticker", progress=False, auto_adjust=False, threads=True)
+
+
+def default_daily_download(tickers):
+    """야후에서 일봉 며칠치를 받는다 (마감 뒤 오늘 종가 확인용)"""
+    import warnings
+
+    import yfinance as yf
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return yf.download(tickers, period="5d", interval="1d", group_by="ticker", progress=False, auto_adjust=False, threads=True)
 
 
 def bars_of(df, ticker):
@@ -56,8 +69,9 @@ def bars_of(df, ticker):
     return out
 
 
-def build(prices, download=default_download, now=None):
-    """prices.json -> intraday.json 내용"""
+def build(prices, download=default_download, now=None, daily_download=default_daily_download):
+    """prices.json -> intraday.json 내용. 마감 뒤(15:40 이후) 실행이면 일봉 종가를 마지막 봉(15:25~15:30)으로 덧붙인다.
+    야후 분봉은 15:00 이후가 비어 있어서, 그냥 두면 마지막 값이 실제 종가와 달라진다."""
     now = now or datetime.now(KST)
     tickers = {code: yahoo_ticker(code, s.get("m", "")) for code, s in prices["s"].items()}
     codes = list(tickers)
@@ -87,7 +101,41 @@ def build(prices, download=default_download, now=None):
                 c[pos[t]], v[pos[t]] = int(round(close)), int(vol)
         if any(x is not None for x in c):
             series[code] = {"c": c, "v": v}
-    return {"date": day, "interval": INTERVAL_MIN, "fetched": now.strftime("%Y-%m-%dT%H:%M"), "t": times, "s": series}
+    closed = False
+    if (now.hour, now.minute) >= CLOSE_FIX_AFTER and CLOSE_BAR not in pos:
+        closed = add_close_bar(times, series, day, tickers, daily_download)
+    return {"date": day, "interval": INTERVAL_MIN, "fetched": now.strftime("%Y-%m-%dT%H:%M"), "t": times, "s": series, **({"closed": True} if closed else {})}
+
+
+def add_close_bar(times, series, day, tickers, daily_download):
+    """일봉의 오늘 종가·거래량으로 마지막 봉을 덧붙인다 (times·series를 그 자리에서 고침). 일봉을 못 받으면 False.
+    거래량은 일봉 거래량에서 5분봉 거래량 합을 뺀 값(15:00 이후 분량, 음수면 0)."""
+    codes = list(series)
+    daily = {}
+    for i in range(0, len(codes), CHUNK):
+        chunk = codes[i:i + CHUNK]
+        try:
+            df = daily_download([tickers[c] for c in chunk])
+        except Exception as e:
+            print(f"  일봉 {i // CHUNK + 1}번째 묶음 실패: {type(e).__name__}: {str(e)[:80]}", file=sys.stderr)
+            continue
+        for c in chunk:
+            hit = [b for b in bars_of(df, tickers[c]) if b[0] == day]
+            if hit:
+                daily[c] = hit[-1]
+        time.sleep(1)
+    if len(daily) < max(1, int(len(codes) * MIN_COVERAGE)):
+        print(f"  오늘 일봉이 {len(daily)}/{len(codes)}곳뿐이라 종가 보정을 건너뜀", file=sys.stderr)
+        return False
+    for t in series.values():
+        t["c"].append(None)
+        t["v"].append(None)
+    times.append(CLOSE_BAR)
+    for code, (_, _, close, vol) in daily.items():
+        s = series[code]
+        s["c"][-1] = int(round(close))
+        s["v"][-1] = int(max(vol - sum(x for x in s["v"][:-1] if x), 0))
+    return True
 
 
 def main():

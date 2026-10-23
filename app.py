@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 20:15"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 20:45"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8687,7 +8687,8 @@ def px_basis(data):
             day = intra["date"]
             fetched = str(intra.get("fetched", ""))[11:16]
             label = (f"{day[:4]}.{day[4:6]}.{day[6:]} 장중 · 마지막 봉 {last_end or '-'} · 자료 갱신 {fetched or '-'} · "
-                     "야후 파이낸스(비공식) 5분봉이라 지연·오차가 있을 수 있어요 · 마감 가격은 다음 영업일 아침 종가 자료가 정확해요")
+                     "야후 파이낸스(비공식) 5분봉이라 지연·오차가 있을 수 있어요 · "
+                     + ("마감 뒤 일봉 종가를 반영했어요 (15:00~15:30 중간 흐름은 없어요) · 확정 종가는 다음 영업일 아침 KRX 자료예요" if intra.get("closed") else "마감 가격은 다음 영업일 아침 종가 자료가 정확해요"))
             return {"snap": snap, "day": day, "intraday": True, "label": label, "intra": intra, "upto": upto}
     day = px_day_picker(data)
     return {"snap": sc.snapshot(data, day), "day": day, "intraday": False, "label": f"{day[:4]}.{day[4:6]}.{day[6:]} 종가 기준", "intra": None, "upto": None}
