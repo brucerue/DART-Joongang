@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 16:38"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 16:47"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8235,10 +8235,6 @@ def px_cap_text(eok):
     return "-" if eok is None or pd.isna(eok) else won_text(float(eok) * 1e8)
 
 
-def px_day_text(ts):
-    return f"{ts.month}월 {ts.day}일"
-
-
 def px_period_controls(key, data):
     """기간 고르기 -> (시작일, 끝일)"""
     dates = sc.dates_of(data)
@@ -8336,11 +8332,6 @@ def render_px_rivals(data):
         for day, up, down in sorted(flips, key=lambda f: f[0], reverse=True)[:10]:
             st.write(f"- {day:%m.%d} {up}이(가) {down}의 시총을 앞섰어요")
 
-    ranked = [(r["기업"], r["_ret"]) for r in rows if r["_ret"] > -1e8]
-    if ranked:
-        text = f"{px_day_text(start)}부터 {px_day_text(end)}까지 " + ", ".join(f"{r['기업']} {r['기간 수익률']}" for r in rows) + "의 등락률을 기록했다 (KRX 종가 기준, 배당 제외)."
-        st.markdown("##### 기사용 문장")
-        st.code(text, language=None)
     wide = pd.concat({**{f"{n} 지수": s for n, s in idx_by.items()}, **{f"{n} 시총(억원)": s for n, s in cap_by.items()}}, axis=1).round(2)
     st.download_button("표 내려받기 (CSV)", wide.to_csv().encode("utf-8-sig"), file_name="업계비교.csv", mime="text/csv", key="px_rv_dl")
 
@@ -8539,7 +8530,7 @@ def get_intraday():
 
 def px_basis(data):
     """시세 기준 고르기. 장중 자료가 KRX 자료보다 새 날이면 '장중/종가'를 고르게 하고, 아니면 종가(기준일 선택)만.
-    -> {"snap": 종목 표, "day": 'YYYYMMDD', "intraday": bool, "label": 설명, "phrase": 기사 문장 앞머리, "intra": 장중 자료, "upto": 시각 또는 None}"""
+    -> {"snap": 종목 표, "day": 'YYYYMMDD', "intraday": bool, "label": 설명, "intra": 장중 자료, "upto": 시각 또는 None}"""
     intra = get_intraday()
     if sc.intraday_ready(intra, data):
         basis = st.radio("기준", ["장중", "종가"], horizontal=True, key="px_basis")
@@ -8549,16 +8540,12 @@ def px_basis(data):
             upto = None if pick == "최신" else pick
             snap, last_end = sc.intraday_snapshot(intra, data, upto)
             day = intra["date"]
-            ts = pd.Timestamp(day)
-            at = f"{int(last_end[:2])}시 {last_end[3:]}분" if last_end else ""
             fetched = str(intra.get("fetched", ""))[11:16]
             label = (f"{day[:4]}.{day[4:6]}.{day[6:]} 장중 · 마지막 봉 {last_end or '-'} · 자료 갱신 {fetched or '-'} · "
                      "야후 파이낸스(비공식) 5분봉이라 지연·오차가 있을 수 있어요 · 마감 가격은 다음 영업일 아침 종가 자료가 정확해요")
-            return {"snap": snap, "day": day, "intraday": True, "label": label, "intra": intra, "upto": upto,
-                    "phrase": f"{px_day_text(ts)} {at} 현재(비공식 장중 시세 기준)"}
+            return {"snap": snap, "day": day, "intraday": True, "label": label, "intra": intra, "upto": upto}
     day = px_day_picker(data)
-    return {"snap": sc.snapshot(data, day), "day": day, "intraday": False, "label": f"{day[:4]}.{day[4:6]}.{day[6:]} 종가 기준", "intra": None, "upto": None,
-            "phrase": f"{px_day_text(pd.Timestamp(day))} 종가 기준"}
+    return {"snap": sc.snapshot(data, day), "day": day, "intraday": False, "label": f"{day[:4]}.{day[4:6]}.{day[6:]} 종가 기준", "intra": None, "upto": None}
 
 
 def px_ratio_text(v):
@@ -8611,7 +8598,7 @@ def render_px_board(data):
     rows = [{"섹터": s["sector"], "종목 수": f"{s['n']}곳", "평균 등락률": px_pct(s["avg"], 2), "오른/내린": f"▲{s['up']} ▼{s['down']}",
              "거래대금 합계": px_val_text(s["val"]), "최고": f"{s['best'][0]} {px_pct(s['best'][1])}", "최저": f"{s['worst'][0]} {px_pct(s['worst'][1])}"} for s in summary]
     st.dataframe(pd.DataFrame(rows).style.map(price_style, subset=["평균 등락률"]), hide_index=True)
-    st.caption(f"{b['label']} · 평균은 섹터 기업 시세의 단순 평균이에요 (비상장사 제외, 시총 가중 아님)")
+    st.caption("기준 안내", help=b["label"].replace(" · ", "  \n") + "  \n평균은 섹터 기업 시세의 단순 평균이에요 (비상장사 제외, 시총 가중 아님)")
     if b["intraday"]:
         render_px_intraday_flow(data, b, sectors)
 
@@ -8620,17 +8607,8 @@ def render_px_board(data):
     codes = {c for cs in sectors.values() for c in cs} if pick == "전체" else set(sectors[pick])
     detail = snap[snap["code"].isin(codes)].sort_values("rate", ascending=False, na_position="last")
     st.dataframe(px_stock_table(detail, labels).style.map(price_style, subset=["등락률"]), hide_index=True)
-    st.caption("거래대금 배수는 직전 20거래일 평균 거래대금 대비예요. 시총은 보통주+우선주예요."
-               + (" 장중에는 5분봉으로 추정한 누적 거래대금 기준이고, 시총은 전일 시총을 가격 변화율로 늘린 근사값이에요." if b["intraday"] else ""))
-
-    lines = []
-    for s in summary:
-        if abs(s["avg"]) < 0.05:
-            lines.append(f"{s['sector']} 관련주는 평균 보합을 기록했다.")
-        else:
-            lines.append(f"{s['sector']} 관련주는 평균 {abs(s['avg']):.1f}% {'올랐다' if s['avg'] > 0 else '내렸다'}.")
-    st.markdown("##### 기사용 문장")
-    st.code(f"{b['phrase']} " + " ".join(lines), language=None)
+    st.caption("표 설명", help="거래대금 배수는 직전 20거래일 평균 거래대금 대비예요.  \n시총은 보통주+우선주예요."
+               + ("  \n장중에는 5분봉으로 추정한 누적 거래대금 기준이고, 시총은 전일 시총을 가격 변화율로 늘린 근사값이에요." if b["intraday"] else ""))
 
 
 def render_px_features(data):
@@ -8678,7 +8656,7 @@ def render_stock():
         st.info("시세 자료가 아직 없어요. 매 평일 아침 GitHub 작업이 KRX 시세를 모아 두는데, 처음에는 과거 시세를 채우느라 며칠 걸릴 수 있어요.")
         return
     dates = sc.dates_of(data)
-    st.caption(f"종가는 KRX 일별 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일, 평일 아침 갱신) · 장중은 야후 파이낸스 5분봉(비공식)을 장중 30분마다 갱신")
+    st.caption("자료 기준", help=f"종가는 KRX 일별 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일, 평일 아침 갱신)  \n장중은 야후 파이낸스 5분봉(비공식)을 장중 30분마다 갱신")
     mode = st.radio("보기", ["시세판", "특징주", "업계 비교", "주가·이벤트", "그룹 시총"], horizontal=True, key="px_mode", label_visibility="collapsed")
     if mode == "시세판":
         render_px_board(data)
