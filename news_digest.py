@@ -920,7 +920,7 @@ def run_command(text, sub, prefs):
         chosen, bad = parse_choice(rest, options, aliases)
         if bad or not chosen:
             head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 섹터를 같이 보내주세요. 예: /섹터 자동차 배터리"
-            return f"{head}\n\n가능한 섹터: {', '.join(plain_name(o) for o in options)}\n팀: {', '.join(presets) or '-'} / 전체"
+            return f"{head}\n\n가능한 섹터: {', '.join(options)}\n팀: {', '.join(presets) or '-'} / 전체"
         mine["sectors"] = chosen
         sub["sectors"] = chosen
         return "받을 섹터를 바꿨어요: " + ", ".join(chosen)
