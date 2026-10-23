@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 18:35"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 18:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7844,7 +7844,7 @@ def brief_glance_price(data, intra, code):
     if row.empty:
         return None
     r = row.iloc[0]
-    out = {"rate": None if pd.isna(r["rate"]) else float(r["rate"]), "cap": None if pd.isna(r["cap"]) else float(r["cap"]),
+    out = {"close": float(r["close"]), "rate": None if pd.isna(r["rate"]) else float(r["rate"]), "cap": None if pd.isna(r["cap"]) else float(r["cap"]),
            "when": when, "sector": None, "sector_avg": None, "n": 0}
     for sector, codes in px_sector_codes(data).items():
         if code in codes:
@@ -7859,15 +7859,15 @@ def brief_glance_cards(b, pr):
     """한눈에 카드 목록 [(이름, 값, 증감, 색)]. 시세가 없는 비상장사는 실적 카드만."""
     cards = []
     q = b.get("quote") if isinstance(b.get("quote"), dict) else None
-    if pr and pr["rate"] is not None:
-        tone = "down" if pr["rate"] > 0 else "up" if pr["rate"] < 0 else "flat"  # 증시 관행(상승=빨강)에 맞춰 뒤집음
-        cards.append((f"{'오늘 주가' if pr['when'].endswith('현재') else '주가'} ({pr['when']})", pct_text(pr["rate"], 2), None, tone))
+    if pr and pr["rate"] is not None:  # 변동 글자 색: 오르면(+) 파랑, 내리면(-) 빨강
+        cards.append((f"{'오늘 주가' if pr['when'].endswith('현재') else '주가'} ({pr['when']})", f"{pr['close']:,.0f}원", pct_text(pr["rate"], 2), None))
     elif q and q["row"].rate is not None:
         r = q["row"]
-        cards.append((f"주가 ({q['day']:%m.%d} 종가)", pct_text(r.rate, 2), None, "down" if r.rate > 0 else "up" if r.rate < 0 else "flat"))
+        cards.append((f"주가 ({q['day']:%m.%d} 종가)", f"{r.close:,.0f}원", pct_text(r.rate, 2), None))
     cap = pr["cap"] * 1e8 if pr and pr["cap"] else (q["caps"] if q else None)
     if cap:
-        cards.insert(0, ("시가총액", won_text(cap), None, "flat"))
+        label = f"시가총액 ({pr['when']}{' 추정' if pr['when'].endswith('현재') else ''})" if pr and pr["cap"] else "시가총액"
+        cards.insert(0, (label, won_text(cap), None, "flat"))
     recs = sorted_records(b.get("records") or [])
     if recs:
         r = recs[-1]
@@ -7880,7 +7880,6 @@ def brief_glance_cards(b, pr):
 
 def render_brief_glance(b):
     """브리핑 맨 위 '한눈에': 시총·오늘 등락·섹터 대비·최근 영업이익, 가장 최근 공시·기사 한 건씩."""
-    st.markdown("##### 한눈에")
     pr = None
     if stock_code_of(b["code"]):
         try:
@@ -7901,10 +7900,6 @@ def render_brief_glance(b):
         url = n.get("url") or ""
         title = n["title"].replace("[", "(").replace("]", ")")
         st.markdown(f"**가장 최근 기사** {n['dt']:%m.%d} · " + (f"[{title}]({url})" if url.startswith("http") else title))
-    st.caption("바로가기", help="다른 탭에서 같은 기업을 보려면 위 탭에서 고르세요.  \n"
-               "- **주가** → 업계 비교 · 주가·이벤트: 이 기업과 경쟁사 주가, 공시·기사가 나온 날의 주가 반응  \n"
-               "- **공시 분석** · **정기보고서**: 공시 원문 분석, 보고서 비교  \n"
-               "- 시세는 시세 자료(장중은 야후 5분봉)를 쓰므로 KRX 종가 카드와 몇 분 차이가 날 수 있어요")
 
 
 def render_brief_result(b):
