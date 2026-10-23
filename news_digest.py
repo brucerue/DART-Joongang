@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+import time
 import unicodedata
 import zipfile
 import xml.etree.ElementTree as ET
@@ -729,18 +730,21 @@ def sync_to_script(subs):
         "sectors": list(A.get("ALARM_SECTORS") or []), "modes": list(A.get("ALARM_MODES") or MODES),
         "teams": {k: list(v) for k, v in (A.get("TEAM_PRESETS") or {}).items()}, "defaults": list(SECTORS),
     }
-    try:
-        res = requests.post(url, json=payload, timeout=TIMEOUT)
-        res.raise_for_status()
+    for attempt in range(3):  # 구글 스크립트가 가끔 늦게 응답해서 몇 번 다시 시도한다
         try:
-            ok = bool(res.json().get("ok"))
-        except ValueError:
-            ok = False
-        print(f"구글 스크립트와 동기화: {'완료' if ok else '응답을 확인하지 못함'} (받는 사람 {len(subs)}명)")
-        return ok
-    except Exception as e:
-        print(f"(구글 스크립트 동기화 실패: {type(e).__name__})", file=sys.stderr)
-        return False
+            res = requests.post(url, json=payload, timeout=(10, 40))
+            res.raise_for_status()
+            try:
+                ok = bool(res.json().get("ok"))
+            except ValueError:
+                ok = False
+            print(f"구글 스크립트와 동기화: {'완료' if ok else '응답을 확인하지 못함'} (받는 사람 {len(subs)}명)")
+            return ok
+        except Exception as e:
+            print(f"(구글 스크립트 동기화 실패: {type(e).__name__}{' - 다시 시도' if attempt < 2 else ''})", file=sys.stderr)
+            if attempt < 2:
+                time.sleep(5 * (attempt + 1))
+    return False
 
 
 def fetch_remote_prefs():
