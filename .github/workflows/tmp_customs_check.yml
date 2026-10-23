@@ -1,0 +1,71 @@
+name: 관세청 수출입실적 API 시험 (임시)
+
+# 관세청_품목별 국가별 수출입실적(GW) API의 실제 응답 모양을 확인하는 임시 수동 작업입니다. 시험이 끝나면 지웁니다.
+# 필요한 것: GitHub Secrets의 CUSTOMS_API_KEY (공공데이터포털 일반 인증키, Encoding·Decoding 어느 쪽이든 됨)
+on:
+  workflow_dispatch:
+    inputs:
+      hs:
+        description: 시험할 HS코드들 (공백으로 구분)
+        default: "8542 8507 7208 8703"
+      ym:
+        description: 조회 연월 (YYYYMM)
+        default: "202509"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 시험
+        env:
+          KEY: ${{ secrets.CUSTOMS_API_KEY }}
+          HS: ${{ inputs.hs }}
+          YM: ${{ inputs.ym }}
+        run: |
+          python - <<'PY' 2>&1 | sed "s/$(printf '%s' "$KEY" | sed 's/[][\.*^$/]/\\&/g')/***KEY***/g" | tee out.txt
+          import os, re, urllib.parse, requests
+          import xml.etree.ElementTree as ET
+          key = os.environ["KEY"].strip()
+          if not key: raise SystemExit("CUSTOMS_API_KEY가 비어 있어요 (GitHub Secrets 확인)")
+          if "%" in key: key = urllib.parse.unquote(key)
+          URL = "https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList"
+          def call(**p):
+              r = requests.get(URL, params={"serviceKey": key, **p}, timeout=60)
+              return r.status_code, r.text
+          ym = os.environ["YM"]
+          for hs in os.environ["HS"].split():
+              st, body = call(strtYymm=ym, endYymm=ym, hsSgn=hs)
+              print(f"\n=== HS {hs} {ym}: HTTP {st}, {len(body)}자")
+              try:
+                  root = ET.fromstring(body)
+              except ET.ParseError:
+                  print(body[:400]); continue
+              print("결과코드:", root.findtext(".//resultCode"), root.findtext(".//resultMsg"), "| 총건수:", root.findtext(".//totalCount"))
+              items = root.findall(".//item")
+              print("item 수:", len(items))
+              for it in items[:4]:
+                  print("  ", {c.tag: (c.text or "").strip() for c in it})
+          # 한 달 범위·여러 달 범위가 되는지
+          st, body = call(strtYymm="202501", endYymm=ym, hsSgn="8542")
+          print(f"\n=== 기간 확대 202501~{ym} (HS 8542): HTTP {st}")
+          try:
+              root = ET.fromstring(body); print("결과:", root.findtext(".//resultCode"), root.findtext(".//resultMsg"), "| 총건수:", root.findtext(".//totalCount"), "| item", len(root.findall(".//item")))
+          except ET.ParseError: print(body[:300])
+          # 국가 지정 (미국 US)
+          st, body = call(strtYymm=ym, endYymm=ym, hsSgn="8542", cntyCd="US")
+          print(f"\n=== 국가 지정 US (HS 8542): HTTP {st}")
+          try:
+              root = ET.fromstring(body); print("결과:", root.findtext(".//resultCode"), root.findtext(".//resultMsg"), "| item", len(root.findall(".//item")))
+              for it in root.findall(".//item")[:2]: print("  ", {c.tag: (c.text or "").strip() for c in it})
+          except ET.ParseError: print(body[:300])
+          PY
+      - name: 결과를 주석으로 남기기
+        if: always()
+        run: |
+          msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' out.txt | head -c 30000)
+          echo "::notice title=관세청시험::${msg}"
