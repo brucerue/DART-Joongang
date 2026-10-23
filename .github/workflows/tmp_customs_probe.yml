@@ -52,29 +52,38 @@ jobs:
           for i, name, urls, ops in apis:
               if not ops: print(f"\n{i} {name}: 함수 이름을 못 찾음"); continue
               op = ops[0]
-              base = next((u for u in urls if u.endswith(op)), None)
-              if not base:
-                  svc = op[3:]; svc = svc[:-4] if svc.endswith("List") else svc
-                  svc = svc[0].lower() + svc[1:]
-                  base = f"https://apis.data.go.kr/1220000/{svc}/{op}"
-              print(f"\n## {i} {name}\n   {base}")
+              svc = op[3:]; svc = svc[:-4] if svc.endswith("List") else svc
+              cands = [u for u in urls if u.endswith(op)] or [f"https://apis.data.go.kr/1220000/{x}/{op}" for x in dict.fromkeys([svc[0].lower() + svc[1:], svc, svc.lower()])]
+              base = cands[0]
+              print(f"\n## {i} {name}")
               done = False
-              for ps in PARAM_SETS:
-                  try: r = requests.get(base, params={"serviceKey": key, **ps}, timeout=60)
-                  except Exception as e: print("   오류", type(e).__name__); break
-                  try: root = ET.fromstring(r.text)
-                  except ET.ParseError: print(f"   {list(ps)} -> HTTP {r.status_code} {r.text[:160]!r}"); continue
-                  code, msg = root.findtext(".//resultCode"), root.findtext(".//resultMsg") or root.findtext(".//returnAuthMsg") or root.findtext(".//errMsg")
-                  items = root.findall(".//item")
-                  if code in ("00", "0", None) and items:
-                      print(f"   OK 변수 {list(ps)} 건수 {len(items)}")
-                      for it in items[:2]: print("     ", short(it))
-                      done = True; break
-                  print(f"   {list(ps)} -> {code} {msg} (item {len(items)})")
-              if not done and len(ops) > 1: print("   다른 함수:", ops[1:])
+              for base in cands:
+                  alive = False
+                  for ps in PARAM_SETS[:3]:
+                      try: r = requests.get(base, params={"serviceKey": key, **ps}, timeout=60)
+                      except Exception as e: print("   오류", type(e).__name__); break
+                      try: root = ET.fromstring(r.text)
+                      except ET.ParseError: print(f"   HTTP {r.status_code} {r.text[:100]!r}"); continue
+                      code, msg = root.findtext(".//resultCode"), root.findtext(".//resultMsg") or root.findtext(".//returnAuthMsg") or root.findtext(".//errMsg")
+                      items = root.findall(".//item")
+                      if "폐기" in str(msg): break
+                      alive = True
+                      if code in ("00", "0", None) and items:
+                          print(f"   OK {base.split('/1220000/')[1]} 변수 {list(ps)} 건수 {len(items)}")
+                          for it in items[:1]: print("     ", short(it))
+                          done = True; break
+                      print(f"   {base.split('/1220000/')[1]} {list(ps)} -> {code} {str(msg)[:70]}")
+                  if done or alive: break
+              else:
+                  print("   주소를 못 찾음:", [c.split("/1220000/")[1] for c in cands])
           PY
       - name: 결과를 주석으로 남기기
         if: always()
         run: |
-          msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' out.txt | head -c 60000)
-          echo "::notice title=관세청일괄시험::${msg}"
+          split -b 2800 -d out.txt part_
+          n=0
+          for f in part_*; do
+            n=$((n+1))
+            msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' "$f")
+            echo "::notice title=관세청일괄시험 $n::${msg}"
+          done
