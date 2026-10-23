@@ -477,7 +477,7 @@ function runCommand_(text, sub, prefs, cid) {
     var r = parseChoice_(rest, C.sectors, aliases);
     if (r.bad.length || !r.chosen.length) {
       return (r.bad.length ? "알아듣지 못한 말: " + r.bad.join(", ") : "받을 섹터를 같이 보내주세요. 예: /섹터 자동차 배터리") +
-        "\n\n가능한 섹터: " + C.sectors.join(", ") +
+        "\n\n가능한 섹터: " + C.sectors.map(plainName_).join(", ") +
         "\n팀: " + (Object.keys(C.teams).join(", ") || "-") + " / 전체";
     }
     mine.sectors = r.chosen;
