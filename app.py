@@ -27,10 +27,12 @@ import zipfile
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
+from itertools import combinations
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote, urlparse
 
 import pandas as pd
+import stock_calc as sc
 import requests
 import streamlit as st
 from requests.adapters import HTTPAdapter
@@ -368,7 +370,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 10:27"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 12:36"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8170,6 +8172,330 @@ def render_disclosure_hub():
         render_disclosures()
 
 
+# ------------------------------------------------------------
+# 주가 탭: 라이벌 비교 · 주가+이벤트 · 그룹 시총
+# ------------------------------------------------------------
+# 'prices' 브랜치의 prices.json을 읽는다 (.github/workflows/price_history.yml이 평일 아침 KRX 일별 시세를 쌓음).
+# 계산은 stock_calc.py. KRX Open API는 전일 종가 기준이라 장중 시세는 없다.
+PRICES_BRANCH = "prices"
+RIVAL_PRESETS = {  # 이름은 KRX 종목명(비교할 때 표기 차이는 무시). 시세 자료에 없는 묶음은 화면에서 빠진다
+    "현대차 vs 기아": ["현대자동차", "기아"],
+    "삼성전자 vs SK하이닉스": ["삼성전자", "SK하이닉스"],
+    "LG에너지솔루션 vs 삼성SDI": ["LG에너지솔루션", "삼성SDI"],
+    "배터리 3사": ["LG에너지솔루션", "삼성SDI", "에스케이온"],
+    "조선 3사": ["HD한국조선해양", "한화오션", "삼성중공업"],
+    "방산 4사": ["한화에어로스페이스", "한국항공우주", "LIG디펜스앤에어로스페이스", "현대로템"],
+    "통신 3사": ["SK텔레콤", "KT", "LG유플러스"],
+    "철강": ["POSCO홀딩스", "현대제철", "동국제강"],
+    "정유": ["SK이노베이션", "S-Oil"],
+}
+PX_GENERIC_ALIASES = {"삼성", "엘지", "에스케이", "현대", "한화", "롯데"}  # 기사 제목 찾기에서 너무 흔해서 뺀 줄임말
+PX_KIND_COLORS = {"통신": "#1c7ed6", "단독": "#f08c00", "공시": "#2f9e44"}
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_prices():
+    res = requests.get(f"https://raw.githubusercontent.com/{DATA_REPO}/{PRICES_BRANCH}/prices.json", timeout=(10, 60))
+    res.raise_for_status()
+    return res.json()  # 실패는 캐시에 남지 않아 다음에 다시 시도
+
+
+def get_prices():
+    """쌓아 둔 시세 자료. 없거나 이상하면 None."""
+    try:
+        data = _fetch_prices()
+    except Exception:
+        return None
+    if isinstance(data, dict) and data.get("dates") and isinstance(data.get("s"), dict) and data["s"]:
+        return data
+    return None
+
+
+def px_names(data):
+    """{종목명: 종목코드}"""
+    return {s["n"]: code for code, s in data["s"].items() if s.get("n")}
+
+
+def px_find(names, wanted):
+    key = name_key(wanted)
+    return next((n for n in names if name_key(n) == key), None)
+
+
+def px_pct(v, digits=1):
+    return "-" if v is None or pd.isna(v) else f"{v:+.{digits}f}%"
+
+
+def px_cap_text(eok):
+    """시총(억원) -> 기사체 금액"""
+    return "-" if eok is None or pd.isna(eok) else won_text(float(eok) * 1e8)
+
+
+def px_day_text(ts):
+    return f"{ts.month}월 {ts.day}일"
+
+
+def px_period_controls(key, data):
+    """기간 고르기 -> (시작일, 끝일)"""
+    dates = sc.dates_of(data)
+    first, last = dates.min(), dates.max()
+    period = st.radio("기간", sc.PERIODS, index=1, horizontal=True, key=f"{key}_period")
+    if period == "직접":
+        c1, c2 = st.columns(2)
+        default_from = max(first, last - pd.DateOffset(months=3)).date()
+        s = c1.date_input("시작일", value=default_from, min_value=first.date(), max_value=last.date(), key=f"{key}_from")
+        e = c2.date_input("끝일", value=last.date(), min_value=first.date(), max_value=last.date(), key=f"{key}_to")
+        start, end = sorted([pd.Timestamp(s), pd.Timestamp(e)])  # 거꾸로 골라도 맞바꿔 쓴다
+        return start, end
+    return sc.period_start(period, first, last), last
+
+
+def px_line_chart(long_df, y_title, zero=False):
+    """long_df: 날짜·이름·값 열의 긴 표 -> 선 그래프"""
+    import altair as alt
+
+    chart = alt.Chart(long_df).mark_line().encode(
+        x=alt.X("날짜:T", title=None),
+        y=alt.Y("값:Q", title=y_title, scale=alt.Scale(zero=zero)),
+        color=alt.Color("이름:N", title=None, legend=alt.Legend(orient="bottom")),
+        tooltip=[alt.Tooltip("날짜:T", format="%Y-%m-%d"), "이름:N", alt.Tooltip("값:Q", format=",.1f")],
+    ).properties(height=300)
+    st.altair_chart(chart)
+
+
+def px_long(series_by_name):
+    """{이름: Series} -> 날짜·이름·값 긴 표"""
+    parts = [pd.DataFrame({"날짜": s.index, "이름": n, "값": s.values}) for n, s in series_by_name.items() if len(s)]
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=["날짜", "이름", "값"])
+
+
+# ---- 1) 라이벌 비교 ----
+def render_px_rivals(data):
+    names = px_names(data)
+    presets = {k: [px_find(names, n) for n in v] for k, v in RIVAL_PRESETS.items()}
+    presets = {k: v for k, v in presets.items() if all(v)}
+    st.session_state["px_presets"] = presets
+
+    def pick_preset():  # 묶음을 고르면 아래 기업 선택을 그 묶음으로 바꾼다
+        p = st.session_state.get("px_rv_preset")
+        if p in st.session_state.get("px_presets", {}):
+            st.session_state["px_rv_names"] = list(st.session_state["px_presets"][p])
+
+    if presets:
+        first_preset = next(iter(presets))
+        st.session_state.setdefault("px_rv_preset", first_preset)
+        st.session_state.setdefault("px_rv_names", list(presets[first_preset]))
+    st.session_state["px_rv_names"] = [n for n in st.session_state.get("px_rv_names", []) if n in names]
+    if presets:
+        st.selectbox("비교 묶음", ["직접 고르기"] + list(presets), key="px_rv_preset", on_change=pick_preset)
+    chosen = st.multiselect("비교할 기업 (2~5곳)", sorted(names), key="px_rv_names", max_selections=5)
+    if len(chosen) < 2:
+        st.info("기업을 2곳 이상 골라주세요.")
+        return
+    start, end = px_period_controls("px_rv", data)
+
+    rows, idx_by, cap_by = [], {}, {}
+    for n in chosen:
+        code = names[n]
+        df = sc.cut(sc.frame(data, code), start, end)
+        idx = sc.chain_index(df)
+        if idx.empty:
+            continue
+        cap = df["cap"].dropna()
+        ret = sc.period_return(df)
+        rows.append({"기업": n, "시장": data["s"][code].get("m", ""), "기간 수익률": px_pct(ret), "_ret": ret if ret is not None else -1e9,
+                     "시총(기준일)": px_cap_text(cap.iloc[-1] if len(cap) else None),
+                     "시총 증감": px_pct((cap.iloc[-1] / cap.iloc[0] - 1) * 100) if len(cap) > 1 and cap.iloc[0] else "-",
+                     "평균 거래대금": f"{df['val'].mean():,.0f}억원" if df["val"].notna().any() else "-"})
+        idx_by[n] = idx
+        cap_by[n] = cap
+    if not rows:
+        st.info("이 기간에 시세 자료가 없어요.")
+        return
+    rows.sort(key=lambda r: -r["_ret"])
+    table = pd.DataFrame(rows).drop(columns=["_ret"])
+    st.dataframe(table.style.map(price_style, subset=["기간 수익률", "시총 증감"]), hide_index=True)
+    st.caption(f"{start:%Y.%m.%d} ~ {end:%Y.%m.%d} · 수익률은 KRX 등락률을 이어 붙인 값(시작일 종가=100, 배당 제외) · 시총은 보통주+우선주")
+
+    st.markdown("##### 수익률 비교 (시작일=100)")
+    px_line_chart(px_long(idx_by), "지수")
+    st.markdown("##### 시가총액 (조원)")
+    px_line_chart(px_long({n: s / 1e4 for n, s in cap_by.items()}), "조원")
+
+    # 시총 순서가 바뀐 날
+    flips = []
+    for a, b in combinations(list(cap_by), 2):
+        for day, who in sc.crossings(cap_by[a], cap_by[b]):
+            flips.append((day, a if who == "a" else b, b if who == "a" else a))
+    if flips:
+        st.markdown("##### 시총 순위가 바뀐 날")
+        for day, up, down in sorted(flips, key=lambda f: f[0], reverse=True)[:10]:
+            st.write(f"- {day:%m.%d} {up}이(가) {down}의 시총을 앞섰어요")
+
+    ranked = [(r["기업"], r["_ret"]) for r in rows if r["_ret"] > -1e8]
+    if ranked:
+        text = f"{px_day_text(start)}부터 {px_day_text(end)}까지 " + ", ".join(f"{r['기업']} {r['기간 수익률']}" for r in rows) + "의 등락률을 기록했다 (KRX 종가 기준, 배당 제외)."
+        st.markdown("##### 기사용 문장")
+        st.code(text, language=None)
+    wide = pd.concat({**{f"{n} 지수": s for n, s in idx_by.items()}, **{f"{n} 시총(억원)": s for n, s in cap_by.items()}}, axis=1).round(2)
+    st.download_button("표 내려받기 (CSV)", wide.to_csv().encode("utf-8-sig"), file_name="라이벌비교.csv", mime="text/csv", key="px_rv_dl")
+
+
+# ---- 2) 주가 + 이벤트 ----
+def px_events(archive, name, start, end):
+    """모아 둔 기사·공시 중 이 기업 제목이 든 것 -> [{dt, kind, title, url}] 최신순 (시작일~끝일)"""
+    keys = {name_key(name)} | {name_key(a) for a in NEWS_ALIASES.get(name, []) if a not in PX_GENERIC_ALIASES}
+    keys.discard("")
+    out, seen = [], set()
+    for row in archive.get("items", []):
+        it = stored_item(row)
+        if not it or it["dt"].replace(tzinfo=None) < start or it["dt"].replace(tzinfo=None) >= end + pd.Timedelta(days=1):
+            continue
+        tk = name_key(it["title"])
+        if not any(k in tk for k in keys) or is_blocked(it["title"]) or (it["kind"] == "통신" and is_sports(it["title"])):
+            continue
+        sig = title_key(it["title"])
+        if sig in seen:
+            continue
+        seen.add(sig)
+        out.append({"dt": it["dt"].replace(tzinfo=None), "kind": it["kind"] or "기사", "title": it["title"], "url": it["url"]})
+    return sorted(out, key=lambda e: e["dt"], reverse=True)
+
+
+def render_px_events(data):
+    names = px_names(data)
+    ordered = sorted(names)
+    name = st.selectbox("기업", ordered, index=ordered.index("현대자동차") if "현대자동차" in ordered else 0, key="px_ev_name")
+    start, end = px_period_controls("px_ev", data)
+    full = sc.frame(data, names[name])
+    df = sc.cut(full, start, end).dropna(subset=["close"])
+    if df.empty:
+        st.info("이 기간에 시세 자료가 없어요.")
+        return
+    archive = get_stored("archive.json")
+    events = px_events(archive, name, start, end) if archive else []
+    price = df["close"].reset_index()
+    price.columns = ["날짜", "종가"]
+    ev_rows = []
+    for e in events:
+        pos = df.index.searchsorted(pd.Timestamp(e["dt"]).normalize())
+        if pos >= len(df):
+            continue
+        r0, r3 = sc.event_reaction(full, e["dt"])
+        ev_rows.append({"날짜": e["dt"].date(), "종류": e["kind"], "제목": e["title"], "원문": e["url"], "당일 등락": px_pct(r0), "3거래일 누적": px_pct(r3),
+                        "차트날짜": df.index[pos], "종가": float(df["close"].iloc[pos])})
+    import altair as alt
+
+    line = alt.Chart(price).mark_line(color="#495057").encode(
+        x=alt.X("날짜:T", title=None), y=alt.Y("종가:Q", title="종가(원)", scale=alt.Scale(zero=False)),
+        tooltip=[alt.Tooltip("날짜:T", format="%Y-%m-%d"), alt.Tooltip("종가:Q", format=",.0f")])
+    chart = line
+    if ev_rows:
+        ev_df = pd.DataFrame(ev_rows)
+        pts = alt.Chart(ev_df).mark_point(filled=True, size=110, opacity=0.9).encode(
+            x=alt.X("차트날짜:T"), y=alt.Y("종가:Q", scale=alt.Scale(zero=False)),
+            color=alt.Color("종류:N", title=None, scale=alt.Scale(domain=list(PX_KIND_COLORS), range=list(PX_KIND_COLORS.values())), legend=alt.Legend(orient="bottom")),
+            tooltip=["날짜:N", "종류:N", "제목:N", "당일 등락:N", "3거래일 누적:N"])
+        chart = line + pts
+    st.altair_chart(chart.properties(height=320))
+    last = df.iloc[-1]
+    ret = sc.period_return(df)
+    st.markdown(cb_cards([
+        ("종가", f"{last['close']:,.0f}원", px_pct(last["rate"], 2) + " (전일比)" if pd.notna(last["rate"]) else None,
+         None if pd.isna(last["rate"]) else ("down" if last["rate"] > 0 else "up" if last["rate"] < 0 else "flat")),  # 카드 색은 증시 관행(상승=빨강)에 맞춰 뒤집는다
+        ("기간 수익률", px_pct(ret), None, None if ret is None else ("down" if ret > 0 else "up" if ret < 0 else "flat")),
+        ("시가총액", px_cap_text(last["cap"]), "보통주+우선주", "flat"),
+        ("거래대금", f"{last['val']:,.0f}억원" if pd.notna(last["val"]) else "-", None, "flat"),
+    ]), unsafe_allow_html=True)
+    if not archive:
+        st.caption("모아 둔 기사·공시 자료를 불러오지 못해 이벤트는 표시하지 못했어요.")
+    elif not ev_rows:
+        first_day = min((stored_item(r)["dt"] for r in archive["items"] if stored_item(r)), default=None)
+        st.caption("이 기간에 이 기업의 기사·공시가 모아져 있지 않아요." + (f" (모으기 시작: {first_day:%Y.%m.%d})" if first_day else "")
+                   + " 섹터 기업의 통신·단독 기사와 주요 공시만 모아요.")
+    else:
+        st.markdown("##### 이벤트와 주가 반응")
+        st.caption("공시는 접수 날짜만 알 수 있어서 당일 등락은 그날(휴장이면 다음 거래일) 기준이에요. 원인을 단정할 수 없고, 같은 날 다른 이벤트가 겹쳤을 수 있어요.")
+        table = pd.DataFrame(ev_rows)[["날짜", "종류", "제목", "당일 등락", "3거래일 누적", "원문"]]
+        st.dataframe(table.style.map(price_style, subset=["당일 등락", "3거래일 누적"]), hide_index=True,
+                     column_config={"원문": st.column_config.LinkColumn("원문", display_text="열기")})
+
+
+# ---- 3) 그룹 시총 추이 ----
+def render_px_groups(data):
+    caps = sc.all_group_caps(data)
+    if not caps:
+        st.info("그룹 시총을 계산할 자료가 아직 없어요.")
+        return
+    start, end = px_period_controls("px_gr", data)
+    c1, c2 = st.columns(2)
+    top_n = c1.radio("상위 그룹 수", [5, 10, 15, 20], index=1, horizontal=True, key="px_gr_n")
+    show = c2.radio("그래프", ["시총(조원)", "시작=100"], horizontal=True, key="px_gr_show")
+
+    def at(series, day):
+        s = series.loc[:day].dropna()
+        return float(s.iloc[-1]) if len(s) else None
+
+    end_caps = {g: at(s, end) for g, s in caps.items()}
+    ranked = [g for g in sorted(caps, key=lambda g: -(end_caps[g] or 0)) if end_caps[g]]
+    start_caps = {g: at(caps[g], start) for g in ranked}
+    start_rank = {g: i + 1 for i, g in enumerate(sorted([g for g in ranked if start_caps[g]], key=lambda g: -start_caps[g]))}
+    top = ranked[:top_n]
+    n_firms = {g: len(data["g"][g]["codes"]) for g in top}
+    rows = []
+    for i, g in enumerate(top, 1):
+        sr = start_rank.get(g)
+        move = "-" if sr is None else ("▲%d" % (sr - i) if sr > i else "▼%d" % (i - sr) if sr < i else "=")
+        chg = None if not start_caps[g] else (end_caps[g] / start_caps[g] - 1) * 100
+        rows.append({"순위": i, "그룹": g, "상장 계열사": f"{n_firms[g]}곳", "시총(기준일)": px_cap_text(end_caps[g]), "기간 증감": px_pct(chg),
+                     "시작 때 순위": f"{sr}위" if sr else "-", "순위 변동": move})
+    st.dataframe(pd.DataFrame(rows).style.map(price_style, subset=["기간 증감"]), hide_index=True)
+    st.caption(f"{start:%Y.%m.%d} ~ {end:%Y.%m.%d} · 지금 상장돼 있는 계열사들의 시총(보통주+우선주) 합계예요. 과거에도 같은 회사들을 합산해서 신규 상장·편입은 반영되지 않아요. "
+               "그룹 명단은 재계 순위 탭과 같은 공정위 지정 기준이고, 상위 50개 그룹까지만 따라가요.")
+    series = {}
+    for g in top:
+        s = caps[g].loc[start:end].dropna()
+        if len(s) < 2:
+            continue
+        series[g] = s / 1e4 if show == "시총(조원)" else s / s.iloc[0] * 100
+    if series:
+        st.markdown("##### 그룹 시총 추이")
+        px_line_chart(px_long(series), "조원" if show == "시총(조원)" else "지수")
+    flips = sc.rank_flips(caps, top[:10], start, end)
+    if flips:
+        st.markdown("##### 그룹 순위가 바뀐 날 (상위 10개 그룹 기준)")
+        for day, up, down in flips[:10]:
+            st.write(f"- {day:%m.%d} {up}이(가) {down}을(를) 시총에서 앞섰어요")
+    with st.expander("그룹 구성 종목 보기"):
+        g = st.selectbox("그룹", top, key="px_gr_pick")
+        firm_rows = []
+        for code in data["g"][g]["codes"]:
+            if code not in data["s"]:
+                continue
+            df = sc.cut(sc.frame(data, code), start, end)
+            cap = df["cap"].dropna()
+            firm_rows.append({"회사": data["s"][code]["n"], "시총(기준일)": px_cap_text(cap.iloc[-1] if len(cap) else None), "기간 수익률": px_pct(sc.period_return(df)),
+                              "_cap": float(cap.iloc[-1]) if len(cap) else 0.0})
+        firm_rows.sort(key=lambda r: -r["_cap"])
+        st.dataframe(pd.DataFrame(firm_rows).drop(columns=["_cap"]).style.map(price_style, subset=["기간 수익률"]), hide_index=True)
+
+
+def render_stock():
+    """탭: 주가 - 라이벌 비교 / 주가·이벤트 / 그룹 시총 (KRX 일별 종가를 매일 쌓은 자료)"""
+    data = get_prices()
+    if data is None:
+        st.info("시세 자료가 아직 없어요. 매 평일 아침 GitHub 작업이 KRX 시세를 모아 두는데, 처음에는 과거 시세를 채우느라 며칠 걸릴 수 있어요.")
+        return
+    dates = sc.dates_of(data)
+    st.caption(f"KRX 일별 종가 기준 · 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일) · 평일 아침 갱신 · 장중 시세는 아니에요")
+    mode = st.radio("보기", ["라이벌 비교", "주가·이벤트", "그룹 시총"], horizontal=True, key="px_mode", label_visibility="collapsed")
+    if mode == "라이벌 비교":
+        render_px_rivals(data)
+    elif mode == "주가·이벤트":
+        render_px_events(data)
+    else:
+        render_px_groups(data)
+
+
 def run_js(code):
     """높이 없는 iframe으로 짧은 스크립트를 실행한다. 새 Streamlit은 st.iframe, 옛 버전은 components.html. 실패해도 앱은 계속."""
     try:
@@ -8181,7 +8507,7 @@ def run_js(code):
         pass
 
 
-TAB_NAMES = ["기업 브리핑", "재무 조회", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
+TAB_NAMES = ["기업 브리핑", "재무 조회", "주가", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
 SHOW_TIMELINE = st.query_params.get("lab", "") == "1"  # 이슈 타임라인은 자료가 쌓이는 중이라 숨겨 둠: 주소 끝에 ?lab=1을 붙이면 보임
 if SHOW_TIMELINE:
     TAB_NAMES.insert(TAB_NAMES.index("산업 뉴스") + 1, "이슈 타임라인")
@@ -8192,11 +8518,13 @@ try:
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
 by_name = dict(zip(TAB_NAMES, tabs))
-tab_brief, tab_fin, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in TAB_NAMES if n != "이슈 타임라인")
+tab_brief, tab_fin, tab_px, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in TAB_NAMES if n != "이슈 타임라인")
 with tab_brief:
     render_brief()
 with tab_fin:
     render_fin_hub()
+with tab_px:
+    render_stock()
 with tab_news:
     render_news()
 if SHOW_TIMELINE:
