@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 17:54"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 18:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7830,11 +7830,91 @@ def render_brief_trend(b):
         st.caption(f"누르면 최근 주요 공시 {0 if not has_disc else len(b['disc'])}건과 기사 {n_news}묶음의 제목을 종합해 이슈를 정리해 줘요. (기사는 최근 1주일 단독·통신 기사와 일반 기사 중 주요 언론사 것만 봐요. 통신 기사는 브리핑 화면에는 보이지 않아요)")
 
 
+def brief_glance_price(data, intra, code):
+    """한눈에 카드의 시세: 시세 자료(prices.json)에 있는 종목이면 장중 최신(없으면 마지막 종가) 등락률·시총과 소속 섹터 평균 등락률.
+    -> {"rate", "cap"(억원), "when", "sector", "sector_avg", "n"} 또는 None"""
+    if not data or code not in (data.get("s") or {}):
+        return None
+    if sc.intraday_ready(intra, data):
+        snap, last_end = sc.intraday_snapshot(intra, data)
+        when = f"{last_end} 현재" if last_end else "장중"
+    else:
+        snap, when = sc.snapshot(data, data["dates"][-1]), f"{data['dates'][-1][4:6]}.{data['dates'][-1][6:]} 종가"
+    row = snap[snap["code"] == code]
+    if row.empty:
+        return None
+    r = row.iloc[0]
+    out = {"rate": None if pd.isna(r["rate"]) else float(r["rate"]), "cap": None if pd.isna(r["cap"]) else float(r["cap"]),
+           "when": when, "sector": None, "sector_avg": None, "n": 0}
+    for sector, codes in px_sector_codes(data).items():
+        if code in codes:
+            sub = snap[snap["code"].isin(codes)].dropna(subset=["rate"])
+            if len(sub) >= 2:
+                out.update(sector=sector, sector_avg=float(sub["rate"].mean()), n=int(len(sub)))
+            break
+    return out
+
+
+def brief_glance_cards(b, pr):
+    """한눈에 카드 목록 [(이름, 값, 증감, 색)]. 시세가 없는 비상장사는 실적 카드만."""
+    cards = []
+    q = b.get("quote") if isinstance(b.get("quote"), dict) else None
+    if pr and pr["rate"] is not None:
+        tone = "down" if pr["rate"] > 0 else "up" if pr["rate"] < 0 else "flat"  # 증시 관행(상승=빨강)에 맞춰 뒤집음
+        cards.append((f"등락률 ({pr['when']})", pct_text(pr["rate"], 2), None, tone))
+        if pr["sector_avg"] is not None:
+            diff = pr["rate"] - pr["sector_avg"]
+            cards.append((f"{pr['sector']} 평균 대비", f"{diff:+.2f}%p", f"섹터 평균 {pr['sector_avg']:+.2f}% ({pr['n']}곳)",
+                          "down" if diff > 0 else "up" if diff < 0 else "flat"))
+    elif q and q["row"].rate is not None:
+        r = q["row"]
+        cards.append((f"등락률 ({q['day']:%m.%d} 종가)", pct_text(r.rate, 2), None, "down" if r.rate > 0 else "up" if r.rate < 0 else "flat"))
+    cap = pr["cap"] * 1e8 if pr and pr["cap"] else (q["caps"] if q else None)
+    if cap:
+        cards.insert(0, ("시가총액", won_text(cap), None, "flat"))
+    recs = sorted_records(b.get("records") or [])
+    if recs:
+        r = recs[-1]
+        yoy = fmt_change(r["op_yoy"]) if r.get("op_yoy") is not None else None
+        cards.append((f"{r['label']} 영업이익", won_text(r["op"]) if r.get("op") is not None else "-", f"전년比 {yoy}" if yoy else None, "flat"))
+    return cards
+
+
+def render_brief_glance(b):
+    """브리핑 맨 위 '한눈에': 시총·오늘 등락·섹터 대비·최근 영업이익, 가장 최근 공시·기사 한 건씩."""
+    st.markdown("##### 한눈에")
+    pr = None
+    if stock_code_of(b["code"]):
+        try:
+            pr = brief_glance_price(get_prices(), get_intraday(), stock_code_of(b["code"]))
+        except Exception:
+            pr = None
+    cards = brief_glance_cards(b, pr)
+    if cards:
+        st.markdown(cb_cards(cards), unsafe_allow_html=True)
+    d = b.get("disc")
+    if d is not None and not d.empty:
+        r = d.iloc[0]
+        link = f"[{r['보고서명']}]({r['원문']})" if r.get("원문") else r["보고서명"]
+        st.markdown(f"**가장 최근 주요 공시** {str(r['접수일'])[5:].replace('-', '.')} · {link}")
+    news = [c["rep"] for key in ("news", "wire", "news_all") for c in (b.get(key) or [])]
+    if news:
+        n = max(news, key=lambda i: i["dt"])
+        url = n.get("url") or ""
+        title = n["title"].replace("[", "(").replace("]", ")")
+        st.markdown(f"**가장 최근 기사** {n['dt']:%m.%d} · " + (f"[{title}]({url})" if url.startswith("http") else title))
+    st.caption("바로가기", help="다른 탭에서 같은 기업을 보려면 위 탭에서 고르세요.  \n"
+               "- **주가** → 업계 비교 · 주가·이벤트: 이 기업과 경쟁사 주가, 공시·기사가 나온 날의 주가 반응  \n"
+               "- **공시 분석** · **정기보고서**: 공시 원문 분석, 보고서 비교  \n"
+               "- 시세는 시세 자료(장중은 야후 5분봉)를 쓰므로 KRX 종가 카드와 몇 분 차이가 날 수 있어요")
+
+
 def render_brief_result(b):
     st.markdown(f"#### {b['corp']} 브리핑")
     st.caption(f"{b['asof']:%Y.%m.%d %H:%M} 기준 · 연결 기준")
     errs = b["errors"]
 
+    render_brief_glance(b)
     render_brief_overview(b)
 
     if b.get("quote") is False:
