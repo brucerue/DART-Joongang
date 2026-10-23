@@ -699,7 +699,7 @@ def send_failure_alert(kind, token):
     """발송 실행이 실패했을 때 관리자(나)에게 텔레그램으로 알린다. 구글 스크립트(PREFS_URL)가 있으면 거기로 보내(같은 종류 1시간 1회 제한),
     없으면 봇 토큰으로 직접 보낸다. 알림이 안 가도 오류로 끝내지 않는다."""
     run_url = "/".join(filter(None, [os.environ.get("GITHUB_SERVER_URL"), os.environ.get("GITHUB_REPOSITORY"), "actions/runs", os.environ.get("GITHUB_RUN_ID")]))
-    what = {"digest": "뉴스 발송", "sync": "동기화", "collect": "기사·공시 모으기", "corp": "기업 목록 만들기", "sports": "스포츠 제목 모으기", "prices": "시세 모으기", "intraday": "장중 시세 모으기"}.get(kind, kind)
+    what = {"digest": "뉴스 발송", "sync": "동기화", "collect": "기사·공시 모으기", "corp": "기업 목록 만들기", "sports": "스포츠 제목 모으기", "prices": "시세 모으기", "intraday": "장중 시세 모으기", "trade": "수출입 통계 모으기"}.get(kind, kind)
     mode = os.environ.get("IN_MODE", "").strip()
     text = f"{what} 실행이 실패했어요{' (' + mode + ')' if mode and mode != '전체' else ''}.\n아래 링크에서 원인을 볼 수 있어요.\n{run_url}"
     url = os.environ.get("PREFS_URL", "").strip()

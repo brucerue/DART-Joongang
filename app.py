@@ -37,6 +37,8 @@ import pandas as pd
 import stock_calc as sc
 
 sc = importlib.reload(sc)  # 배포로 stock_calc.py가 바뀌었는데 서버 메모리에 옛 모듈이 남아 있으면 새 함수를 못 찾으므로, 실행할 때마다 다시 읽는다
+import trade_calc as tc
+tc = importlib.reload(tc)  # (위와 같은 이유)
 import requests
 import streamlit as st
 from requests.adapters import HTTPAdapter
@@ -372,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 23:55"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 00:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8959,7 +8961,182 @@ def run_js(code):
         pass
 
 
-TAB_NAMES = ["기업 브리핑", "재무 조회", "주가", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
+# ------------------------------------------------------------
+# 수출 (관세청 수출입 통계: GitHub 'trade' 브랜치의 trade.json, trade_data.py가 매일 모아 둠)
+# ------------------------------------------------------------
+TRADE_BRANCH = "trade"
+TRADE_VIEWS = ["월간 현황", "10일 단위 속보", "국가·경제권", "지역"]
+# 10일 단위 잠정치(수출·수입 × 주요 품목·국가)는 항목 이름 없이 1~10번째 금액만 오고, 순번이 고정돼 있다. 순번별 이름은 월별 정식 통계의 금액과 맞춰 확인한 것.
+TRADE_RANK_NAMES = {
+    "exp_cnty": {1: "중국", 2: "미국", 4: "베트남", 5: "홍콩", 6: "일본", 7: "대만", 8: "인도", 9: "싱가포르", 10: "말레이시아"},
+    "imp_cnty": {1: "중국", 2: "미국", 4: "일본", 5: "베트남", 6: "호주", 7: "대만", 8: "사우디아라비아", 9: "러시아 연방", 10: "말레이시아"},
+    "exp_item": {3: "승용차(HS 8703)"},
+    "imp_item": {9: "승용차(HS 8703)"},
+}  # 확인한 것만 (2025.09·2026.09 두 달에서 금액이 정식 통계와 일치). 나머지 순번은 관세청 기술문서로 확인되면 채운다
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fetch_trade():
+    res = requests.get(f"https://raw.githubusercontent.com/{DATA_REPO}/{TRADE_BRANCH}/trade.json", timeout=(10, 60))
+    res.raise_for_status()
+    return res.json()  # 실패는 캐시에 남지 않아 다음에 다시 시도
+
+
+def get_trade():
+    """모아 둔 수출입 통계. 없거나 이상하면 None."""
+    try:
+        data = _fetch_trade()
+    except Exception:
+        return None
+    return data if isinstance(data, dict) and data.get("months") and isinstance(data.get("total"), dict) else None
+
+
+def trade_eok(v):
+    """달러 -> '659.0억달러'"""
+    return "-" if v is None else f"{v / 1e8:,.1f}억달러"
+
+
+def trade_cheon(v):
+    """천달러 -> '659.0억달러'"""
+    return "-" if v is None else f"{v / 1e5:,.1f}억달러"
+
+
+def trade_month_pick(data, key):
+    """월 고르기 (최신이 먼저) -> 그 달의 위치"""
+    months = data["months"]
+    pick = st.selectbox("월", list(reversed(months)), format_func=lambda m: m.replace("-", "."), key=key)
+    return months.index(pick)
+
+
+def trade_styled(table, cols):
+    return table.style.map(cb_style, subset=cols)
+
+
+def render_trade_monthly(data):
+    months, tot = data["months"], data["total"]
+    i = trade_month_pick(data, "tr_m_month")
+    exp, imp, bal = tot["exp"], tot["imp"], tot["bal"]
+    ey, iy = tc.yoy(exp, i), tc.yoy(imp, i)
+    ytd_e, ytd_e_prev = tc.ytd_pair(months, exp, i)
+    ytd_y = tc.pct(ytd_e, ytd_e_prev)
+    cards = [("수출", trade_eok(exp[i]), None if ey is None else f"{px_pct(ey)} (전년동월比)", None),
+             ("수입", trade_eok(imp[i]), None if iy is None else f"{px_pct(iy)} (전년동월比)", None),
+             ("무역수지", trade_eok(bal[i]), None if i < 12 else f"{(bal[i] - bal[i - 12]) / 1e8:+,.1f}억달러 (전년동월比)", None),
+             ("연초 이후 수출", trade_eok(ytd_e), None if ytd_y is None else f"{px_pct(ytd_y)} (전년 누계比)", None)]
+    st.markdown(cb_cards(cards), unsafe_allow_html=True)
+    lo = max(0, i - 12)
+    rows = [{"월": months[k].replace("-", "."), "수출": trade_eok(exp[k]), "수출 증감": px_pct(tc.yoy(exp, k)), "수입": trade_eok(imp[k]),
+             "수입 증감": px_pct(tc.yoy(imp, k)), "무역수지": trade_eok(bal[k])} for k in range(i, lo - 1, -1)]
+    table = pd.DataFrame(rows)
+    st.markdown("##### 최근 13개월")
+    st.dataframe(trade_styled(table, ["수출 증감", "수입 증감"]), hide_index=True, height=(len(table) + 1) * 35 + 3)
+    first = max(0, i - 23)
+    idx = pd.to_datetime(months[first:i + 1], format="%Y-%m")
+    st.markdown("##### 수출·수입 추이 (억달러)")
+    px_line_chart(px_long({"수출": pd.Series([v / 1e8 for v in exp[first:i + 1]], index=idx), "수입": pd.Series([v / 1e8 for v in imp[first:i + 1]], index=idx)}),
+                  "억달러", fmt="%Y-%m", axis_fmt="%y.%m")
+    st.download_button("표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="월간수출입.csv", mime="text/csv", key="tr_m_dl")
+
+
+def render_trade_tenday(data):
+    ten = data.get("tenday") or {}
+    if not ten:
+        st.info("10일 단위 잠정치 자료가 아직 없어요.")
+        return
+    c1, c2 = st.columns(2)
+    ym = c1.selectbox("월", list(reversed(sorted(ten))), format_func=lambda m: f"{m[:4]}.{m[4:]}", key="tr_t_month")
+    kind = c2.radio("구분", ["수출", "수입"], horizontal=True, key="tr_t_kind")
+    k = "exp" if kind == "수출" else "imp"
+    rows = tc.tenday_rows(data, ym, f"{k}_cnty") or tc.tenday_rows(data, ym, f"{k}_item")
+    if not rows:
+        st.info("이 달의 10일 단위 자료가 아직 없어요.")
+        return
+    cards = []
+    for r in rows:
+        end = r["period"][3:]
+        label = f"{int(ym[4:])}월 1~{int(end)}일 누계"
+        cards.append((label, trade_cheon(r["cur"]), None if r["yoy"] is None else f"{px_pct(r['yoy'])} (전년 같은 기간比)", None))
+    st.markdown(cb_cards(cards), unsafe_allow_html=True)
+    period = st.radio("누계 기간", [r["period"] for r in rows], index=len(rows) - 1, horizontal=True, key="tr_t_period",
+                      format_func=lambda p: f"1~{int(p[3:])}일")
+    for part, title in (("cnty", "주요 국가"), ("item", "주요 품목")):
+        items = tc.tenday_items(data, ym, f"{k}_{part}", period)
+        if not items:
+            continue
+        total = sum(r["cur"] for r in rows if r["period"] == period) or 1
+        names = TRADE_RANK_NAMES.get(f"{k}_{part}", {})
+        if part == "item" and len(names) < 5:  # 순번별 품목 이름을 거의 모르면 숫자만으로는 쓸모가 없어 보이지 않는다
+            st.caption(f"주요 품목({kind})은 순번별 품목 이름을 확인하는 중이라 아직 보여주지 않아요.")
+            continue
+        st.markdown(f"##### {title} ({kind})")
+        table = pd.DataFrame([{"항목": names.get(r["rank"], f"{r['rank']}번째 항목"), "누계": trade_cheon(r["cur"]), "전년 같은 기간": trade_cheon(r["prev"]),
+                               "증감": px_pct(r["yoy"]), "비중": f"{r['cur'] / total * 100:.1f}%"} for r in items])
+        st.dataframe(trade_styled(table, ["증감"]), hide_index=True, height=(len(table) + 1) * 35 + 3)
+    st.caption("10일 단위 안내", help="관세청 잠정치예요(1일부터 10일·20일·말일까지의 누계). 확정치는 다음 달 중순에 나와 조금 달라질 수 있어요.  \n"
+               "전년 같은 기간과 조업일수(주말·휴일)가 다르면 증감률이 왜곡돼요.  \n"
+               "항목 이름은 관세청이 순번으로만 줘서, 월별 정식 통계의 금액과 맞춰 확인한 이름이에요. 확인하지 못한 항목은 '○번째 항목'으로 보여요.")
+
+
+def render_trade_country(data):
+    months, tot = data["months"], data["total"]
+    i = trade_month_pick(data, "tr_c_month")
+    rows = tc.group_table(data["country"], months, i)
+    total_exp = tot["exp"][i] or 1
+    top = rows[:30]
+    st.markdown("##### 국가별 수출입 (수출 상위 30곳)")
+    table = pd.DataFrame([{"순위": n, "국가": r["name"], "수출": trade_eok(r["exp"]), "증감": px_pct(r["exp_yoy"]), "비중": f"{r['exp'] / total_exp * 100:.1f}%",
+                           "수입": trade_eok(r["imp"]), "수입 증감": px_pct(r["imp_yoy"]), "무역수지": trade_eok(r["bal"])} for n, r in enumerate(top, 1)])
+    st.dataframe(trade_styled(table, ["증감", "수입 증감"]), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
+    reg = tc.group_table(data.get("region") or {}, months, i)
+    if reg:
+        st.markdown("##### 경제권별")
+        rt = pd.DataFrame([{"경제권": r["name"], "수출": trade_eok(r["exp"]), "증감": px_pct(r["exp_yoy"]), "수입": trade_eok(r["imp"]), "수입 증감": px_pct(r["imp_yoy"]),
+                            "무역수지": trade_eok(r["bal"])} for r in reg])
+        st.dataframe(trade_styled(rt, ["증감", "수입 증감"]), hide_index=True, height=(len(rt) + 1) * 35 + 3)
+        st.caption("경제권은 서로 겹치는 묶음이에요(예: EU와 EU28, OECD). 합산하지 마세요.")
+    st.markdown("##### 월별 추이 (수출, 억달러)")
+    names = [r["name"] for r in rows]
+    pick = st.multiselect("국가", names, default=names[:4], key="tr_c_pick", max_selections=8)
+    by_name = {v[0]: v for v in data["country"].values()}
+    idx = pd.to_datetime(months, format="%Y-%m")
+    series = {n: pd.Series([None if x is None else x / 1e8 for x in by_name[n][1]], index=idx).dropna() for n in pick if n in by_name}
+    if series:
+        px_line_chart(px_long(series), "억달러", fmt="%Y-%m", axis_fmt="%y.%m")
+    st.download_button("국가별 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="국가별수출입.csv", mime="text/csv", key="tr_c_dl")
+
+
+def render_trade_region(data):
+    months = data["months"]
+    i = trade_month_pick(data, "tr_r_month")
+    first = True
+    for key, title, limit in (("sido", "시도별", 20), ("port", "세관별(항구·공항 합산)", 20)):
+        rows = tc.region_table(data.get(key) or {}, months, i)[:limit]
+        if not rows:
+            continue
+        st.markdown(f"##### {title}")
+        table = pd.DataFrame([{"순위": n, "지역": r["name"], "수출": trade_eok(r["exp"]), "증감": px_pct(r["exp_yoy"]), "수입": trade_eok(r["imp"]),
+                               "수입 증감": px_pct(r["imp_yoy"]), "무역수지": trade_eok(r["bal"])} for n, r in enumerate(rows, 1)])
+        st.dataframe(trade_styled(table, ["증감", "수입 증감"]), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
+        st.download_button(f"{title} 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name=f"{title}.csv", mime="text/csv", key=f"tr_r_dl_{key}")
+    st.caption("지역 안내", help="시도별은 수출입 신고를 한 기업의 소재지 기준이라 실제 생산지와 다를 수 있어요(본사가 서울인 기업의 수출이 서울로 잡히는 식).  \n"
+               "세관별은 통관한 세관 기준이에요.")
+
+
+def render_trade():
+    """탭: 수출 - 관세청 수출입 통계(월별 현황·10일 단위 속보·국가·경제권·지역)"""
+    data = get_trade()
+    if data is None:
+        st.info("수출입 자료를 아직 불러오지 못했어요. 처음이라면 GitHub Actions의 '수출입 통계 모으기'를 한 번 실행해 주세요.")
+        return
+    months = data["months"]
+    st.caption("자료 기준", help=f"관세청 수출입 통계(통관 기준, 달러)예요. 월별 확정치는 보통 다음 달 중순에 나와요.  \n"
+               f"월별 자료 {months[0].replace('-', '.')} ~ {months[-1].replace('-', '.')} · 자료 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}  \n"
+               "증감은 전년 같은 달 대비이고, 파랑은 늘어난 것·빨강은 줄어든 것이에요.")
+    view = st.radio("보기", TRADE_VIEWS, horizontal=True, key="tr_view", label_visibility="collapsed")
+    {"월간 현황": render_trade_monthly, "10일 단위 속보": render_trade_tenday, "국가·경제권": render_trade_country, "지역": render_trade_region}[view](data)
+
+
+TAB_NAMES = ["기업 브리핑", "재무 조회", "주가", "수출", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
 SHOW_TIMELINE = st.query_params.get("lab", "") == "1"  # 이슈 타임라인은 자료가 쌓이는 중이라 숨겨 둠: 주소 끝에 ?lab=1을 붙이면 보임
 if SHOW_TIMELINE:
     TAB_NAMES.insert(TAB_NAMES.index("산업 뉴스") + 1, "이슈 타임라인")
@@ -8970,13 +9147,15 @@ try:
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
 by_name = dict(zip(TAB_NAMES, tabs))
-tab_brief, tab_fin, tab_px, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in TAB_NAMES if n != "이슈 타임라인")
+tab_brief, tab_fin, tab_px, tab_trade, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in TAB_NAMES if n != "이슈 타임라인")
 with tab_brief:
     render_brief()
 with tab_fin:
     render_fin_hub()
 with tab_px:
     render_stock()
+with tab_trade:
+    render_trade()
 with tab_news:
     render_news()
 if SHOW_TIMELINE:
