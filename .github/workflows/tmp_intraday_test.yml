@@ -15,7 +15,7 @@ jobs:
       - run: pip install yfinance
       - name: 시험
         run: |
-          python - <<'PY' 2>&1 | tee out.txt
+          PYTHONWARNINGS=ignore python - <<'PY' 2>/dev/null | tee out.txt
           import time
           from datetime import datetime, timezone, timedelta
           import yfinance as yf
