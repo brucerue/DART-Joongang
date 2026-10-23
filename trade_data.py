@@ -129,7 +129,8 @@ def tenday_values(key, ym):
 
 def build(key, prev, now, months=25):
     """prev(이전 trade.json 또는 {}) + 새로 받은 자료 -> 새 trade.json 내용"""
-    want = month_list(now, months)
+    current = now.strftime("%Y%m")  # 이번 달은 월별 API가 중간 집계를 주므로 월별 자료에서 빼고, 10일 단위 잠정치만 쓴다
+    want = [ym for ym in month_list(now, months) if ym != current]
     store = {}  # 달 -> 월별 자료
     for i, label in enumerate(prev.get("months", [])):
         store[label.replace("-", "")] = {
@@ -139,6 +140,7 @@ def build(key, prev, now, months=25):
             "sido": {c: [e[i], m[i]] for c, (e, m) in prev.get("sido", {}).items() if e[i] is not None},
             "port": {c: [e[i], m[i]] for c, (e, m) in prev.get("port", {}).items() if e[i] is not None},
         }
+    store.pop(current, None)  # 이전에 중간 집계가 저장돼 있었어도 버린다
     refresh = set(want[-REFRESH_MONTHS - 1:])
     errors = []
     for ym in want:
