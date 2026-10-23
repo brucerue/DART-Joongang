@@ -1,0 +1,49 @@
+name: 장중 시세 시험 (임시)
+
+# yfinance로 한국 종목의 장중 시세가 나오는지, 얼마나 지연되는지 확인하는 임시 수동 작업입니다. 시험이 끝나면 지웁니다.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install yfinance
+      - name: 시험
+        run: |
+          python - <<'PY'
+          import time
+          from datetime import datetime, timezone, timedelta
+          import yfinance as yf
+          KST = timezone(timedelta(hours=9))
+          now = datetime.now(KST)
+          print("지금(한국시간):", now.strftime("%Y-%m-%d %H:%M:%S"), "| yfinance", yf.__version__)
+          tickers = {"삼성전자": "005930.KS", "SK하이닉스": "000660.KS", "현대차": "005380.KS", "LG에너지솔루션": "373220.KS", "에코프로비엠": "247540.KQ", "한화에어로스페이스": "012450.KS"}
+          for interval, period in (("5m", "1d"), ("1h", "5d"), ("1m", "1d")):
+              print(f"\n=== interval={interval} period={period} ===")
+              for name, t in tickers.items():
+                  t0 = time.time()
+                  try:
+                      df = yf.Ticker(t).history(period=period, interval=interval)
+                  except Exception as e:
+                      print(f"{name}({t}): 오류 {type(e).__name__}: {str(e)[:100]}")
+                      continue
+                  if df.empty:
+                      print(f"{name}({t}): 비어 있음 ({time.time()-t0:.1f}초)")
+                      continue
+                  idx = df.index.tz_convert(KST)
+                  last = df.iloc[-1]
+                  print(f"{name}({t}): {len(df)}행, 첫 {idx[0]:%m-%d %H:%M} 끝 {idx[-1]:%m-%d %H:%M}, 마지막 종가 {last['Close']:,.0f}, 거래량 {last['Volume']:,.0f} ({time.time()-t0:.1f}초)")
+          print("\n=== 일봉 5일 (전일 종가 확인) ===")
+          for name, t in list(tickers.items())[:3]:
+              d = yf.Ticker(t).history(period="5d", interval="1d")
+              print(name, [(i.strftime("%m-%d"), round(float(c))) for i, c in zip(d.index, d["Close"])])
+          print("\n=== 한 번에 여러 종목 (download) ===")
+          t0 = time.time()
+          df = yf.download(list(tickers.values()), period="1d", interval="5m", progress=False, auto_adjust=False)
+          print("행", len(df), "열", len(df.columns), f"{time.time()-t0:.1f}초")
+          PY
