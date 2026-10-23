@@ -15,7 +15,7 @@ jobs:
       - run: pip install yfinance
       - name: 시험
         run: |
-          python - <<'PY'
+          python - <<'PY' 2>&1 | tee out.txt
           import time
           from datetime import datetime, timezone, timedelta
           import yfinance as yf
@@ -47,3 +47,8 @@ jobs:
           df = yf.download(list(tickers.values()), period="1d", interval="5m", progress=False, auto_adjust=False)
           print("행", len(df), "열", len(df.columns), f"{time.time()-t0:.1f}초")
           PY
+      - name: 결과를 주석으로 남기기
+        if: always()
+        run: |
+          msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' out.txt | head -c 30000)
+          echo "::notice title=장중시세시험::${msg}"
