@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 20:45"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 22:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7946,16 +7946,129 @@ def render_brief_trend(b):
         st.caption(f"누르면 최근 주요 공시 {0 if not has_disc else len(b['disc'])}건과 기사 {n_news}묶음의 제목을 종합해 이슈를 정리해 줘요. (기사는 최근 1주일 단독·통신 기사와 일반 기사 중 주요 언론사 것만 봐요. 통신 기사는 브리핑 화면에는 보이지 않아요)")
 
 
+def brief_snap(data, intra):
+    """브리핑용 종목 표: 장중 자료가 새 거래일이면 장중 최신, 아니면 마지막 종가. -> (표, '15:00 현재' 또는 '10.22 종가')"""
+    if sc.intraday_ready(intra, data):
+        snap, last_end = sc.intraday_snapshot(intra, data)
+        return snap, f"{last_end} 현재" if last_end else "장중"
+    return sc.snapshot(data, data["dates"][-1]), f"{data['dates'][-1][4:6]}.{data['dates'][-1][6:]} 종가"
+
+
+def brief_peer_rows(data, snap, code):
+    """같은 섹터 기업 비교표 -> (섹터 이름, [{code, name, cap, rate, m1, ytd}] 시총 큰 순) 또는 (None, [])
+    m1: 최근 1개월 수익률, ytd: 연초 이후 수익률 (KRX 등락률을 이어 붙인 값)"""
+    for sector, codes in px_sector_codes(data).items():
+        if code not in codes:
+            continue
+        last, first = sc.dates_of(data).max(), sc.dates_of(data).min()
+        rows = []
+        for c in codes:
+            r = snap[snap["code"] == c]
+            if r.empty:
+                continue
+            r = r.iloc[0]
+            full = sc.frame(data, c)
+            rows.append({"code": c, "name": r["name"], "cap": None if pd.isna(r["cap"]) else float(r["cap"]),
+                         "rate": None if pd.isna(r["rate"]) else float(r["rate"]),
+                         "m1": sc.period_return(sc.cut(full, sc.period_start("1개월", first, last))),
+                         "ytd": sc.period_return(sc.cut(full, sc.period_start("연초 이후", first, last)))})
+        rows.sort(key=lambda x: -(x["cap"] or 0))
+        return (sector, rows) if len(rows) >= 2 else (None, [])
+    return None, []
+
+
+BRIEF_TL_DAYS = 90
+BRIEF_TL_MOVE = 5.0  # 타임라인에 올릴 주가 급등락 기준(±%)
+BRIEF_TL_MAX = 40
+BRIEF_TL_MOVES_MAX = 8  # 타임라인에 올리는 주가 급등락일 수 (큰 순)
+
+
+def brief_timeline(b, archive, data, code, now=None):
+    """최근 3개월 이슈 타임라인 -> [{dt, kind, title, url, r0, r3}] 최신순.
+    모아 둔 기사·공시(archive) + 브리핑의 주요 공시·단독 기사 + 주가 급등락일(±BRIEF_TL_MOVE%)을 하루 단위로 합친다.
+    r0·r3: 그날 등락률과 3거래일 누적 (시세 자료가 있을 때만)."""
+    now = (now or datetime.now(KST)).replace(tzinfo=None)
+    start = now - timedelta(days=BRIEF_TL_DAYS)
+    name = ((data or {}).get("s", {}).get(code) or {}).get("n") or b["corp"]
+    items, seen = [], set()
+
+    def add(dt, kind, title, url):
+        sig = (dt.date() if hasattr(dt, "date") else dt, title_key(title))
+        if sig in seen:
+            return
+        seen.add(sig)
+        items.append({"dt": dt, "kind": kind, "title": title, "url": url or "", "r0": None, "r3": None})
+
+    d = b.get("disc")
+    if d is not None and not d.empty:
+        for r in d.to_dict("records"):
+            try:
+                add(datetime.strptime(str(r["접수일"]), "%Y-%m-%d"), "공시", str(r["보고서명"]), str(r.get("원문") or ""))
+            except ValueError:
+                pass
+    for c in b.get("news") or []:
+        rep = c["rep"]
+        if rep["dt"].replace(tzinfo=None) >= start:
+            add(rep["dt"].replace(tzinfo=None), "단독", rep["title"], rep.get("url"))
+    if archive:
+        for e in px_events(archive, name, start, now):
+            add(e["dt"], e["kind"], e["title"], e["url"])
+    full = sc.frame(data, code) if data and code in (data.get("s") or {}) else None
+    if full is not None:
+        moves = [(day, rate) for day, rate in full["rate"].dropna().items() if day >= pd.Timestamp(start) and abs(rate) >= BRIEF_TL_MOVE]
+        for day, rate in sorted(moves, key=lambda m: -abs(m[1]))[:BRIEF_TL_MOVES_MAX]:  # 급등락이 잦은 종목은 큰 것만
+            close = full["close"].get(day)
+            add(day.to_pydatetime(), "주가", f"주가 {rate:+.1f}%" + (f" (종가 {close:,.0f}원)" if pd.notna(close) else ""), "")
+        for it in items:
+            if it["kind"] != "주가":
+                it["r0"], it["r3"] = sc.event_reaction(full, it["dt"])
+    items.sort(key=lambda x: (x["dt"].date(), x["kind"] == "주가", x["dt"]), reverse=True)
+    return items[:BRIEF_TL_MAX]
+
+
+def render_brief_peers(b):
+    """브리핑: 같은 섹터 기업과 시총·등락률·수익률 비교 (접이식). 상장사이고 시세 자료에 섹터가 있을 때만."""
+    code = stock_code_of(b["code"])
+    data = get_prices() if code else None
+    if not data or code not in (data.get("s") or {}):
+        return
+    snap, when = brief_snap(data, get_intraday())
+    sector, rows = brief_peer_rows(data, snap, code)
+    if not rows:
+        return
+    rank = next((i for i, r in enumerate(rows, 1) if r["code"] == code), None)
+    with st.expander(f"업계 비교 ({sector} 시총 {rank}위 / {len(rows)}곳)"):
+        table = pd.DataFrame([{"순위": i, "기업": ("★ " if r["code"] == code else "") + r["name"], "시총": px_cap_text(r["cap"]),
+                               f"등락률 ({when})": px_pct(r["rate"], 2), "1개월": px_pct(r["m1"]), "연초 이후": px_pct(r["ytd"])}
+                              for i, r in enumerate(rows, 1)])
+        st.dataframe(table.style.map(price_style, subset=[f"등락률 ({when})", "1개월", "연초 이후"]), hide_index=True)
+        st.caption("★ 이 기업 · 섹터 기업 목록은 앱의 섹터 구성이에요(비상장사 제외). 수익률은 KRX 등락률을 이어 붙인 값(배당 제외), 시총은 보통주+우선주예요.")
+
+
+def render_brief_timeline(b):
+    """브리핑: 최근 3개월 공시·기사·주가 급등락을 날짜순 한 표로 (접이식)."""
+    code = stock_code_of(b["code"])
+    data = get_prices() if code else None
+    archive = get_stored("archive.json")
+    items = brief_timeline(b, archive, data, code)
+    if not items:
+        return
+    with st.expander(f"이슈 타임라인 (최근 3개월 {len(items)}건)"):
+        table = pd.DataFrame([{"날짜": it["dt"].strftime("%m.%d"), "종류": it["kind"], "내용": it["title"], "당일 등락": px_pct(it["r0"]), "3거래일 누적": px_pct(it["r3"]),
+                               "원문": it["url"] or None} for it in items])
+        show = [c for c in ("날짜", "종류", "내용", "당일 등락", "3거래일 누적", "원문") if c in table and not (c in ("당일 등락", "3거래일 누적") and (table[c] == "-").all())]
+        st.dataframe(table[show].style.map(price_style, subset=[c for c in ("당일 등락", "3거래일 누적") if c in show]), hide_index=True,
+                     height=min(len(table) + 1, 15) * 35 + 3, column_config={"내용": st.column_config.TextColumn("내용", width="large"), "원문": st.column_config.LinkColumn("원문", display_text="열기")})
+        st.caption(f"공시(주요 공시)·단독 기사·모아 둔 기사에 주가 ±{BRIEF_TL_MOVE:g}% 이상 움직인 날을 합친 것이에요. 공시는 접수 날짜만 알 수 있어서 등락은 그날(휴장이면 다음 거래일) 기준이고, "
+                   "원인을 단정할 수 없어요. 모아 둔 기사·공시는 섹터 기업의 통신·단독 기사와 주요 공시만 있어요.")
+
+
 def brief_glance_price(data, intra, code):
     """한눈에 카드의 시세: 시세 자료(prices.json)에 있는 종목이면 장중 최신(없으면 마지막 종가) 등락률·시총과 소속 섹터 평균 등락률.
     -> {"rate", "cap"(억원), "when", "sector", "sector_avg", "n"} 또는 None"""
     if not data or code not in (data.get("s") or {}):
         return None
-    if sc.intraday_ready(intra, data):
-        snap, last_end = sc.intraday_snapshot(intra, data)
-        when = f"{last_end} 현재" if last_end else "장중"
-    else:
-        snap, when = sc.snapshot(data, data["dates"][-1]), f"{data['dates'][-1][4:6]}.{data['dates'][-1][6:]} 종가"
+    snap, when = brief_snap(data, intra)
     row = snap[snap["code"] == code]
     if row.empty:
         return None
@@ -8032,6 +8145,7 @@ def render_brief_result(b):
         krx_error_box(errs["quote"])
     else:
         render_quote(b.get("quote"))
+    render_brief_peers(b)
 
     st.markdown(f"##### 실적 (최근 {BRIEF_YEARS}년, 억원)")
     if errs.get("fin"):
@@ -8065,6 +8179,7 @@ def render_brief_result(b):
     else:
         st.markdown(news_html(b["news"]), unsafe_allow_html=True)
 
+    render_brief_timeline(b)
     render_brief_trend(b)
 
     st.markdown("##### AI 취재 포인트")
