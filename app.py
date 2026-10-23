@@ -372,7 +372,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 23:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 23:55"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3005,16 +3005,35 @@ class NewsApiError(Exception):
     """네이버 API 오류·호출 한도 초과 등 사용자에게 알려야 하는 뉴스 조회 실패."""
 
 
+NAVER_MIN_GAP = 0.12  # 네이버 호출 사이 최소 간격(초): 초당 약 10건 제한에 걸리지 않게 동시 호출을 한 줄로 세운다
+_naver_gate = {"lock": threading.Lock(), "next": 0.0}
+
+
+def naver_wait():
+    """모든 스레드가 같이 쓰는 호출 간격 조절: 다음 호출 가능 시각까지 기다린다."""
+    with _naver_gate["lock"]:
+        now = time.monotonic()
+        at = max(now, _naver_gate["next"])
+        _naver_gate["next"] = at + NAVER_MIN_GAP
+    if at > now:
+        time.sleep(at - now)
+
+
 def call_naver(session, params):
     """네이버 뉴스 검색 API 호출 공통 처리. 정상이면 응답(dict), 문제가 있으면 NewsApiError."""
     headers = {"X-Naver-Client-Id": NAVER_ID, "X-Naver-Client-Secret": NAVER_SECRET}
     res, last_error = None, None
-    for attempt in range(3):  # 일시적인 네트워크 오류는 두 번까지 다시 시도
+    for attempt in range(5):  # 네트워크 오류·호출 몰림(429)이면 쉬었다 다시 시도 (최대 5번)
         try:
+            naver_wait()
             res = session.get(NAVER_NEWS_URL, params=params, headers=headers, timeout=REQUEST_TIMEOUT)
+            if res.status_code == 429 and attempt < 4:
+                time.sleep(0.6 * (attempt + 1))
+                continue
             break
         except Exception as e:
             last_error = e
+            res = None
             time.sleep(0.5 * (attempt + 1))
     if res is None:
         raise NewsApiError("네이버 뉴스 서버 응답이 없거나 늦어지고 있습니다. 잠시 후 다시 시도해주세요.") from last_error

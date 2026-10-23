@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import unicodedata
 import zipfile
@@ -205,11 +206,27 @@ def naver_search(terms, cutoff):
         return []
     headers = {"X-Naver-Client-Id": cid, "X-Naver-Client-Secret": secret}
 
+    gate = {"lock": threading.Lock(), "next": 0.0}
+
+    def get_page(term, page):  # 호출 간격을 조절하고, 몰림(429)이면 쉬었다 다시 시도한다 (네이버는 초당 약 10건 제한)
+        for attempt in range(5):
+            with gate["lock"]:
+                now = time.monotonic()
+                at = max(now, gate["next"])
+                gate["next"] = at + 0.12
+            if at > now:
+                time.sleep(at - now)
+            res = requests.get("https://openapi.naver.com/v1/search/news.json", headers=headers, timeout=TIMEOUT,
+                               params={"query": f"{term} 단독", "display": 100, "start": 1 + page * 100, "sort": "date"})
+            if res.status_code == 429 and attempt < 4:
+                time.sleep(0.6 * (attempt + 1))
+                continue
+            return res
+
     def one(term):
         out = []
         for page in range(3):
-            res = requests.get("https://openapi.naver.com/v1/search/news.json", headers=headers, timeout=TIMEOUT,
-                               params={"query": f"{term} 단독", "display": 100, "start": 1 + page * 100, "sort": "date"})
+            res = get_page(term, page)
             res.raise_for_status()
             raw = res.json().get("items") or []
             old = False
