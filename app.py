@@ -88,9 +88,14 @@ INDUSTRY_GROUPS = {
     "IT·통신": ["SK텔레콤", "KT", "LG유플러스", "NAVER", "카카오"],
 }
 # 실적 캘린더의 섹터: 자동차와 배터리는 한 섹터로 묶는다
-CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("조선·해운", "방산", "철강", "정유·석화", "에너지·소재", "반도체", "IT·통신")}
+# 산업 뉴스·공시 분석·실적 캘린더의 섹터 선택에서는 조선·해운 / 방산 / 철강을 '중후장대' 하나로 묶는다 (재무 조회·주가는 위 INDUSTRY_GROUPS 그대로,
+# 텔레그램 알람의 섹터(ALARM_SECTORS·NEWS_SECTORS 처음 정의)도 그대로)
+HEAVY_NAME = "중후장대"
+HEAVY_PARTS = ("조선·해운", "방산", "철강")
+CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("정유·석화", "에너지·소재", "반도체", "IT·통신")}
 CAL_GROUPS["자동차·배터리"] = INDUSTRY_GROUPS["자동차"] + INDUSTRY_GROUPS["배터리"]
-CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("자동차·배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재", "반도체", "IT·통신")}
+CAL_GROUPS[HEAVY_NAME] = [n for part in HEAVY_PARTS for n in INDUSTRY_GROUPS[part]]
+CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("자동차·배터리", HEAVY_NAME, "정유·석화", "에너지·소재", "반도체", "IT·통신")}
 INDUSTRY_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
 
 # 주요사항보고서: 보고서명(공백·괄호 무시)에 들어 있는 말 -> (DART 주요정보 API, 칸 목록).
@@ -335,7 +340,10 @@ NEWS_SECTORS = {
         "키워드": ["원전", "전력망", "핵심광물", "태양광"],
     },
 }
-NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("자동차", "배터리", "조선·해운", "방산", "철강", "정유·석화", "에너지·소재", "반도체", "IT·통신")}  # 화면에 나오는 순서
+_NEWS_ALL = NEWS_SECTORS  # 앱의 산업 뉴스 화면용으로 아래에서 다시 묶는다 (텔레그램 알람은 위 리터럴을 그대로 읽음)
+NEWS_SECTORS = {k: _NEWS_ALL[k] for k in ("자동차", "배터리", "정유·석화", "에너지·소재", "반도체", "IT·통신")}
+NEWS_SECTORS[HEAVY_NAME] = {key: [x for part in HEAVY_PARTS for x in _NEWS_ALL[part][key]] for key in ("기업", "키워드")}
+NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("자동차", "배터리", HEAVY_NAME, "정유·석화", "에너지·소재", "반도체", "IT·통신")}  # 화면에 나오는 순서
 PUBLISHERS = {
     # 종합일간지
     "joongang.co.kr": ("중앙일보", "종합일간지"), "chosun.com": ("조선일보", "종합일간지"),
@@ -374,7 +382,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.23 22:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.23 22:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5216,6 +5224,8 @@ def team_sector_options(team, options):
     out = []
     for sec in TEAM_PRESETS[team]:
         name = sec if sec in options else next((o for o in options if sec in o.split("·") and "·" in o and sec in ("자동차", "배터리")), None)
+        if name is None and sec in HEAVY_PARTS and HEAVY_NAME in options:
+            name = HEAVY_NAME
         if name and name not in out:
             out.append(name)
     return out
@@ -5234,7 +5244,7 @@ def team_buttons(prefix, options, target, after=None, label="섹터 (여러 개 
         cols[0].markdown(f'<span class="sec-lbl">{label}</span>', unsafe_allow_html=True)
         for col, team in zip(cols[1:], TEAM_PRESETS):
             col.button(team, key=f"{prefix}_team_{team}", on_click=apply_team, args=(team, list(options), target, after),
-                       help="이 팀의 섹터를 한꺼번에 선택해요: " + ", ".join(TEAM_PRESETS[team]))
+                       help="이 팀의 섹터를 한꺼번에 선택해요: " + ", ".join(team_sector_options(team, list(options))))
 
 
 # ------------------------------------------------------------
