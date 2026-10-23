@@ -255,3 +255,107 @@ def sum_metrics(parts):
             for k in a:
                 a[k] += m.get(k, 0)
     return out
+
+
+# ---- 산업부 품목(MTI) 검색: HSK-MTI 연계표(mti_map.json)로 HS 10자리를 MTI로 묶어 합친다 ----
+def load_mti(path):
+    """mti_map.json -> {'tables': [{label, from, to, mti: {MTI6: [HSK]}, names, hsk_to_mti}], 'names': {코드: 이름}} (없으면 None)"""
+    import json
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    for t in data.get("tables", []):
+        t["hsk_to_mti"] = {h: m for m, hs in t["mti"].items() for h in hs}
+    return data if data.get("tables") and data.get("names") else None
+
+
+def mti_name(mti, code):
+    """MTI 코드(1~6자리) -> 이름. 모르면 코드 그대로"""
+    if code in mti["names"]:
+        return mti["names"][code]
+    for t in reversed(mti["tables"]):
+        if code in t["names"]:
+            return t["names"][code]
+    return code
+
+
+def mti_table_for_year(mti, year):
+    """그 해의 연계표 (범위 밖이면 가장 가까운 표)"""
+    tables = mti["tables"]
+    for t in tables:
+        if t["from"] <= year <= t["to"]:
+            return t
+    return tables[0] if year < tables[0]["from"] else tables[-1]
+
+
+def mti_segments(mti, start, end):
+    """시작~끝 'YYYYMM'을 연계표 기준년도 경계에서 나눈다 -> [(표, 시작, 끝)]"""
+    out, cur = [], start
+    while cur <= end:
+        t = mti_table_for_year(mti, int(cur[:4]))
+        last_year = t["to"] if t is not mti["tables"][-1] else 9999
+        seg_end = min(end, f"{last_year}12")
+        out.append((t, cur, seg_end))
+        cur = month_add(seg_end, 1)
+    return out
+
+
+def mti_hsk(table, prefix):
+    """MTI 코드(앞자리 prefix) 아래 묶인 HS 10자리 집합"""
+    out = set()
+    for m, hs in table["mti"].items():
+        if m.startswith(prefix):
+            out.update(hs)
+    return out
+
+
+def next_level(code):
+    """한 단계 아래 단위의 자릿수 (이름이 있는 단위: 1·2·3·4·6)"""
+    return {1: 2, 2: 3, 3: 4, 4: 6, 5: 6}.get(len(code))
+
+
+def query_mti(fetch, mti, prefix, cnty, start, end, workers=6):
+    """MTI 품목(prefix 이하)의 월별 행. 묶인 HS 10자리의 HS 6자리마다 조회해서 그 10자리 행만 남기고, 각 행에 'mti'(6자리)를 붙인다.
+    fetch는 여러 스레드에서 불린다. 묶인 코드가 없는 기간이 있으면 skipped에 그 기간을 모아 함께 돌려준다 -> (행들, [건너뛴 기간])"""
+    from concurrent.futures import ThreadPoolExecutor
+
+    jobs, skipped = [], []
+    for table, s, e in mti_segments(mti, start, end):
+        hsk = mti_hsk(table, prefix)
+        if not hsk:
+            skipped.append(f"{s[:4]}.{s[4:]}~{e[:4]}.{e[4:]}")
+            continue
+        for h6 in sorted({h[:6] for h in hsk}):
+            jobs.append((table, hsk, h6, s, e))
+
+    def one(job):
+        table, hsk, h6, s, e = job
+        out = []
+        for r in query_items(fetch, h6, cnty, s, e):
+            if r["hs"] in hsk:
+                out.append(dict(r, mti=table["hsk_to_mti"][r["hs"]]))
+        return out
+
+    rows = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for part in pool.map(one, jobs):
+            rows += part
+    return rows, skipped
+
+
+def group_mti(rows, mti, level):
+    """행들을 MTI level자리로 묶어 수출이 큰 순 -> [{code, name, exp, imp, bal}]"""
+    acc = {}
+    for r in rows:
+        code = r["mti"][:level]
+        a = acc.setdefault(code, {"code": code, "name": mti_name(mti, code), "exp": 0, "imp": 0})
+        a["exp"] += r["exp"]
+        a["imp"] += r["imp"]
+    out = list(acc.values())
+    for a in out:
+        a["bal"] = a["exp"] - a["imp"]
+    out.sort(key=lambda a: (-a["exp"], -a["imp"]))
+    return out
