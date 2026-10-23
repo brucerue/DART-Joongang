@@ -1,0 +1,47 @@
+name: DART 조회 시험 (임시)
+
+# 중앙일보 같은 비상장사가 DART에 어떤 공시로 올라 있는지 확인하는 임시 수동 작업입니다. 시험이 끝나면 지웁니다.
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: 회사 이름에 들어갈 말
+        default: 중앙일보
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 시험
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          NAME: ${{ inputs.name }}
+        run: |
+          python - <<'PY' 2>&1 | sed "s/$DART_API_KEY/***/g" | tee out.txt
+          import csv, io, os, requests
+          key, name = os.environ["DART_API_KEY"], os.environ["NAME"]
+          txt = requests.get("https://raw.githubusercontent.com/brucerue/DART-Joongang/corp-codes/corp_codes.csv", timeout=60).text
+          rows = [r for r in csv.DictReader(io.StringIO(txt)) if name in r["corp_name"]]
+          print("후보", len(rows))
+          for r in rows[:15]: print(" ", r["corp_code"], r["corp_name"], r["stock_code"] or "(비상장)")
+          for r in rows[:6]:
+              cc = r["corp_code"]; print("\n==", r["corp_name"], cc)
+              for ty in ("A", "F"):
+                  j = requests.get("https://opendart.fss.or.kr/api/list.json", params={"crtfc_key": key, "corp_code": cc, "bgn_de": "20230101", "pblntf_ty": ty, "page_count": 30}, timeout=60).json()
+                  print(f" 공시유형 {ty}: status={j.get('status')} {j.get('message')} 건수={j.get('total_count')}")
+                  for x in (j.get("list") or [])[:8]: print("   ", x["rcept_dt"], x["report_nm"], x["rcept_no"])
+              for y in (2024, 2025):
+                  for fs in ("CFS", "OFS"):
+                      j = requests.get("https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json", params={"crtfc_key": key, "corp_code": cc, "bsns_year": y, "reprt_code": "11011", "fs_div": fs}, timeout=60).json()
+                      print(f" 재무 {y} {fs}: status={j.get('status')} {j.get('message')} 줄={len(j.get('list') or [])}")
+          PY
+      - name: 결과를 주석으로 남기기
+        if: always()
+        run: |
+          msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' out.txt | head -c 30000)
+          echo "::notice title=DART시험::${msg}"
