@@ -1,0 +1,55 @@
+name: 관세청 API 명세 찾기 (임시)
+
+# 공공데이터포털에서 관세청 API들의 주소(End Point)·요청 변수를 읽어 오는 임시 수동 작업입니다. 확인이 끝나면 지웁니다. (키는 쓰지 않음)
+on:
+  workflow_dispatch:
+    inputs:
+      keyword:
+        description: 검색어
+        default: 관세청
+
+jobs:
+  find:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 찾기
+        env:
+          KW: ${{ inputs.keyword }}
+        run: |
+          python - <<'PY' 2>&1 | tee out.txt
+          import json, os, re, requests
+          H = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36", "Accept-Language": "ko"}
+          kw = os.environ["KW"]
+          ids = {}
+          for page in range(1, 6):
+              r = requests.get("https://www.data.go.kr/tcs/dss/selectDataSetList.do", params={"dType": "API", "keyword": kw, "operator": "AND", "recmSe": "N", "perPage": 40, "currentPage": page, "detailKeyword": ""}, headers=H, timeout=60)
+              print("목록", page, r.status_code, len(r.text))
+              found = re.findall(r'/data/(\d{7,8})/openapi\.do', r.text)
+              for i in found: ids[i] = True
+              if not found: break
+          print("후보 ID", len(ids), list(ids)[:60])
+          for i in ids:
+              try:
+                  r = requests.get(f"https://www.data.go.kr/catalog/{i}/openapi.json", headers=H, timeout=60)
+                  if r.status_code != 200: print(i, "HTTP", r.status_code); continue
+                  j = r.json()
+              except Exception as e:
+                  print(i, "오류", type(e).__name__); continue
+              title = (j.get("info") or {}).get("title", "?")
+              if "관세청" not in title: continue
+              base = ((j.get("servers") or [{}])[0]).get("url", "")
+              for path, spec in (j.get("paths") or {}).items():
+                  op = next(iter(spec.values()), {})
+                  params = [p.get("name") for p in op.get("parameters", []) if p.get("name") != "serviceKey"]
+                  print(f"{i} | {title} | {base}{path} | {','.join(params)}")
+          PY
+      - name: 결과를 주석으로 남기기
+        if: always()
+        run: |
+          msg=$(sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g' out.txt | head -c 30000)
+          echo "::notice title=관세청명세::${msg}"
