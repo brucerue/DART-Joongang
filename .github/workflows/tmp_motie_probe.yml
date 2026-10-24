@@ -9,30 +9,33 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests
-      - name: 접속 시험
+      - name: 목록·첨부 시험
         run: |
           cat > p.py <<'PY'
           import re, requests
           H = {"User-Agent": "Mozilla/5.0"}
-          urls = [
-            "https://www.korea.kr/rss/dept_motie.xml",
-            "https://www.korea.kr/rss/pressrelease.xml",
-            "https://www.motie.go.kr/kor/article/ATCL3f49a5a8c",
-            "https://www.motie.go.kr/",
-            "https://www.motie.go.kr/rss/motie_press.xml",
-          ]
-          out = []
-          for u in urls:
-              try:
-                  r = requests.get(u, headers=H, timeout=25)
-                  t = r.text
-                  titles = re.findall(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", t)[:40]
-                  hit = [x for x in titles if "수출입" in x]
-                  out.append(f"{u} -> {r.status_code} {len(t)}자 {r.headers.get('content-type','')[:30]} | 수출입제목 {hit[:5]} | 앞부분 {re.sub(chr(10),' ',t[:150])}")
-              except Exception as e:
-                  out.append(f"{u} -> 실패 {type(e).__name__}: {str(e)[:100]}")
-          for i, o in enumerate(out):
+          def note(i, o):
               o = re.sub(r"\s+", " ", o).replace("%", "%25")
               print(f"::notice title=산업부시험{i}::{o}")
+          base = "https://www.motie.go.kr"
+          L = base + "/kor/article/ATCL3f49a5a8c"
+          t = requests.get(L, headers=H, timeout=25).text
+          note(0, "목록 a태그 예: " + " || ".join(re.findall(r"<a [^>]*href=\"[^\"]*ATCL3f49a5a8c[^\"]*\"[^>]*>.*?</a>", t, re.S)[:6])[:1500])
+          page2 = requests.get(L + "?pageIndex=2", headers=H, timeout=25).text
+          note(1, "페이지2 길이 %d, 수출입 포함 %s" % (len(page2), "수출입" in page2))
+          # 수출입 동향 글 찾기
+          for q in ["수출입 동향", "수출입동향"]:
+              for u in (L + "?searchKeyword=" + q, L + "?search_text=" + q, L + "?keyword=" + q):
+                  try:
+                      r = requests.get(u, headers=H, timeout=25).text
+                  except Exception as e:
+                      note(2, f"{u} 실패 {e}"); continue
+                  hits = re.findall(r"href=\"([^\"]*)\"[^>]*>\s*([^<]*수출입[^<]*)<", r)
+                  note(3, f"{u} -> {len(r)}자, 수출입 링크 {hits[:4]}")
+          # 목록 전체에서 수출입 링크
+          hits = re.findall(r"href=\"([^\"]*)\"[^>]*>\s*([^<]*수출입[^<]*)<", t)
+          note(4, f"기본 목록 수출입 링크 {hits[:4]}")
+          i0 = t.find("수출입")
+          note(5, "기본 목록 '수출입' 주변: " + t[max(0, i0 - 300):i0 + 300] if i0 >= 0 else "기본 목록에 '수출입' 없음; 앞 제목들: " + " | ".join(re.findall(r"<(?:strong|span|a)[^>]*>\s*([^<\s][^<]{8,60})</", t)[10:30]))
           PY
           python p.py
