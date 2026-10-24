@@ -5,6 +5,7 @@ trade.json: {"updated", "months": ["2025-01", ...],
   "country"/"region": {코드: [이름, [수출...], [수입...]]},  "sido"/"port": {이름: [[수출...], [수입...]]},   (달러, 없는 달은 None)
   "tenday": {"202609": {"exp_item": {"01~10": [합계, 1위..10위], ...}, "exp_cnty": ..., "imp_item": ..., "imp_cnty": ...}}}   (천달러)
 """
+import re
 
 
 def pct(cur, prev):
@@ -586,3 +587,118 @@ CONTINENTS = {
 def continent_codes(name):
     """대륙 이름 -> 구성국 코드 목록 (없으면 [])"""
     return CONTINENTS.get(name, "").split()
+
+
+# ---- AI 검색: AI가 돌려준 조건을 검증해 검색 조건으로 바꾼다 ----
+AI_METRICS = ["수출금액", "수입금액", "무역수지", "수출 중량", "수입 중량"]
+AI_MAX_ITEMS = 6
+
+
+def ai_local_candidates(text, mti_names, hs_names, limit=20):
+    """질문에 들어 있는 낱말(과 3글자 이상 낱말의 두 글자 조각)이 이름에 들어간 MTI·HS 후보 -> ([(코드, 이름)], [(코드, 이름)]).
+    AI에게 '실제로 있는 코드' 후보를 보여 주려는 용도라 정확하지 않아도 된다."""
+    words = [w for w in re.split(r"[\s,·/()]+", text or "") if len(w) >= 2]
+    grams = set(words)
+    for w in words:
+        if len(w) >= 3:
+            grams.update(w[i:i + 2] for i in range(len(w) - 1))
+
+    def rank(names):
+        scored = []
+        for code, name in names.items():
+            score = sum(1 for g in grams if g in name)
+            if score:
+                scored.append((-score, len(code), code, name))
+        scored.sort()
+        return [(c, n) for _, _, c, n in scored[:limit]]
+
+    return rank(mti_names), rank(hs_names)
+
+
+def _ym_ok(v):
+    return isinstance(v, str) and re.fullmatch(r"20\d\d-(0[1-9]|1[0-2])", v) is not None
+
+
+def ai_validate(spec, ctx):
+    """AI가 돌려준 조건(dict)을 확인해 쓸 수 있는 것만 남긴다. ctx: groups, mti_names, hs_names, countries(이름->코드), zones, continents, months, flash_ym.
+    -> {'summary','notes','items':[{kind,code,key,label,reason,confidence,refs}],'regions':[(종류,이름,코드들)],'start','end','metrics','warnings'}"""
+    warns = []
+    spec = spec if isinstance(spec, dict) else {}
+    items, seen = [], set()
+    for it in (spec.get("items") or []):
+        if not isinstance(it, dict):
+            continue
+        kind, code = str(it.get("kind", "")).strip().lower(), str(it.get("code", "")).strip()
+        if kind in ("group", "20대", "주력품목"):
+            if code not in ctx["groups"]:
+                warns.append(f"'{code}'은(는) 산업부 20대 품목에 없어서 뺐어요.")
+                continue
+            key, label = ("mti", GROUP_PREFIX + code), f"{code} (산업부 20대 품목)"
+            kind = "group"
+        elif kind == "mti":
+            if code not in ctx["mti_names"]:
+                warns.append(f"MTI 코드 {code}은(는) 연계표에 없어서 뺐어요.")
+                continue
+            key, label = ("mti", code), f"MTI {code} {ctx['mti_names'][code]}"
+        elif kind == "hs":
+            code = code.replace(".", "").replace("-", "")
+            if not (code.isdigit() and len(code) in (2, 4, 6)):
+                warns.append(f"HS 코드 '{code}'은(는) 2·4·6자리 숫자가 아니어서 뺐어요.")
+                continue
+            name = ctx["hs_names"].get(code[:4], "")
+            key, label = ("hs", code), f"HS {code}" + (f" {name}" if name and len(code) == 4 else "")
+        else:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        refs = [r for r in (it.get("refs") or []) if isinstance(r, int)]
+        conf = str(it.get("confidence", "")).strip()
+        items.append({"kind": kind, "code": code, "key": key, "label": label, "reason": str(it.get("reason", "")).strip(),
+                      "confidence": conf if conf in ("높음", "중간", "낮음") else "중간", "refs": refs})
+    if len(items) > AI_MAX_ITEMS:
+        warns.append(f"품목은 {AI_MAX_ITEMS}개까지만 남겼어요.")
+        items = items[:AI_MAX_ITEMS]
+
+    regions = []
+    for rg in (spec.get("regions") or []):
+        if not isinstance(rg, dict):
+            continue
+        kind, name = str(rg.get("kind", "")).strip(), str(rg.get("name", "")).strip()
+        if kind == "국가" and name in ctx["countries"]:
+            regions.append(("국가", name, (ctx["countries"][name],)))
+        elif kind == "경제권" and name in ctx["zones"]:
+            regions.append(("경제권", name, tuple(zone_codes(name))))
+        elif kind == "대륙" and name in ctx["continents"]:
+            regions.append(("대륙", name, tuple(continent_codes(name))))
+        else:
+            warns.append(f"지역 '{name}'({kind})을(를) 찾지 못해 뺐어요(국가는 관세청 국가명, 경제권·대륙은 목록에 있는 이름만 가능).")
+    months = ctx["months"]
+    last_ok = max(months[-1], ctx.get("flash_ym") or "")
+    default_start = next((m for m in months if m.startswith(months[-1][:4])), months[0])
+    per = spec.get("period") if isinstance(spec.get("period"), dict) else {}
+    start, end = per.get("start"), per.get("end")
+    start = start if _ym_ok(start) else default_start
+    end = end if _ym_ok(end) else last_ok
+    if start < months[0]:
+        warns.append(f"모아 둔 자료는 {months[0]}부터라 시작월을 {months[0]}로 맞췄어요.")
+        start = months[0]
+    if end > last_ok:
+        warns.append(f"종료월을 가장 최근 자료인 {last_ok}로 맞췄어요.")
+        end = last_ok
+    if start > end:
+        warns.append("기간이 거꾸로라서 기본 기간(올해 1월~최근)으로 바꿨어요.")
+        start, end = default_start, last_ok
+    metrics = [m for m in (spec.get("metrics") or []) if m in AI_METRICS] or ["수출금액", "수입금액", "무역수지"]
+    if not items:
+        metrics = [m for m in metrics if "중량" not in m] or ["수출금액", "수입금액", "무역수지"]  # 품목이 없으면 중량 자료가 없다
+    n = max(1, len(items)) * max(1, len(regions))
+    if n > 12:
+        warns.append(f"항목이 {n}개라 많아서 앞쪽 일부만 쓰도록 줄였어요(최대 12개).")
+        while max(1, len(items)) * max(1, len(regions)) > 12:
+            if len(regions) >= len(items) and len(regions) > 1:
+                regions = regions[:-1]
+            else:
+                items = items[:-1]
+    return {"summary": str(spec.get("summary", "")).strip(), "notes": str(spec.get("notes", "")).strip(), "items": items, "regions": regions,
+            "start": start, "end": end, "metrics": metrics, "warnings": warns}
