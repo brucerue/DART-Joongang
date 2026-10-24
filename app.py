@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 20:49"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 20:55"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9358,12 +9358,15 @@ def trade_ai_prompt(text, ctx, cands, articles):
         ' "regions": [{"kind": "국가|경제권|대륙", "name": "목록의 이름 그대로"}], ',
         ' "period": {"start": "YYYY-MM", "end": "YYYY-MM"} 또는 입력에 기간이 없으면 null, ',
         ' "metrics": ["수출금액", "수입금액", "무역수지", "수출 중량", "수입 중량" 중 입력이 원하는 것] 또는 입력에 없으면 null, ',
+        ' "view": "trend|rank|composition", "rank_level": "국가|경제권|대륙", "top": 5|10|20|50, ',
         ' "notes": "코드가 정확하지 않은 이유나 확인할 점(예: 전용 코드가 없어 여러 코드의 합으로 근사)"}',
         "",
         "규칙: ① 입력이 20대 품목 중 하나와 같은 뜻이면 kind=group을 쓴다. ② 그 밖의 품목은 HS를 가능한 한 구체적으로(6자리, 용도로 가려지면 한국 HSK 8·10자리까지) 제안하고, 4자리 호만 쓰는 것은 6자리를 모를 때뿐이다. "
         "후보 목록에 있는 것을 우선하고, 한 품목에 코드가 여러 개 필요하면 모두 items에 넣는다(최대 6개). '관세청 등으로 확인된 코드 설명'에 있는 코드가 입력에 맞으면 notes에만 적지 말고 items에 그 코드(10자리)를 넣는다. "
         "③ '2025년'처럼 연도만 있으면 그 해 1월~12월. ④ metrics는 입력이 말한 것만: '수출된·수출액'이면 [수출금액]만, '수입된·수입액'이면 [수입금액]만, 수출량·물량이면 [수출 중량], 수입량이면 [수입 중량], 수지면 [무역수지], 수출입 모두나 언급이 없으면 null. ⑤ 입력에 나온 지역만 regions에 넣고, 없으면 빈 배열. "
-        "⑥ 입력이 수출입 통계와 무관하면 items·regions를 비우고 summary에 이유를 쓴다.",
+        "⑥ 입력이 수출입 통계와 무관하면 items·regions를 비우고 summary에 이유를 쓴다. "
+        "⑦ view: 시간 흐름·추이·금액을 물으면 trend, '품목이 어느 나라로 가장 많이 / 순위 / 상위 국가'처럼 나라별 비교를 물으면 rank(rank_level은 국가·경제권·대륙 중 묻는 단위, top은 '상위 N'의 N), "
+        "'지역이 어떤 품목으로 / 품목별 / 구성 / 비중 / 주력 품목'처럼 한 지역의 품목 구성을 물으면 composition(regions 필수). 확실하지 않으면 trend.",
     ]
     return "\n".join(lines)
 
@@ -9430,6 +9433,8 @@ def trade_ai_ask(text, data):
         articles = trade_ai_news(text)
         raw, _ = ai_generate(trade_ai_prompt(text, ctx, cands, articles), system=TRADE_AI_SYSTEM, json_mode=True)
         spec = parse_json(raw)
+        if isinstance(spec, dict) and not spec.get("view"):
+            spec["view"] = tc.ai_infer_view(text)  # AI가 보기를 안 골랐으면 질문 글에서 읽는다
         if isinstance(spec, dict) and not spec.get("metrics"):
             spec["metrics"] = tc.ai_infer_metrics(text)  # AI가 지표를 비웠으면 질문 글에서 읽는다('수입된' -> 수입금액만)
         out = tc.ai_validate(spec, ctx)
@@ -9523,22 +9528,63 @@ def render_trade_ai(data):
         else:
             st.caption("관련 기사를 찾지 못했어요(네이버 뉴스 키가 없거나 결과가 없음).")
         st.markdown("\n".join(f"- [{t}]({u})" for t, u in TRADE_AI_LINKS))
+    view = st.radio("보기", tc.AI_VIEWS, horizontal=True, index=tc.AI_VIEWS.index(spec.get("view", "월별 추이")), key=f"tr_ai_view_{st.session_state.get('tr_ai_n', 0)}",
+                    help="AI가 질문에 맞게 골랐어요. 바꾸면 같은 조건으로 다른 보기가 나와요. 월별 추이=시간 흐름, 국가별 순위=품목이 어느 나라로, 품목별 구성=지역이 어떤 품목으로.")
     if st.button("조회", type="primary", key="tr_ai_run"):
         picked = list(dict.fromkeys(picked))
+        metric = spec["metrics"][0]
+        problems = []
         if spec["items"] and not picked:
-            st.warning("조회할 품목 코드를 하나 이상 체크해 주세요.")
+            problems.append("조회할 품목 코드를 하나 이상 체크해 주세요.")
+        if view == "월별 추이" and len(picked) * max(1, len(spec["regions"])) > TRADE_MAX_SERIES:
+            problems.append(f"한 번에 {TRADE_MAX_SERIES}개 항목까지만 볼 수 있어요 (지금 {len(picked) * max(1, len(spec['regions']))}개). 체크를 줄여 주세요.")
+        if view == "국가별 순위" and len(picked) > 6:
+            problems.append("국가별 순위는 품목을 6개까지 볼 수 있어요.")
+        if view == "품목별 구성" and not spec["regions"]:
+            problems.append("품목별 구성은 지역(국가·경제권·대륙)이 필요해요. 질문에 지역을 넣어 다시 물어봐 주세요(예: 미국으로 수출된 품목).")
+        if (picked or any("중량" in m for m in spec["metrics"])) and view != "품목별 구성" and not CUSTOMS_KEY:
+            problems.append("품목 조회에는 Streamlit Secrets에 CUSTOMS_API_KEY가 필요해요.")
+        if view == "품목별 구성" and not CUSTOMS_KEY:
+            problems.append("품목별 구성에는 Streamlit Secrets에 CUSTOMS_API_KEY가 필요해요.")
+        if problems:
+            st.warning(" ".join(problems))
             st.session_state.pop("tr_ai_query", None)
-        elif len(picked) * max(1, len(spec["regions"])) > TRADE_MAX_SERIES:
-            st.warning(f"한 번에 {TRADE_MAX_SERIES}개 항목까지만 볼 수 있어요 (지금 {len(picked) * max(1, len(spec['regions']))}개). 체크를 줄여 주세요.")
-            st.session_state.pop("tr_ai_query", None)
-        elif (spec["items"] or any("중량" in m for m in spec["metrics"])) and not CUSTOMS_KEY:
-            st.info("품목 조회에는 Streamlit Secrets에 CUSTOMS_API_KEY가 필요해요.")
-        else:
-            st.session_state["tr_ai_query"] = {"kind": "일반 검색", "items": picked, "regions": spec["regions"], "metrics": spec["metrics"], "compare": True,
+        elif view == "월별 추이":
+            st.session_state["tr_ai_query"] = {"view": view, "kind": "일반 검색", "items": picked, "regions": spec["regions"], "metrics": spec["metrics"], "compare": True,
                                                "start": spec["start"], "end": spec["end"], "flash": trade_flash(data)}
+        elif view == "국가별 순위":
+            if not picked and "중량" in metric:
+                metric = "수출금액"
+            st.session_state["tr_ai_query"] = {"view": view, "items": picked, "level": spec.get("rank_level", "국가"), "start": spec["start"], "end": min(spec["end"], data["months"][-1]),
+                                               "metric": metric, "top": str(spec.get("top", 10)), "compare": True}
+        else:
+            start, end = spec["start"], min(spec["end"], data["months"][-1])
+            if tc.month_span(start.replace("-", ""), end.replace("-", "")) > 36:
+                t = tc.month_add(end.replace("-", ""), -35)
+                start = f"{t[:4]}-{t[4:]}"  # 품목별 구성은 최대 3년
+                st.info("품목별 구성은 최대 3년까지라 기간을 최근 3년으로 줄였어요.")
+            codes = []
+            for _kind, name, cc in spec["regions"]:
+                win = tc.ZONE_WINDOW.get(name) if _kind == "경제권" else None
+                codes += [(c, (win or {}).get(c, (None, None))[0] or "", (win or {}).get(c, (None, None))[1] or "") for c in cc]
+            codes = tuple(dict.fromkeys(codes))
+            calls = trade_hs_calls(codes, start, end) * 2
+            if calls > 150:
+                st.warning(f"조회할 범위가 너무 커요(관세청 호출 약 {calls}번). 지역을 줄여 다시 물어봐 주세요.")
+                st.session_state.pop("tr_ai_query", None)
+            else:
+                st.session_state["tr_ai_query"] = {"view": view, "parts": codes, "label": " + ".join(n for _, n, _ in spec["regions"]), "start": start, "end": end,
+                                                   "metric": metric, "top": str(spec.get("top", 10)), "compare": True}
+                st.session_state["tr_ai_path"] = ""
     sq = st.session_state.get("tr_ai_query")
     if not sq:
-        st.caption("코드를 확인하고 '조회'를 누르면 일반 검색과 같은 결과가 나와요.")
+        st.caption("코드를 확인하고 '조회'를 누르면 선택한 보기로 결과가 나와요.")
+        return
+    if sq.get("view") == "국가별 순위":
+        render_trade_rank_result(data, sq)
+        return
+    if sq.get("view") == "품목별 구성":
+        render_trade_composition_result(data, sq, "tr_ai_")
         return
     try:
         with st.spinner("관세청 자료를 불러오는 중입니다..."):
@@ -9749,6 +9795,11 @@ def render_trade_composition(data):
     if not cq:
         st.caption("지역과 기간을 고르고 '조회'를 누르면 품목 구성이 나와요.")
         return
+    render_trade_composition_result(data, cq, "tr_c_")
+
+
+def render_trade_composition_result(data, cq, pre):
+    """품목별 구성 결과(표·내려가기). cq: {parts, label, start, end, metric, top, compare}. pre: 위젯·상태 키 접두어"""
     s_ym, e_ym = cq["start"].replace("-", ""), cq["end"].replace("-", "")
     p_s, p_e = tc.month_add(s_ym, -12), tc.month_add(e_ym, -12)
     try:
@@ -9761,13 +9812,13 @@ def render_trade_composition(data):
     if not cur:
         st.info("이 조건으로 조회된 자료가 없어요. 기간이나 지역을 바꿔 보세요.")
         return
-    path = st.session_state.get("tr_c_path", "")
+    path = st.session_state.get(f"{pre}path", "")
     entries, length = tc.hs_entries(cur, prev, path, data.get("hs") or {})
     crumbs = " › ".join(["전체"] + [f"{path[:n]}" for n in (2, 4, 6, 10) if len(path) >= n])
     st.markdown(f"##### {cq['label']} · 품목별 구성 · {cq['start'].replace('-', '.')} ~ {cq['end'].replace('-', '.')} · {cq['metric']}")
     st.caption(f"HS {length}자리 단위 · 위치: {crumbs}")
     top_n = None if cq["top"] == "전체" else int(cq["top"])
-    render_trade_rank_table("품목별 구성" + (f" ({path} 안)" if path else ""), entries, cq["metric"], top_n, None, "품목", cq["compare"], "tr_c_tab", with_other=True)
+    render_trade_rank_table("품목별 구성" + (f" ({path} 안)" if path else ""), entries, cq["metric"], top_n, None, "품목", cq["compare"], f"{pre}tab", with_other=True)
     if length == 6:
         st.caption("HS 6자리의 이름은 그 안에서 가장 큰 세부 품목의 이름으로 적었어요.")
     mk = tc.RANK_METRICS[cq["metric"]]
@@ -9775,16 +9826,16 @@ def render_trade_composition(data):
     opts = [""] + [r["name"] for r in top_rows if r["rank"] is not None]
     bc1, bc2, bc3 = st.columns([3, 1, 1])
     if length < 10 and len(opts) > 1:
-        pick = bc1.selectbox("더 세부로 내려가기 (위 표의 품목을 고르세요)", opts, key=f"tr_c_drill_{path}", format_func=lambda x: x or "(선택)")
+        pick = bc1.selectbox("더 세부로 내려가기 (위 표의 품목을 고르세요)", opts, key=f"{pre}drill_{path}", format_func=lambda x: x or "(선택)")
         if pick:
-            st.session_state["tr_c_path"] = pick.split()[0]
+            st.session_state[f"{pre}path"] = pick.split()[0]
             st.rerun()
     if path:
-        if bc2.button("한 단계 위로", key="tr_c_up"):
-            st.session_state["tr_c_path"] = path[:{2: 0, 4: 2, 6: 4, 10: 6}[len(path)]]
+        if bc2.button("한 단계 위로", key=f"{pre}up"):
+            st.session_state[f"{pre}path"] = path[:{2: 0, 4: 2, 6: 4, 10: 6}[len(path)]]
             st.rerun()
-        if bc3.button("처음으로", key="tr_c_top_btn"):
-            st.session_state["tr_c_path"] = ""
+        if bc3.button("처음으로", key=f"{pre}top_btn"):
+            st.session_state[f"{pre}path"] = ""
             st.rerun()
 
 
@@ -9825,6 +9876,12 @@ def render_trade_rank_country(data):
     if not rq:
         st.caption("조건을 고르고 '조회'를 누르면 순위가 나와요.")
         return
+    render_trade_rank_result(data, rq)
+
+
+def render_trade_rank_result(data, rq):
+    """국가별 순위 결과(표·그래프). rq: {items, level, start, end, metric, top, compare}"""
+    months = data["months"]
     top_n = None if rq["top"] == "전체" else int(rq["top"])
     period = f"{rq['start'].replace('-', '.')} ~ {rq['end'].replace('-', '.')}"
     mk = tc.RANK_METRICS[rq["metric"]]

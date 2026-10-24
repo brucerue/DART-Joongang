@@ -599,6 +599,8 @@ def continent_codes(name):
 
 # ---- AI 검색: AI가 돌려준 조건을 검증해 검색 조건으로 바꾼다 ----
 AI_METRICS = ["수출금액", "수입금액", "무역수지", "수출 중량", "수입 중량"]
+AI_VIEWS = ["월별 추이", "국가별 순위", "품목별 구성"]
+AI_VIEW_NAMES = {"trend": "월별 추이", "rank": "국가별 순위", "composition": "품목별 구성", "월별 추이": "월별 추이", "국가별 순위": "국가별 순위", "품목별 구성": "품목별 구성"}
 AI_MAX_ITEMS = 6
 
 
@@ -708,8 +710,15 @@ def ai_validate(spec, ctx):
                 regions = regions[:-1]
             else:
                 items = items[:-1]
+    view = AI_VIEW_NAMES.get(str(spec.get("view", "")).strip().lower(), "월별 추이")
+    level = str(spec.get("rank_level", "")).strip()
+    try:
+        top = int(spec.get("top"))
+    except (TypeError, ValueError):
+        top = 10
+    top = min((5, 10, 20, 50), key=lambda x: abs(x - top))
     return {"summary": str(spec.get("summary", "")).strip(), "notes": str(spec.get("notes", "")).strip(), "items": items, "regions": regions,
-            "start": start, "end": end, "metrics": metrics, "warnings": warns}
+            "start": start, "end": end, "metrics": metrics, "warnings": warns, "view": view, "rank_level": level if level in ("국가", "경제권", "대륙") else "국가", "top": top}
 
 
 def ai_infer_metrics(text):
@@ -1016,3 +1025,15 @@ def hs_entries(cur, prev, prefix, hs_names):
         out.append({"code": code, "name": f"{code} {name}".strip(), "cur": hs_metrics(g["cur"]),
                     "prev": hs_metrics(g["prev"]) if prev is not None else None})
     return out, length
+
+
+def ai_infer_view(text):
+    """질문 글에서 보기 종류를 읽는다(AI가 안 골랐을 때 보완): '가장 많이·순위·어느 나라·상위' + 나라 말 -> 국가별 순위, '어떤 품목·품목별·구성·비중·주력 품목' -> 품목별 구성. 모르면 None"""
+    t = text or ""
+    comp = any(w in t for w in ("어떤 품목", "무슨 품목", "품목별", "품목 구성", "구성", "비중", "주력 품목", "많이 나간 품목", "많이 수출한 품목", "많이 수입한 품목", "품목 순위", "품목 상위"))
+    rank = any(w in t for w in ("어느 나라", "어떤 나라", "어디로", "어디에서", "국가별", "나라별", "순위", "상위", "가장 많이", "1위", "톱"))
+    if comp:
+        return "품목별 구성"
+    if rank:
+        return "국가별 순위"
+    return None
