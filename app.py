@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 09:21"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 09:36"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9447,7 +9447,7 @@ def render_trade_country(data):
 
 
 def render_trade():
-    """탭: 수출 - 관세청 수출입 통계(검색·월간 현황·10일 단위 속보·국가·경제권)"""
+    """탭: 수출입 분석 - 관세청 수출입 통계(검색·월간 현황·10일 단위 속보·국가·경제권)"""
     data = get_trade()
     if data is None:
         st.info("수출입 자료를 아직 불러오지 못했어요. 처음이라면 GitHub Actions의 '수출입 통계 모으기'를 한 번 실행해 주세요.")
@@ -9460,9 +9460,10 @@ def render_trade():
     {"검색": render_trade_search, "월간 현황": render_trade_monthly, "10일 단위 속보": render_trade_tenday, "국가·경제권": render_trade_country}[view](data)
 
 
-TAB_NAMES = ["기업 브리핑", "재무 조회", "주가", "수출", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
-SHOW_TIMELINE = st.query_params.get("lab", "") == "1"  # 이슈 타임라인은 자료가 쌓이는 중이라 숨겨 둠: 주소 끝에 ?lab=1을 붙이면 보임
-if SHOW_TIMELINE:
+TAB_NAMES = ["기업 브리핑", "재무 조회", "수출입 분석", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
+SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 숨겨 둔 탭(주가, 이슈 타임라인)이 보임
+if SHOW_LAB:
+    TAB_NAMES.insert(TAB_NAMES.index("수출입 분석"), "주가")  # 원래 자리(재무 조회 다음)
     TAB_NAMES.insert(TAB_NAMES.index("산업 뉴스") + 1, "이슈 타임라인")
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 산업 뉴스 탭을 먼저 연다
 first_tab = "산업 뉴스" if apply_watchlist() else None
@@ -9471,18 +9472,19 @@ try:
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
 by_name = dict(zip(TAB_NAMES, tabs))
-tab_brief, tab_fin, tab_px, tab_trade, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in TAB_NAMES if n != "이슈 타임라인")
+tab_brief, tab_fin, tab_trade, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in TAB_NAMES if n not in ("주가", "이슈 타임라인"))
 with tab_brief:
     render_brief()
 with tab_fin:
     render_fin_hub()
-with tab_px:
-    render_stock()
+if SHOW_LAB:
+    with by_name["주가"]:
+        render_stock()
 with tab_trade:
     render_trade()
 with tab_news:
     render_news()
-if SHOW_TIMELINE:
+if SHOW_LAB:
     with by_name["이슈 타임라인"]:
         render_timeline()
 with tab_disc:
