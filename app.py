@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 20:23"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 20:37"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9142,14 +9142,14 @@ def trade_series(data, q):
     def stored(name, arrays, flash_key):
         cur = tc.stored_metrics(arrays, months, q["start"], q["end"])
         prev = tc.stored_metrics(arrays, months, f"{p_s[:4]}-{p_s[4:]}", f"{p_e[:4]}-{p_e[4:]}")
-        out.append({"name": name, "month": cur, "prev": trade_shift_year(prev) if len(prev) == expected else None, "rows": None, "flash_key": flash_key})
+        out.append({"name": name, "month": cur, "prev": trade_shift_year(prev) if prev else None, "rows": None, "flash_key": flash_key})  # 전년 자료가 일부만 있어도 있는 달끼리는 비교
 
     regions, items = q["regions"], q["items"]
     if not items:  # 품목 전체: 모아 둔 월별 자료(국가별 합산)로 보여준다
         if not regions:
             stored("전체 수출입", (data["total"]["exp"], data["total"]["imp"]), ("총괄", ""))
         for rkind, name, codes in regions:
-            since = tc.ZONE_SINCE.get(name) if rkind == "경제권" else None
+            since = tc.ZONE_WINDOW.get(name) if rkind == "경제권" else None
             stored(name, tc.sum_arrays(data["country"], codes, months, since), (rkind, name))
         return trade_attach_flash(out, q)
     hs_names = data.get("hs") or {}
@@ -9172,7 +9172,7 @@ def trade_series(data, q):
         for reg in (regions or [None]):
             if reg:
                 rkind, rname, codes = reg
-                since = tc.ZONE_SINCE.get(rname) if rkind == "경제권" else None
+                since = tc.ZONE_WINDOW.get(rname) if rkind == "경제권" else None
                 cur_rows = tc.filter_rows(rows, codes, since)
                 p_rows = tc.filter_rows(prev_rows, codes, since) if prev_rows is not None else None
             else:
@@ -9204,13 +9204,23 @@ def render_trade_search_result(data, q, series):
     if not months_all:
         st.info("이 조건으로 조회된 자료가 없어요. 기간이나 품목을 바꿔 보세요.")
         return
-    st.markdown(f"##### 월별 추이 · {q['start'].replace('-', '.')} ~ {q['end'].replace('-', '.')} · {' · '.join(wanted)}")
-    base_label = st.radio("증감 기준", ["전년 동월", "전월"], horizontal=True, key="tr_s_base")
-    base = "yoy" if base_label == "전년 동월" else "mom"
+    uc, bc = st.columns(2)
+    agg = uc.radio("집계", tc.AGG_UNITS, horizontal=True, key="tr_s_unit")
+    base_opts = {"월별": ["전년 동월", "전월"], "분기별": ["전년 동분기", "전분기"], "연도별": ["전년 동기", "전년"]}[agg]
+    base_label = bc.radio("증감 기준", base_opts, horizontal=True, key=f"tr_s_base_{agg}")
+    base = "yoy" if base_label == base_opts[0] else "mom"
+    st.markdown(f"##### {agg} 추이 · {q['start'].replace('-', '.')} ~ {q['end'].replace('-', '.')} · {' · '.join(wanted)}")
     short = {"수출금액": "수출", "수입금액": "수입", "무역수지": "무역수지", "수출 중량": "수출 중량", "수입 중량": "수입 중량"}
+    if agg == "월별":
+        view_series, keys, labels, prov_keys, trend_flash, prev_fn = series, months_all, None, set(), flash_ym, None
+    else:
+        view_series, keys, labels, prov_keys = tc.aggregate_series(series, months_all, agg, flash_ym)
+        trend_flash, prev_fn = None, (lambda k, _u=agg: tc.prev_period_key(k, _u))
     per_metric = {}  # 지표 -> (rows, total)
     for m in wanted:
-        per_metric[m] = tc.trend_rows(series, months_all, METRIC_KEYS[m], base, flash_ym)
+        per_metric[m] = tc.trend_rows(view_series, keys, METRIC_KEYS[m], base, trend_flash, prev_fn)
+    series = view_series
+    first_col = "월" if agg == "월별" else "기간"
 
     def fmt_val(m, v):
         if v is None:
@@ -9230,14 +9240,14 @@ def render_trade_search_result(data, q, series):
     table_rows = []
     first_rows = per_metric[wanted[0]][0]
     for r_i, r0 in enumerate(first_rows):
-        row = {"월": r0["ym"].replace("-", ".") + (" (잠정)" if r0["prov"] else "")}
+        row = {first_col: (r0["ym"].replace("-", ".") + (" (잠정)" if r0["prov"] else "")) if labels is None else labels[r0["ym"]] + (" (잠정 포함)" if r0["ym"] in prov_keys else "")}
         for k, sr in enumerate(series):
             for m in wanted:
                 v, chg = per_metric[m][0][r_i]["cells"][k]
                 row[col_name(sr, m)] = fmt_val(m, v)
                 row[col_name(sr, m) + " 증감"] = fmt_chg(m, chg)
         table_rows.append(row)
-    row = {"월": "합계"}
+    row = {first_col: "합계"}
     for k, sr in enumerate(series):
         for m in wanted:
             v, chg = per_metric[m][1]["cells"][k]
@@ -9247,8 +9257,11 @@ def render_trade_search_result(data, q, series):
     table = pd.DataFrame(table_rows)
     chg_cols = [c for c in table.columns if c.endswith(" 증감")]
     st.dataframe(trade_styled(table, chg_cols), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
-    notes = [f"증감은 {'전년 같은 달 대비(합계는 전년 같은 기간 대비)' if base == 'yoy' else '바로 앞 달 대비(합계 증감은 전년 동월 기준에서만)'}예요." + (" 무역수지의 증감은 증감액이에요." if "무역수지" in wanted else "")
+    unit_word = {"월별": "달", "분기별": "분기", "연도별": "해"}[agg]
+    notes = [f"증감은 {('전년 같은 ' + unit_word + ' 대비') if base == 'yoy' else ('바로 앞 ' + unit_word + ' 대비')}예요" + ("(합계는 전년 같은 기간 대비)." if base == "yoy" else "(합계 증감은 전년 기준에서만).") + (" 무역수지의 증감은 증감액이에요." if "무역수지" in wanted else "")
              + " 보고 싶지 않은 지표는 위 '지표' 칸에서 빼면 돼요."]
+    if labels is not None and any("(" in v for v in labels.values()):
+        notes.append("일부 달만 지난 기간은 '(1~9월 누계)'처럼 범위를 적고, 전년 같은 달들끼리 비교해요.")
     if flash_ym:
         notes.append(f"'잠정'은 산업부 {flash_ym.replace('-', '.')} 수출입 동향 보도자료(백만 달러 단위) 숫자예요. 관세청 확정치가 올라오면(보통 15일 전후) 자동으로 확정치로 바뀌어요. 보도자료에 없는 항목은 '-'로 나와요.")
     if q["compare"] is False and base == "yoy":
@@ -9258,14 +9271,14 @@ def render_trade_search_result(data, q, series):
     key = METRIC_KEYS[pick]
     is_wgt = key.endswith("wgt")
     rows = per_metric[pick][0]
-    idx = pd.to_datetime(months_all, format="%Y-%m")
+    idx = pd.to_datetime([tc.period_start(k, agg) for k in keys], format="%Y-%m-%d")
     scale, unit = (1e3, "톤") if is_wgt else (1e6, "백만달러")
     px_line_chart(px_long({sr["name"]: pd.Series([c[0] / scale if c[0] is not None else None for c in [r["cells"][k] for r in rows]], index=idx).dropna() for k, sr in enumerate(series)}),
-                  unit, fmt="%Y-%m", axis_fmt="%y.%m")
+                  unit, fmt="%Y-%m", axis_fmt="%Y" if agg == "연도별" else "%y.%m")
     if key != "bal" and any(c[1] is not None for r in rows for c in r["cells"]):
         st.markdown(f"**{short[pick]} 증감률 추이 (%, {base_label} 대비)**")
         px_line_chart(px_long({sr["name"]: pd.Series([c[1] if c[1] is not None else None for c in [r["cells"][k] for r in rows]], index=idx).dropna() for k, sr in enumerate(series)}),
-                      "%", fmt="%Y-%m", axis_fmt="%y.%m")
+                      "%", fmt="%Y-%m", axis_fmt="%Y" if agg == "연도별" else "%y.%m")
     # 산업부 품목(MTI): 하위 MTI별·국가별·하위 HS 품목별 내역
     for sr in series:
         if sr.get("skipped"):
@@ -9536,6 +9549,33 @@ def render_trade_ai(data):
     render_trade_search_result(data, sq, series)
 
 
+TRADE_PERIOD_PRESETS = ["올해", "작년", "최근 12개월", "최근 3년", "최근 5년", "전체 기간", "직접 선택"]
+
+
+def trade_period_pick(data, pre, fm=None):
+    """기간 고르기(빠른 선택 또는 직접). fm: 산업부 잠정 달 자료(있으면 마지막 달 선택지에 '잠정'이 더해짐) -> (시작월, 종료월)"""
+    months = data["months"]
+    end_opts = months + ([fm["month"]] if fm else [])
+    last = end_opts[-1]
+    ly = int(last[:4])
+    mode = st.radio("기간", TRADE_PERIOD_PRESETS, horizontal=True, key=f"{pre}period",
+                    help="'올해'는 올해 1월부터 가장 최근 달까지, '작년'은 작년 1~12월이에요. '최근 3년·5년'은 해(1월)부터 시작해요. 모아 둔 자료는 최근 10년이에요.")
+    fixed = {"올해": (f"{ly}-01", last), "작년": (f"{ly - 1}-01", f"{ly - 1}-12"), "최근 12개월": (tc._dash_add(last, -11), last),
+             "최근 3년": (f"{ly - 2}-01", last), "최근 5년": (f"{ly - 4}-01", last), "전체 기간": (months[0], last)}
+    if mode != "직접 선택":
+        start, end = fixed[mode]
+        start, end = max(start, months[0]), min(end, last)
+        if start > end:
+            st.warning("모아 둔 자료 기간 밖이에요. 다른 기간을 골라 주세요.")
+        return start, end
+    default_start = next((m for m in months if m.startswith(months[-1][:4])), months[0])
+    c1, c2 = st.columns(2)
+    start = c1.selectbox("시작월", months, index=months.index(default_start), key=f"{pre}start", format_func=lambda m: m.replace("-", "."))
+    end = c2.selectbox("종료월", end_opts, index=len(end_opts) - 1, key=f"{pre}end",
+                       format_func=lambda m: m.replace("-", ".") + (" (잠정)" if fm and m == fm["month"] else ""))
+    return start, end
+
+
 def trade_item_picker(data, pre):
     """품목 고르기(전체·20대 품목·HS 코드·MTI 코드). 위젯 키는 pre(접두어)로 구분한다. -> (품목 목록, 품목을 골랐는지, MTI 연계표) 또는 쓸 수 없으면 None"""
     items, mti = [], None
@@ -9627,10 +9667,7 @@ def render_trade_rank_country(data):
         return
     items, live, mti = picked
     level = st.radio("순위 단위", ["국가", "경제권", "대륙"], horizontal=True, key="tr_r_level")
-    default_start = next((m for m in months if m.startswith(months[-1][:4])), months[0])  # 기본: 올해 1월부터
-    c1, c2 = st.columns(2)
-    start = c1.selectbox("시작월", months, index=months.index(default_start), key="tr_r_start", format_func=lambda m: m.replace("-", "."))
-    end = c2.selectbox("종료월", months, index=len(months) - 1, key="tr_r_end", format_func=lambda m: m.replace("-", "."))
+    start, end = trade_period_pick(data, "tr_r_")
     c3, c4 = st.columns([3, 2])
     metric = c3.radio("지표", trade_rank_metrics(live), horizontal=True, key=f"tr_r_metric_{'live' if live else 'stored'}")
     top_label = c4.selectbox("상위", ["5", "10", "20", "50", "전체"], index=1, key="tr_r_top")
@@ -9732,13 +9769,8 @@ def render_trade_search(data):
             sel = st.multiselect("대륙", list(tc.CONTINENTS), key="tr_s_cont", max_selections=8,
                                  help="관세청 대륙별 월별 합계와 구성국 합계가 최근 24개월 수출·수입 모두 같도록 맞춘 분류예요. 관세청 분류는 지리와 달라서, 북아프리카(이집트·알제리 등)는 '중동', 튀르키예·조지아는 '유럽', 괌은 '오세아니아'에 들어가요.")
             q["regions"] = [("대륙", c, tuple(tc.continent_codes(c))) for c in sel]
-    c1, c2 = st.columns(2)
     fm = trade_flash(data)  # 산업부 보도자료 잠정치가 관세청 확정 자료보다 새로우면 종료월에 '잠정' 달이 더 생긴다
-    default_start = next((m for m in months if m.startswith(months[-1][:4])), months[0])  # 기본: 올해 1월부터
-    start = c1.selectbox("시작월", months, index=months.index(default_start), key="tr_s_start", format_func=lambda m: m.replace("-", "."))
-    end_opts = months + ([fm["month"]] if fm else [])
-    end = c2.selectbox("종료월", end_opts, index=len(end_opts) - 1, key="tr_s_end",
-                       format_func=lambda m: m.replace("-", ".") + (" (잠정)" if fm and m == fm["month"] else ""))
+    start, end = trade_period_pick(data, "tr_s_", fm)
     metric_opts = ["수출금액", "수입금액", "무역수지"] + (["수출 중량", "수입 중량"] if live else [])
     q["metrics"] = st.multiselect("지표", metric_opts, default=["수출금액", "수입금액", "무역수지"], key=f"tr_s_metrics_{'live' if live else 'stored'}")
     q["compare"] = st.toggle("전년 같은 기간과 비교", value=True, key="tr_s_compare")

@@ -470,8 +470,9 @@ def _dash_add(ym, n):
     return f"{t[:4]}-{t[4:]}"
 
 
-def _cell(sr, ym, key, base, prov):
-    """한 항목의 한 달 -> (값, 비교 대상 값)"""
+def _cell(sr, ym, key, base, prov, prev_key=None):
+    """한 항목의 한 기간 -> (값, 비교 대상 값). prev_key: 바로 앞 기간 이름을 돌려주는 함수(기본: 앞 달)"""
+    before = (prev_key or (lambda k: _dash_add(k, -1)))(ym) if base != "yoy" else None  # 앞 기간은 '직전 기간' 기준일 때만 필요
     if prov:
         fl = sr.get("flash")
         if not fl:
@@ -479,14 +480,14 @@ def _cell(sr, ym, key, base, prov):
         cur = fl["cur"].get(key)
         if base == "yoy":
             return cur, fl["prev"].get(key)
-        return cur, sr["month"].get(_dash_add(ym, -1), {}).get(key)
+        return cur, sr["month"].get(before, {}).get(key)
     cur = sr["month"].get(ym, {}).get(key)
     if base == "yoy":
         return cur, ((sr.get("prev") or {}).get(ym) or {}).get(key)
-    return cur, sr["month"].get(_dash_add(ym, -1), {}).get(key)
+    return cur, sr["month"].get(before, {}).get(key)
 
 
-def trend_rows(series, months_all, key, base="yoy", flash_ym=None):
+def trend_rows(series, months_all, key, base="yoy", flash_ym=None, prev_key=None):
     """월별 추이 표(오래된 달부터) -> (rows, total).
     rows: [{'ym', 'prov'(잠정 여부), 'cells': [(값, 증감) ...]}], total: {'cells': [(합계, 증감) ...]}
     증감: 무역수지(bal)는 증감액(달러), 나머지는 증감률(%). base='yoy' 전년 동월 / 'mom' 전월.
@@ -497,7 +498,7 @@ def trend_rows(series, months_all, key, base="yoy", flash_ym=None):
         prov = ym == flash_ym
         cells = []
         for k, sr in enumerate(series):
-            cur, prev = _cell(sr, ym, key, base, prov)
+            cur, prev = _cell(sr, ym, key, base, prov, prev_key)
             if cur is None:
                 chg = None
             elif key == "bal":
@@ -524,9 +525,10 @@ def trend_rows(series, months_all, key, base="yoy", flash_ym=None):
 
 # ---- 경제권 구성국 (품목×경제권 조합용) ----
 # 관세청 월별 경제권 합계와 '구성국 국가별 합계'가 최근 24개월 모두 정확히 같아지는 것만 적었다(trade.json으로 검산).
-# ASEAN은 티모르(TL)가 관세청 합계에 2026-01부터 들어와서 ZONE_SINCE로 달을 나눈다. 대륙은 구성국 기준을 확인하지 못해 뺐다.
+# 구성국이 바뀐 경우는 ZONE_WINDOW로 달을 나눈다: ASEAN의 티모르(TL)는 2026-01부터, EU의 영국(GB)은 2020-12까지(브렉시트 전환기 끝).
+# (관세청 월별 경제권 합계와 국가별 합계가 최근 10년 모든 달 정확히 같다. GCC 합계는 2022-01부터만 있어 그 전은 검산하지 못했다.)
 ZONES = {
-    "EU": "AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE",
+    "EU": "AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE GB",
     "EU28": "AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE GB",
     "ASEAN": "BN KH ID LA MY MM PH SG TH VN TL",
     "CIS": "RU BY KZ KG TJ UZ AZ AM MD TM UA GE",
@@ -539,7 +541,12 @@ ZONES = {
 }
 
 
-ZONE_SINCE = {"ASEAN": {"TL": "2026-01"}}  # 경제권 -> {국가: 이 달부터 구성국}
+ZONE_WINDOW = {"ASEAN": {"TL": ("2026-01", None)}, "EU": {"GB": (None, "2020-12")}}  # 경제권 -> {국가: (이 달부터, 이 달까지) 구성국}
+
+
+def in_window(ym, rng):
+    """달 ym이 구성국 기간 rng=(시작 또는 None, 끝 또는 None) 안인가"""
+    return not ((rng[0] and ym < rng[0]) or (rng[1] and ym > rng[1]))
 
 
 def zone_codes(name):
@@ -547,16 +554,16 @@ def zone_codes(name):
     return ZONES.get(name, "").split()
 
 
-def sum_arrays(country, codes, months=None, since=None):
+def sum_arrays(country, codes, months=None, window=None):
     """trade.json의 국가별 {코드: [이름, 수출[], 수입[]]} 중 codes를 달별로 더한 (수출[], 수입[]) (모두 비어 있는 달은 None).
-    since: {코드: 'YYYY-MM'} 이 달부터 구성국인 국가 (months: trade.json의 월 목록과 함께 줘야 함)"""
+    window: {코드: (시작월 또는 None, 끝월 또는 None)} 그 기간에만 구성국인 국가 (months: trade.json의 월 목록과 함께 줘야 함)"""
     hit = [(c, country[c]) for c in codes if c in country]
     if not hit:
         return [], []
     n = len(hit[0][1][1])
     exp, imp = [], []
     for i in range(n):
-        live = [h for c, h in hit if not (since and months and c in since and months[i] < since[c])]
+        live = [h for c, h in hit if not (window and months and c in window and not in_window(months[i], window[c]))]
         e = [h[1][i] for h in live if h[1][i] is not None]
         m = [h[2][i] for h in live if h[2][i] is not None]
         exp.append(sum(e) if e else None)
@@ -564,12 +571,13 @@ def sum_arrays(country, codes, months=None, since=None):
     return exp, imp
 
 
-def filter_rows(rows, codes, since=None):
-    """품목 조회 행 중 codes(국가 코드)에 속한 것만 (since: {코드: 'YYYY-MM'} 이 달부터 구성국)"""
+def filter_rows(rows, codes, window=None):
+    """품목 조회 행 중 codes(국가 코드)에 속한 것만 (window: {코드: (시작월, 끝월)} 그 기간에만 구성국)"""
     keep = set(codes)
-    return [r for r in rows if r["cnty"] in keep and not (since and r["cnty"] in since and r["ym"] < since[r["cnty"]])]
+    return [r for r in rows if r["cnty"] in keep and not (window and r["cnty"] in window and not in_window(r["ym"], window[r["cnty"]]))]
 
-# 대륙 구성국: 관세청 대륙별 월별 합계와 국가별 합계가 최근 24개월 수출·수입 모두 정확히 같아지도록 맞춘 목록이다(trade.json으로 검산).
+
+# 대륙 구성국: 관세청 대륙별 월별 합계와 국가별 합계가 최근 10년(119개월) 수출·수입 모두 정확히 같아지도록 맞춘 목록이다(trade.json으로 검산).
 # 관세청 분류는 지리와 다른 곳이 있다(예: 북아프리카는 '중동', 튀르키예·조지아는 '유럽', 괌은 '오세아니아'). 국제통화기금(Z1)·해외교포(RK)는 어느 대륙 합계에도 안 들어간다.
 CONTINENTS = {
     "아시아": "AF AM AZ BD BN BT CN HK ID IN JP KG KH KZ LA LK MM MN MO MV MY NP PH PK SG TH TJ TL TM TW UZ VN",
@@ -577,7 +585,7 @@ CONTINENTS = {
     "유럽": "AD AL AT AX BA BE BG BY CH CY CZ DE DK EE ER ES FI FO FR GB GE GG GI GR GS HR HU IE IM IS IT JE LI LT LU LV MC MD ME MK MT NL NO PL PT RO RS RU SE SI SJ SK SM TR UA VA",
     "북미": "CA US",
     "중남미": "AG AN AQ AR AW BB BL BM BO BQ BR BS BZ CL CO CR CU CW DM DO EC FK GD GF GL GP GT GY HN HT JM KN KY LC MF MQ MS MX NI PA PE PM PR PY SR SV SX TC TT UY VC VE VG VI",
-    "아프리카": "AI AO BF BI BJ BW CD CF CG CI CM CV DJ ET GA GH GM GN GQ GW IO KE KM LR LS MG ML MU MW MZ NA NE NG PS RE RW SC SH SL SN SO SS ST SZ TD TF TG TZ UG YT ZA ZM ZW",
+    "아프리카": "AI AO BF BI BJ BV BW CD CF CG CI CM CV DJ EH ET GA GH GM GN GQ GW IO KE KM LR LS MG ML MU MW MZ NA NE NG PS RE RW SC SH SL SN SO SS ST SZ TD TF TG TZ UG YT ZA ZM ZR ZW",
     "오세아니아": "AU CK FJ GU NC NR NU NZ PF PG SB TK TO WS",
     "대양주": "AS CC CX FM HM KI MH MP NF PN PW TV UM VU WF",
     "기타": "ZZ",
@@ -811,12 +819,12 @@ def rank_entries_rows(rows, prev_rows, level):
     out = []
     for name, codes in table.items():
         members = codes.split() if isinstance(codes, str) else codes
-        since = ZONE_SINCE.get(name) if level == "경제권" else None
+        window = ZONE_WINDOW.get(name) if level == "경제권" else None
 
         def total(rs):
             m = _zero_metrics()
             for r in rs:
-                if r["cnty"] in members and not (since and r["cnty"] in since and r["ym"] < since[r["cnty"]]):
+                if r["cnty"] in members and not (window and r["cnty"] in window and not in_window(r["ym"], window[r["cnty"]])):
                     for k in ("exp", "imp", "exp_wgt", "imp_wgt"):
                         m[k] += r[k]
             m["bal"] = m["exp"] - m["imp"]
@@ -852,3 +860,95 @@ def rank_table(entries, metric_key, top_n, denom=None, with_other=True):
         rows.append(line(None, f"기타 ({len(rest)}곳)", v, pv))
     totrow = {"value": total, "prev": prev_total, "chg": (pct(total, prev_total) if metric_key != "bal" else None)}
     return rows, totrow
+
+
+# ---- 집계 단위(월·분기·연) ----
+AGG_UNITS = ["월별", "분기별", "연도별"]
+
+
+def period_key(ym, unit):
+    """'2026-09' -> 월별 '2026-09' / 분기별 '2026-Q3' / 연도별 '2026'"""
+    if unit == "분기별":
+        return f"{ym[:4]}-Q{(int(ym[5:]) - 1) // 3 + 1}"
+    if unit == "연도별":
+        return ym[:4]
+    return ym
+
+
+def period_start(key, unit):
+    """기간 키 -> 그 기간 첫날 'YYYY-MM-DD' (그래프의 가로 위치용)"""
+    if unit == "분기별":
+        return f"{key[:4]}-{(int(key[6:]) - 1) * 3 + 1:02d}-01"
+    if unit == "연도별":
+        return f"{key}-01-01"
+    return f"{key}-01"
+
+
+def prev_period_key(key, unit):
+    """바로 앞 기간 이름"""
+    if unit == "분기별":
+        y, q = int(key[:4]), int(key[6:])
+        return f"{y - 1}-Q4" if q == 1 else f"{y}-Q{q - 1}"
+    if unit == "연도별":
+        return str(int(key) - 1)
+    return _dash_add(key, -1)
+
+
+def period_label(key, unit, months_in):
+    """기간 이름표. 일부 달만 있는 기간은 '(7~9월)'·'(1~9월 누계)'처럼 범위를 적는다"""
+    first, last = int(months_in[0][5:]), int(months_in[-1][5:])
+    full = 12 if unit == "연도별" else 3
+    if unit == "월별":
+        return key.replace("-", ".")
+    base = key.replace("-", " ") if unit == "분기별" else f"{key}년"
+    if len(months_in) >= full:
+        return base
+    rng = f"{first}월" if first == last else f"{first}~{last}월"
+    return f"{base} ({rng}{' 누계' if unit == '연도별' and first == 1 else ''})"
+
+
+def _add_metrics(a, b):
+    return {k: (a.get(k) or 0) + (b.get(k) or 0) for k in ("exp", "imp", "exp_wgt", "imp_wgt")}
+
+
+def aggregate_series(series, months_all, unit, flash_ym=None):
+    """월별 계열들을 분기·연 단위로 합친다 -> (새 계열들, 기간 키 목록(오래된 순), {키: 이름표}, 잠정이 들어간 키 집합).
+    기간마다 '값이 있는 달'만 더하고, 비교 대상(전년 같은 달들)도 그 달들만 더해서 일부만 지난 기간도 같은 기간끼리 비교한다."""
+    keys, groups = [], {}
+    for ym in months_all:
+        k = period_key(ym, unit)
+        if k not in groups:
+            keys.append(k)
+            groups[k] = []
+        groups[k].append(ym)
+    labels = {k: period_label(k, unit, groups[k]) for k in keys}
+    prov = {period_key(flash_ym, unit)} if flash_ym else set()
+    out = []
+    for sr in series:
+        month, prev, fl = {}, {}, sr.get("flash")
+        for k in keys:
+            cur_m, prev_m, have, prev_ok = None, None, 0, True
+            for ym in groups[k]:
+                if ym == flash_ym and fl:
+                    c, pv = fl["cur"], fl["prev"]
+                elif ym in sr["month"]:
+                    c, pv = sr["month"][ym], ((sr.get("prev") or {}).get(ym))
+                else:
+                    continue
+                if any(c.get(x) is None for x in ("exp", "imp")):  # 잠정치는 일부 지표가 없을 수 있다
+                    c = {x: c.get(x) for x in c}
+                have += 1
+                cur_m = _add_metrics(cur_m or {}, {x: (c.get(x) or 0) for x in ("exp", "imp", "exp_wgt", "imp_wgt")})
+                if pv is None or any(pv.get(x) is None for x in ("exp", "imp")):
+                    prev_ok = False
+                else:
+                    prev_m = _add_metrics(prev_m or {}, pv)
+            if have:
+                cur_m["bal"] = cur_m["exp"] - cur_m["imp"]
+                month[k] = cur_m
+                if prev_ok and prev_m is not None and (sr.get("prev") is not None or (ym == flash_ym and fl)):
+                    prev_m["bal"] = prev_m["exp"] - prev_m["imp"]
+                    prev[k] = prev_m
+        new = dict(sr, month=month, prev=prev if sr.get("prev") is not None or any(prev) else None, flash=None)
+        out.append(new)
+    return out, keys, labels, prov
