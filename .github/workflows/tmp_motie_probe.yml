@@ -31,7 +31,8 @@ jobs:
                   out.append(f"{u} -> {r.status_code} {len(t)}자 {r.headers.get('content-type','')[:30]} | 수출입제목 {hit[:5]} | 앞부분 {re.sub(chr(10),' ',t[:150])}")
               except Exception as e:
                   out.append(f"{u} -> 실패 {type(e).__name__}: {str(e)[:100]}")
-          msg = "%0A".join(o.replace("%","%25") for o in out)
-          print(f"::notice title=산업부시험::{msg}")
+          for i, o in enumerate(out):
+              o = re.sub(r"\s+", " ", o).replace("%", "%25")
+              print(f"::notice title=산업부시험{i}::{o}")
           PY
           python p.py
