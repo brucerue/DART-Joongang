@@ -52,7 +52,7 @@ jobs:
               notes.append(f"HS4 3824 하위 {len(names)}개 중 '요소' 이름: {hit[:6]}")
           except Exception as e:
               notes.append("3824 조회 실패 " + str(e)[:80])
-          for i, n in enumerate(notes[:60]):
+          for i, n in enumerate(notes[10:20]):
               print("::notice title=요소수%02d::%s" % (i, n.replace("%", "%25")))
           PY
           python p.py
