@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 01:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 01:45"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7324,6 +7324,23 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 :is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] > label { flex: 0 0 auto; width: 4.1rem; min-width: 4.1rem; margin: 0.15rem 0 0 0; white-space: nowrap; }
 :is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] > label * { white-space: nowrap; flex-wrap: nowrap !important; }
 :is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] > div[role="radiogroup"] { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 500px) {
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] { gap: 0.2rem; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] > label { width: 2.2rem; min-width: 2.2rem; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] > label p { font-size: 0.78rem; letter-spacing: -0.03em; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] > label [data-testid="stTooltipIcon"] { display: none; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] div[role="radiogroup"] { gap: 0.25rem 0.6rem !important; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] div[role="radiogroup"] > div > label { padding-right: 0 !important; margin-right: 0 !important; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] div[role="radiogroup"] > div > label > div { gap: 0.4rem !important; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] div[role="radiogroup"] > div > label p { font-size: 0.84rem; letter-spacing: -0.03em; }
+.st-key-trade_wrap { margin-left: -0.35rem; margin-right: -0.35rem; }
+}
+@media (max-width: 380px) {
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] > label { width: 1.9rem; min-width: 1.9rem; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] div[role="radiogroup"] { gap: 0.25rem 0.4rem !important; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] div[role="radiogroup"] > div > label > div { gap: 0.25rem !important; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] div[role="radiogroup"] > div > label p { font-size: 0.82rem; }
+}
 .cb-hero { background: linear-gradient(135deg, #eaf3ff 0%, #ffffff 70%); border: 1px solid #d6e6fb; border-radius: 18px; padding: 1.1rem 1.2rem; margin: 0.2rem 0 0.8rem; box-shadow: 0 2px 12px rgba(28, 126, 214, 0.08); }
 .cb-hero .t { font-size: 1.7rem; font-weight: 800; color: #0b2545; letter-spacing: -0.03em; line-height: 1.25; }
 .cb-hero .s { color: #7a8699; font-size: 0.85rem; margin-top: 0.25rem; }
@@ -7337,6 +7354,12 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .st-key-trade_hero .t { display: inline-block; font-size: 1.7rem; font-weight: 800; color: #0b2545; letter-spacing: -0.03em; line-height: 1.5; }
 .st-key-trade_hero [data-testid="stMarkdownContainer"], .st-key-trade_hero [data-testid="stMarkdown"] { overflow: visible !important; }
 .st-key-trade_hero [data-testid="stTooltipIcon"] { transform: scale(0.8); opacity: 0.8; }
+.cb-top { display: block; }
+@media (min-width: 900px) {
+  .cb-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.1fr); gap: 0.8rem; align-items: stretch; margin: 0.2rem 0 0.8rem; }
+  .cb-top .cb-hero { margin: 0; display: flex; flex-direction: column; justify-content: center; }
+  .cb-top .cb-stats, .cb-top .cb-stats.n4, .cb-top .cb-stats.n3 { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
+}
 .cb-latest { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; margin: 0 0 0.8rem; }
 @media (min-width: 700px) { .cb-latest { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .cb-latest .it { background: #ffffff; border: 1px solid #e3e8ef; border-left: 4px solid #1c7ed6; border-radius: 12px; padding: 0.6rem 0.85rem; }
@@ -8169,7 +8192,7 @@ def brief_glance_cards(b, pr):
     return cards
 
 
-def render_brief_glance(b):
+def render_brief_glance(b, hero=""):
     """브리핑 맨 위 '한눈에': 시총·오늘 등락·섹터 대비·최근 영업이익, 가장 최근 공시·기사 한 건씩."""
     pr = None
     if stock_code_of(b["code"]):
@@ -8178,8 +8201,10 @@ def render_brief_glance(b):
         except Exception:
             pr = None
     cards = brief_glance_cards(b, pr)
-    if cards:
-        st.markdown(cb_cards(cards), unsafe_allow_html=True)
+    if cards:  # 제목 카드와 지표 카드를 한 묶음으로(컴퓨터 화면은 제목 왼쪽·지표 오른쪽 2x2, 모바일은 위아래)
+        st.markdown(f'<div class="cb-top">{hero}{cb_cards(cards)}</div>', unsafe_allow_html=True)
+    elif hero:
+        st.markdown(hero, unsafe_allow_html=True)
     latest = []
     d = b.get("disc")
     if d is not None and not d.empty:
@@ -8199,10 +8224,10 @@ def render_brief_glance(b):
 
 
 def render_brief_result(b):
-    st.markdown(f'<div class="cb-hero"><div class="t">{html.escape(b["corp"])} 브리핑</div><div class="s">{b["asof"]:%Y.%m.%d %H:%M} 기준 · 연결 기준</div></div>', unsafe_allow_html=True)
+    hero = f'<div class="cb-hero"><div class="t">{html.escape(b["corp"])} 브리핑</div><div class="s">{b["asof"]:%Y.%m.%d %H:%M} 기준 · 연결 기준</div></div>'
     errs = b["errors"]
 
-    render_brief_glance(b)
+    render_brief_glance(b, hero)
     with st.container(border=True):
         render_brief_overview(b)
 
