@@ -1,0 +1,34 @@
+name: 대륙별 API 시험
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 후보 주소 시험
+        env:
+          CUSTOMS_API_KEY: ${{ secrets.CUSTOMS_API_KEY }}
+        run: |
+          cat > p.py <<'PY'
+          import os, re, urllib.parse, requests
+          key = os.environ["CUSTOMS_API_KEY"].strip()
+          key = urllib.parse.unquote(key) if "%" in key else key
+          base = "https://apis.data.go.kr/1220000/"
+          cands = ["continenttradet/getContinenttradetList", "continenttradet/getContinenttradeList", "continenttradet/getContinenttradetListList",
+                   "continenttrade/getContinenttradeList", "continenttradet", "continenttradet/getContinenttradtList"]
+          notes = []
+          for c in cands:
+              try:
+                  r = requests.get(base + c, params={"serviceKey": key, "strtYymm": "202609", "endYymm": "202609"}, timeout=60)
+                  t = re.sub(r"\s+", " ", r.text)
+                  notes.append(f"{c} -> {r.status_code} {len(r.text)}자 | {t[:420]}")
+              except Exception as e:
+                  notes.append(f"{c} -> 실패 {type(e).__name__}")
+          for i, n in enumerate(notes):
+              print("::notice title=대륙시험%d::%s" % (i, n.replace("%", "%25")))
+          PY
+          python p.py
