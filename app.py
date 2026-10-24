@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 02:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 03:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7320,10 +7320,11 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 :is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .d { display: inline-block; font-size: 0.76rem; border-radius: 999px; padding: 0.05rem 0.5rem; background: #eef2f7; }
 :is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .d.up { background: #e7f1fd; } :is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .d.down { background: #fdecec; }
 /* 수출입 검색 조건(종류·품목·지역·기간): 이름 바로 옆에 선택지 */
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] { display: flex; flex-direction: row; align-items: flex-start; gap: 0.7rem; }
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] > label { flex: 0 0 auto; width: 4.1rem; min-width: 4.1rem; margin: 0.15rem 0 0 0; white-space: nowrap; }
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] > label * { white-space: nowrap; flex-wrap: nowrap !important; }
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period) [data-testid="stRadio"] > div[role="radiogroup"] { flex: 1 1 auto; min-width: 0; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] { display: flex; flex-direction: row; align-items: flex-start; gap: 0.7rem; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > label { flex: 0 0 auto; width: 4.1rem; min-width: 4.1rem; margin: 0.15rem 0 0 0; white-space: nowrap; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > label * { white-space: nowrap; flex-wrap: nowrap !important; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > div[role="radiogroup"] { flex: 1 1 auto; min-width: 0; }
+.st-key-tr_r_level [data-testid="stRadio"] > label { width: 5.2rem; min-width: 5.2rem; }
 .cb-hero { position: relative; overflow: hidden; background: linear-gradient(135deg, #0b2545 0%, #163f7a 60%, #1c6fc4 100%); border: 0; border-radius: 18px; padding: 1.2rem 1.3rem; margin: 0.2rem 0 0.8rem; box-shadow: 0 6px 18px rgba(11, 37, 69, 0.28); }
 .cb-hero::after { content: ""; position: absolute; right: -2.2rem; top: -2.2rem; width: 9rem; height: 9rem; border-radius: 50%; background: radial-gradient(circle, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 70%); pointer-events: none; }
 .cb-hero .t { position: relative; font-size: 1.7rem; font-weight: 800; color: #ffffff; letter-spacing: -0.03em; line-height: 1.25; }
@@ -9028,8 +9029,8 @@ TRADE_BRANCH = "trade"
 TRADE_VIEWS = ["검색", "월간 현황", "10일 단위 속보", "국가·경제권"]
 CUSTOMS_KEY = load_secret("CUSTOMS_API_KEY")  # 공공데이터포털 일반 인증키 (검색 화면이 품목별 국가별 수출입실적 API를 직접 부른다)
 TRADE_ITEM_URL = "https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH
-TRADE_KINDS = ["일반 검색", "국가별", "품목별", "AI 검색"]
-TRADE_ITEM_MODES = ["전체", "20대 품목", "HS코드", "MTI코드"]
+TRADE_KINDS = ["일반", "국가별", "품목별", "AI검색"]
+TRADE_ITEM_MODES = ["전체", "20대", "HS코드", "MTI코드"]
 TRADE_REGION_MODES = ["전체", "국가", "경제권", "대륙"]
 MTI_FILE = "mti_map.json"  # mti_build.py가 무역협회 HSK-MTI 연계표(엑셀)로 만든 파일 (앱과 같은 폴더)
 TRADE_MTI_WARN_CALLS = 300  # 한 조회가 이만큼 넘는 관세청 호출이 필요하면 오래 걸린다고 알린다
@@ -9658,7 +9659,7 @@ def render_trade_ai(data):
         render_trade_search_result(data, sq, series)
 
 
-TRADE_PERIOD_PRESETS = ["올해", "최근 1년", "최근 3년", "직접 선택"]
+TRADE_PERIOD_PRESETS = ["올해", "1년", "3년", "직접 선택"]
 
 
 def trade_period_pick(data, pre, fm=None):
@@ -9668,8 +9669,8 @@ def trade_period_pick(data, pre, fm=None):
     last = end_opts[-1]
     ly = int(last[:4])
     mode = st.radio("기간", TRADE_PERIOD_PRESETS, horizontal=True, key=f"{pre}period",
-                    help="'올해'는 올해 1월부터 가장 최근 달까지, '최근 1년'은 최근 12개월이에요. '최근 3년'은 해(1월)부터 시작해요. 그 밖의 기간은 '직접 선택'에서 고르세요(모아 둔 자료는 최근 10년이에요).")
-    fixed = {"올해": (f"{ly}-01", last), "최근 1년": (tc._dash_add(last, -11), last), "최근 3년": (f"{ly - 2}-01", last)}
+                    help="'올해'는 올해 1월부터 가장 최근 달까지, '1년'은 최근 12개월이에요. '3년'은 2년 전 1월부터 시작해요. 그 밖의 기간은 '직접 선택'에서 고르세요(모아 둔 자료는 최근 10년이에요).")
+    fixed = {"올해": (f"{ly}-01", last), "1년": (tc._dash_add(last, -11), last), "3년": (f"{ly - 2}-01", last)}
     if mode != "직접 선택":
         start, end = fixed[mode]
         start, end = max(start, months[0]), min(end, last)
@@ -9698,7 +9699,7 @@ def trade_item_picker(data, pre):
         if mti is None:
             st.info("산업부 품목(MTI) 연계표(mti_map.json)를 불러오지 못했어요.")
             return None
-    if item_mode == "20대 품목":
+    if item_mode == "20대":
         st.caption("보고 싶은 품목을 눌러 선택하세요 (여러 개 가능). 산업부 보도자료의 품목별 수출액과 맞춰 확인했고, 석유제품은 MTI 133 전체(나프타 포함), 일반기계는 반도체·디스플레이 제조장비 제외로 맞췄어요.")
         picked = st.pills("20대 품목", list(tc.MTI_GROUPS), selection_mode="multi", key=f"{pre}groups", label_visibility="collapsed")
         items += [("mti", tc.GROUP_PREFIX + g) for g in (picked or [])]
@@ -9717,7 +9718,7 @@ def trade_item_picker(data, pre):
         if any(c is None for c in codes):
             st.caption("HS 코드는 숫자 2·4·6·8·10자리로 입력해 주세요. 맞지 않는 입력은 빼고 조회해요.")
         items += [("hs", c) for c in dict.fromkeys(c for c in codes if c)]
-        st.caption("HS 코드는 관세청 분류예요. 산업부 발표 기준(반도체·자동차 등)으로 보려면 '20대 품목'이나 'MTI코드'를 쓰세요.")
+        st.caption("HS 코드는 관세청 분류예요. 산업부 발표 기준(반도체·자동차 등)으로 보려면 '20대'나 'MTI코드'를 쓰세요.")
     return items, live, mti
 
 
@@ -9809,7 +9810,7 @@ def trade_hs_calls(parts, start, end):
 def render_trade_composition(data):
     """품목별 구성: 지역(국가·경제권·대륙)이 주고받은 품목의 구성을 HS 2자리(류)부터 보여주고, 눌러서 4·6·10자리로 내려간다"""
     months = data["months"]
-    st.caption("지역을 고르면 그 지역과 주고받은 품목의 구성을 큰 단위(HS 2자리 류)부터 보여주고, 아래 칸에서 골라 4·6·10자리 세부로 내려가요. 전 세계 합계는 관세청 자료 한계로 지원하지 않아요(국가별 순위나 일반 검색을 쓰세요).")
+    st.caption("지역을 고르면 그 지역과 주고받은 품목의 구성을 큰 단위(HS 2자리 류)부터 보여주고, 아래 칸에서 골라 4·6·10자리 세부로 내려가요.")
     reg_mode = st.radio("지역", ["국가", "경제권", "대륙"], horizontal=True, key="tr_c_reg")
     regions = []
     if reg_mode == "국가":
@@ -9825,7 +9826,8 @@ def render_trade_composition(data):
         regions = [("대륙", c, tuple(tc.continent_codes(c))) for c in sel]
     start, end = trade_period_pick(data, "tr_c_")
     c3, c4 = st.columns([3, 2])
-    metric = c3.radio("지표", ["수출금액", "수입금액", "무역수지", "수출 중량", "수입 중량"], horizontal=True, key="tr_c_metric")
+    metric = c3.radio("지표", ["수출금액", "수입금액", "무역수지", "수출 중량", "수입 중량"], horizontal=True, key="tr_c_metric",
+                     format_func={"수출금액": "수출액", "수입금액": "수입액", "무역수지": "무역수지", "수출 중량": "수출량", "수입 중량": "수입량"}.get)
     top_label = c4.selectbox("상위", ["5", "10", "20", "50", "전체"], index=1, key="tr_c_top")
     compare = st.toggle("전년 같은 기간과 비교", value=True, key="tr_c_compare")
     if st.button("조회", type="primary", key="tr_c_go"):
@@ -9989,7 +9991,7 @@ def render_trade_search(data):
     """검색: 무엇을(품목: 전체·HS·산업부 MTI) × 어디서(지역: 전체·국가·경제권) -> 기간 -> 지표를 고르면 바로 보여준다. 시도·세관은 따로."""
     months = data["months"]
     kind = st.radio("종류", TRADE_KINDS, horizontal=True, key="tr_s_kind")
-    if kind == "AI 검색":
+    if kind == "AI검색":
         render_trade_ai(data)
         return
     if kind == "국가별":
@@ -9998,10 +10000,10 @@ def render_trade_search(data):
     if kind == "품목별":
         render_trade_composition(data)
         return
-    q = {"kind": kind, "items": [], "regions": []}
+    q = {"kind": "일반 검색", "items": [], "regions": []}
     live = False
     mti = None
-    if kind == "일반 검색":
+    if kind == "일반":
         picked = trade_item_picker(data, "tr_s_")
         if picked is None:
             return
