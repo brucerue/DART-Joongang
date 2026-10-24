@@ -8,7 +8,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install requests pypdf
+      - run: pip install requests pypdf pyhwp olefile
       - name: 목록·첨부 시험
         run: |
           cat > p.py <<'PY'
@@ -28,33 +28,38 @@ jobs:
                       time.sleep(3 * (k + 1))
               return None
           L = base + "/kor/article/ATCL3f49a5a8c"
-          found, fails = [], 0
-          for pg in range(1, 31):
-              r = get(f"{L}?pageIndex={pg}")
-              time.sleep(1)
-              if r is None:
-                  fails += 1; continue
+          arts = []
+          for pg in (4, 7, 16, 21):
+              r = get(f"{L}?pageIndex={pg}"); time.sleep(1)
+              if r is None: continue
               for tr in re.findall(r"<tr>.*?</tr>", r.text, re.S):
-                  m = re.search(r'class="ta-l".*?</td>', tr, re.S)
-                  title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", m.group(0))).strip() if m else ""
-                  if "수출입" in title and "동향" in title:
-                      date = re.findall(r"20\d\d-\d\d-\d\d", tr)
-                      atts = re.findall(r'href="(/attach/down/[^"]+)"[^>]*title="([^"]*)"', tr)
-                      found.append((pg, title, date[:1], atts))
-          notes.append(f"30쪽 중 실패 {fails}쪽, 수출입 동향 글 {len(found)}개")
-          for k, f in enumerate(found[:8]):
-              notes.append(f"{k}: p{f[0]} {f[1][:70]} {f[2]} 첨부 {[a[1][:50] for a in f[3]]}")
-          if found and found[0][3]:
-              for href, ttl in found[0][3][:3]:
-                  r = get(base + href)
-                  if r is None:
-                      notes.append(f"{ttl[:40]} 다운로드 실패"); continue
-                  info = f"{ttl[:50]} -> {r.status_code} {r.headers.get('content-type','')} {len(r.content)}B {r.headers.get('content-disposition','')[:80]}"
-                  if r.content[:4] == b"%PDF":
+                  if "수출입" in tr and "동향" in tr and "ICT" not in tr and "정보통신" not in tr:
+                      m = re.search(r'href="(/kor/article/ATCL3f49a5a8c/\d+/view[^"]*)"', tr)
+                      t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", re.search(r'class="ta-l".*?</td>', tr, re.S).group(0))).strip()
+                      if m: arts.append((t, m.group(1).replace("&amp;", "&")))
+          notes.append("글 %d개: %s" % (len(arts), [a[0][-30:] for a in arts]))
+          for t, link in arts[:3]:
+              r = get(base + link); time.sleep(1)
+              if r is None:
+                  notes.append(t[-25:] + " 상세 실패"); continue
+              atts = re.findall(r'href="(/attach/down/[^"]+)"[^>]*>(.*?)</a>', r.text, re.S)
+              names = [re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", n)).strip()[:60] for _, n in atts]
+              notes.append(f"{t[-25:]} 상세 {r.status_code} 첨부 {len(atts)}개: {names}")
+              for (href, _), nm in zip(atts, names):
+                  d = get(base + href)
+                  if d is None:
+                      notes.append("  다운 실패 " + nm); continue
+                  info = f"  {nm[:30]} {d.status_code} {len(d.content)}B 머리 {d.content[:4]!r} {d.headers.get('content-disposition','')[:60]}"
+                  if d.content[:4] == b"%PDF":
                       from pypdf import PdfReader
-                      rd = PdfReader(io.BytesIO(r.content))
+                      rd = PdfReader(io.BytesIO(d.content))
                       tx = rd.pages[0].extract_text() or ""
-                      info += f" | PDF {len(rd.pages)}쪽 1쪽 글자 {len(tx)}: {tx[:300]}"
+                      info += f" | PDF {len(rd.pages)}쪽 글자 {len(tx)}: {tx[:200]}"
+                  elif d.content[:8] == bytes.fromhex("d0cf11e0a1b11ae1"):
+                      import olefile
+                      ole = olefile.OleFileIO(io.BytesIO(d.content))
+                      if ole.exists("PrvText"):
+                          info += " | HWP미리보기 " + ole.openstream("PrvText").read().decode("utf-16le", "ignore")[:200]
                   notes.append(info)
           for i, n in enumerate(notes[:9]):
               note(i, n)
