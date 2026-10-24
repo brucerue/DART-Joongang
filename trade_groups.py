@@ -4,7 +4,7 @@
   그 행을 무역협회 HSK-MTI 연계표(mti_map.json, 기준년도별)로 20대 품목에 묶어 월별로 더한다.
 - 한 나라씩 받아 나라마다 '어느 달까지 받았는지(done_to)'를 기록하므로, 시간이 모자라 중간에 끝나도 다음 실행이 이어서 한다.
   모든 나라가 최신 달까지 끝나면 complete=true (앱은 complete일 때만 쓴다). 최근 3개월은 수정될 수 있어 매번 다시 받는다.
-- 결과: groups.json  {"updated","months":[...],"unit":"천달러","groups":[...],"done_to":{국가:달},"complete":bool,
+- 결과: groups.json  {"updated","months":[...],"unit":"천달러","groups":[...],"defs":정의 지문,"done_to":{국가:달},"complete":bool,
                       "data":{품목:{국가코드:[[수출...],[수입...]]}}}  (값은 천달러로 반올림해 용량을 줄임, 0만 있는 국가는 뺌)
 - 국가 목록·월 목록은 trade.json(trade_data.py가 만든 것)에서 읽는다.
 - 결과는 워크플로(.github/workflows/trade_groups.yml)가 'groups' 브랜치에 한 커밋으로 올린다.
@@ -12,6 +12,7 @@
 사용: python trade_groups.py --trade trade.json [--prev prev_groups.json] [--out groups.json] [--max-minutes 150] [--limit-countries N]
 """
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -48,6 +49,11 @@ def group_lookup(mti):
                 look.setdefault(hs, []).append(gi)
         out.append(look)
     return names, out
+
+
+def defs_signature():
+    """품목 정의(MTI_GROUPS)의 지문 — 정의가 바뀌면 이미 받은 자료가 낡은 것이라 처음부터 다시 받는다"""
+    return hashlib.sha1(json.dumps(tc.MTI_GROUPS, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
 
 def table_index(mti, ym):
@@ -119,7 +125,8 @@ def main():
     prev_months = prev.get("months", [])
     cells = {gi: {} for gi in range(len(names))}  # 품목 번호 -> 국가 -> {월: [수출, 수입](천달러)}
     done_to = dict(prev.get("done_to", {}))
-    if prev.get("groups") == names:
+    sig = defs_signature()
+    if prev.get("groups") == names and prev.get("defs") == sig:
         for gi, g in enumerate(names):
             for cnty, (e, i) in (prev.get("data", {}).get(g, {})).items():
                 cells[gi][cnty] = {m: [e[k], i[k]] for k, m in enumerate(prev_months) if e[k] or i[k]}
@@ -181,7 +188,7 @@ def main():
                 e, im = to_arrays(row, months)
                 per[cnty] = [e, im]
         data[g] = per
-    out = {"updated": datetime.now().strftime("%Y-%m-%dT%H:%M"), "months": months, "unit": "천달러", "groups": names, "done_to": done_to, "complete": complete, "data": data}
+    out = {"updated": datetime.now().strftime("%Y-%m-%dT%H:%M"), "months": months, "unit": "천달러", "groups": names, "defs": sig, "done_to": done_to, "complete": complete, "data": data}
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
     n_done = sum(1 for c in countries if done_to.get(c) == latest)
