@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 09:04"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 09:21"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8965,7 +8965,7 @@ def run_js(code):
 # 수출 (관세청 수출입 통계: GitHub 'trade' 브랜치의 trade.json, trade_data.py가 매일 모아 둠)
 # ------------------------------------------------------------
 TRADE_BRANCH = "trade"
-TRADE_VIEWS = ["검색", "월간 현황", "10일 단위 속보", "국가·경제권", "지역"]
+TRADE_VIEWS = ["검색", "월간 현황", "10일 단위 속보", "국가·경제권"]
 CUSTOMS_KEY = load_secret("CUSTOMS_API_KEY")  # 공공데이터포털 일반 인증키 (검색 화면이 품목별 국가별 수출입실적 API를 직접 부른다)
 TRADE_ITEM_URL = "https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH
 TRADE_KINDS = ["품목", "산업부 품목(MTI)", "국가", "경제권", "시도", "세관", "품목 × 국가"]
@@ -9446,25 +9446,8 @@ def render_trade_country(data):
     st.download_button("국가별 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="국가별수출입.csv", mime="text/csv", key="tr_c_dl")
 
 
-def render_trade_region(data):
-    months = data["months"]
-    i = trade_month_pick(data, "tr_r_month")
-    first = True
-    for key, title, limit in (("sido", "시도별", 20), ("port", "세관별(항구·공항 합산)", 20)):
-        rows = tc.region_table(data.get(key) or {}, months, i)[:limit]
-        if not rows:
-            continue
-        st.markdown(f"##### {title}")
-        table = pd.DataFrame([{"순위": n, "지역": r["name"], "수출": trade_eok(r["exp"]), "증감": px_pct(r["exp_yoy"]), "수입": trade_eok(r["imp"]),
-                               "수입 증감": px_pct(r["imp_yoy"]), "무역수지": trade_eok(r["bal"])} for n, r in enumerate(rows, 1)])
-        st.dataframe(trade_styled(table, ["증감", "수입 증감"]), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
-        st.download_button(f"{title} 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name=f"{title}.csv", mime="text/csv", key=f"tr_r_dl_{key}")
-    st.caption("지역 안내", help="시도별은 수출입 신고를 한 기업의 소재지 기준이라 실제 생산지와 다를 수 있어요(본사가 서울인 기업의 수출이 서울로 잡히는 식).  \n"
-               "세관별은 통관한 세관 기준이에요.")
-
-
 def render_trade():
-    """탭: 수출 - 관세청 수출입 통계(월별 현황·10일 단위 속보·국가·경제권·지역)"""
+    """탭: 수출 - 관세청 수출입 통계(검색·월간 현황·10일 단위 속보·국가·경제권)"""
     data = get_trade()
     if data is None:
         st.info("수출입 자료를 아직 불러오지 못했어요. 처음이라면 GitHub Actions의 '수출입 통계 모으기'를 한 번 실행해 주세요.")
@@ -9474,7 +9457,7 @@ def render_trade():
                f"월별 자료 {months[0].replace('-', '.')} ~ {months[-1].replace('-', '.')} · 자료 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}  \n"
                "증감은 전년 같은 달 대비이고, 파랑은 늘어난 것·빨강은 줄어든 것이에요.")
     view = st.radio("보기", TRADE_VIEWS, horizontal=True, key="tr_view", label_visibility="collapsed")
-    {"검색": render_trade_search, "월간 현황": render_trade_monthly, "10일 단위 속보": render_trade_tenday, "국가·경제권": render_trade_country, "지역": render_trade_region}[view](data)
+    {"검색": render_trade_search, "월간 현황": render_trade_monthly, "10일 단위 속보": render_trade_tenday, "국가·경제권": render_trade_country}[view](data)
 
 
 TAB_NAMES = ["기업 브리핑", "재무 조회", "주가", "수출", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]

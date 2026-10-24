@@ -54,19 +54,6 @@ def group_table(group, months, i, kind="exp"):
     return rows
 
 
-def region_table(group, months, i):
-    """시도·세관 표 -> [{name, exp, imp, bal, exp_yoy, imp_yoy}] 수출이 큰 순. group: {이름: [[수출들], [수입들]]}"""
-    rows = []
-    for name, (exp, imp) in group.items():
-        e, m = exp[i], imp[i]
-        if not e and not m:
-            continue
-        e0, m0 = e or 0, m or 0
-        rows.append({"name": name, "exp": e0, "imp": m0, "bal": e0 - m0, "exp_yoy": yoy(exp, i) if e else None, "imp_yoy": yoy(imp, i) if m else None})
-    rows.sort(key=lambda r: -r["exp"])
-    return rows
-
-
 def prev_year_month(ym):
     """'202609' -> '202509'"""
     return f"{int(ym[:4]) - 1}{ym[4:]}"
