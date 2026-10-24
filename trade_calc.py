@@ -519,3 +519,51 @@ def trend_rows(series, months_all, key, base="yoy", flash_ym=None):
             chg = s["cur"] - s["prev"] if key == "bal" else pct(s["cur"], s["prev"])
         total.append((v, chg))
     return rows, {"cells": total}
+
+
+# ---- 경제권 구성국 (품목×경제권 조합용) ----
+# 관세청 월별 경제권 합계와 '구성국 국가별 합계'가 최근 24개월 모두 정확히 같아지는 것만 적었다(trade.json으로 검산).
+# ASEAN은 티모르(TL)가 관세청 합계에 2026-01부터 들어와서 ZONE_SINCE로 달을 나눈다. 대륙은 구성국 기준을 확인하지 못해 뺐다.
+ZONES = {
+    "EU": "AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE",
+    "EU28": "AT BE BG HR CY CZ DK EE FI FR DE GR HU IE IT LV LT LU MT NL PL PT RO SK SI ES SE GB",
+    "ASEAN": "BN KH ID LA MY MM PH SG TH VN TL",
+    "CIS": "RU BY KZ KG TJ UZ AZ AM MD TM UA GE",
+    "NAFTA": "US CA MX",
+    "EFTA": "CH NO IS LI",
+    "MERCOSUR": "AR BR PY UY",
+    "GCC": "SA AE KW QA BH OM",
+    "APEC": "AU BN CA CL CN HK ID JP MY MX NZ PG PE PH RU SG TW TH US VN",
+    "동남아": "BN KH ID LA MY MM PH SG TH VN TW HK",
+}
+
+
+ZONE_SINCE = {"ASEAN": {"TL": "2026-01"}}  # 경제권 -> {국가: 이 달부터 구성국}
+
+
+def zone_codes(name):
+    """경제권 이름 -> 구성국 코드 목록 (없으면 [])"""
+    return ZONES.get(name, "").split()
+
+
+def sum_arrays(country, codes, months=None, since=None):
+    """trade.json의 국가별 {코드: [이름, 수출[], 수입[]]} 중 codes를 달별로 더한 (수출[], 수입[]) (모두 비어 있는 달은 None).
+    since: {코드: 'YYYY-MM'} 이 달부터 구성국인 국가 (months: trade.json의 월 목록과 함께 줘야 함)"""
+    hit = [(c, country[c]) for c in codes if c in country]
+    if not hit:
+        return [], []
+    n = len(hit[0][1][1])
+    exp, imp = [], []
+    for i in range(n):
+        live = [h for c, h in hit if not (since and months and c in since and months[i] < since[c])]
+        e = [h[1][i] for h in live if h[1][i] is not None]
+        m = [h[2][i] for h in live if h[2][i] is not None]
+        exp.append(sum(e) if e else None)
+        imp.append(sum(m) if m else None)
+    return exp, imp
+
+
+def filter_rows(rows, codes, since=None):
+    """품목 조회 행 중 codes(국가 코드)에 속한 것만 (since: {코드: 'YYYY-MM'} 이 달부터 구성국)"""
+    keep = set(codes)
+    return [r for r in rows if r["cnty"] in keep and not (since and r["cnty"] in since and r["ym"] < since[r["cnty"]])]
