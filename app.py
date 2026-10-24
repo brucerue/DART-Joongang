@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 22:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 23:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7303,18 +7303,18 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 .news-item li a:hover { color: #1c7ed6; text-decoration: underline; }
 .news-tags { color: #4c6ef5; font-weight: 600; }
 .news-item li span { color: #7a8699; font-size: 0.8rem; margin-left: 0.3rem; }
-/* 기업 브리핑: 카드형 화면 (다른 탭에는 영향 없음) */
-.st-key-brief_wrap h5 { display: flex; align-items: center; gap: 0.5rem; font-size: 1.05rem !important; font-weight: 800 !important; color: #0b2545 !important; margin: 0.9rem 0 0.5rem !important; padding: 0 !important; }
-.st-key-brief_wrap h5::before { content: ""; width: 4px; height: 1.05em; border-radius: 2px; background: #1c7ed6; flex: 0 0 auto; }
-.st-key-brief_wrap [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); padding: 0.4rem 0.6rem 0.6rem; }
-.st-key-brief_wrap [data-testid="stVerticalBlockBorderWrapper"] h5:first-child { margin-top: 0.3rem !important; }
-.st-key-brief_wrap .cb-stats { gap: 0.6rem; }
-.st-key-brief_wrap .cb-card { border-radius: 14px; padding: 0.8rem 0.95rem; background: linear-gradient(160deg, #ffffff 0%, #f1f6fd 100%); box-shadow: 0 2px 10px rgba(16, 42, 84, 0.05); }
-.st-key-brief_wrap .cb-card .l { font-size: 0.8rem; }
-.st-key-brief_wrap .cb-card .v { font-size: 1.5rem; margin: 0.1rem 0; }
-@media (max-width: 500px) { .st-key-brief_wrap .cb-card .v { font-size: 1.25rem; } }
-.st-key-brief_wrap .cb-card .d { display: inline-block; font-size: 0.76rem; border-radius: 999px; padding: 0.05rem 0.5rem; background: #eef2f7; }
-.st-key-brief_wrap .cb-card .d.up { background: #e7f1fd; } .st-key-brief_wrap .cb-card .d.down { background: #fdecec; }
+/* 기업 브리핑·수출입 분석: 카드형 화면 (다른 탭에는 영향 없음) */
+:is(.st-key-brief_wrap, .st-key-trade_wrap) h5 { display: flex; align-items: center; gap: 0.5rem; font-size: 1.05rem !important; font-weight: 800 !important; color: #0b2545 !important; margin: 0.9rem 0 0.5rem !important; padding: 0 !important; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap) h5::before { content: ""; width: 4px; height: 1.05em; border-radius: 2px; background: #1c7ed6; flex: 0 0 auto; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap) [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); padding: 0.4rem 0.6rem 0.6rem; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap) [data-testid="stVerticalBlockBorderWrapper"] h5:first-child { margin-top: 0.3rem !important; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-stats { gap: 0.6rem; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card { border-radius: 14px; padding: 0.8rem 0.95rem; background: linear-gradient(160deg, #ffffff 0%, #f1f6fd 100%); box-shadow: 0 2px 10px rgba(16, 42, 84, 0.05); }
+:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .l { font-size: 0.8rem; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .v { font-size: 1.5rem; margin: 0.1rem 0; }
+@media (max-width: 500px) { :is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .v { font-size: 1.25rem; } }
+:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .d { display: inline-block; font-size: 0.76rem; border-radius: 999px; padding: 0.05rem 0.5rem; background: #eef2f7; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .d.up { background: #e7f1fd; } :is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .d.down { background: #fdecec; }
 .cb-hero { background: linear-gradient(135deg, #eaf3ff 0%, #ffffff 70%); border: 1px solid #d6e6fb; border-radius: 18px; padding: 1.1rem 1.2rem; margin: 0.2rem 0 0.8rem; box-shadow: 0 2px 12px rgba(28, 126, 214, 0.08); }
 .cb-hero .t { font-size: 1.7rem; font-weight: 800; color: #0b2545; letter-spacing: -0.03em; line-height: 1.25; }
 .cb-hero .s { color: #7a8699; font-size: 0.85rem; margin-top: 0.25rem; }
@@ -9613,10 +9613,12 @@ def render_trade_ai(data):
         st.caption("코드를 확인하고 '조회'를 누르면 선택한 보기로 결과가 나와요.")
         return
     if sq.get("view") == "국가별 순위":
-        render_trade_rank_result(data, sq)
+        with st.container(border=True):
+            render_trade_rank_result(data, sq)
         return
     if sq.get("view") == "품목별 구성":
-        render_trade_composition_result(data, sq, "tr_ai_")
+        with st.container(border=True):
+            render_trade_composition_result(data, sq, "tr_ai_")
         return
     try:
         with st.spinner("관세청 자료를 불러오는 중입니다..."):
@@ -9624,7 +9626,8 @@ def render_trade_ai(data):
     except tc.TradeApiError as e:
         st.error(str(e))
         return
-    render_trade_search_result(data, sq, series)
+    with st.container(border=True):
+        render_trade_search_result(data, sq, series)
 
 
 TRADE_PERIOD_PRESETS = ["올해", "작년", "최근 12개월", "최근 3년", "최근 5년", "전체 기간", "직접 선택"]
@@ -9827,7 +9830,8 @@ def render_trade_composition(data):
     if not cq:
         st.caption("지역과 기간을 고르고 '조회'를 누르면 품목 구성이 나와요.")
         return
-    render_trade_composition_result(data, cq, "tr_c_")
+    with st.container(border=True):
+        render_trade_composition_result(data, cq, "tr_c_")
 
 
 def render_trade_composition_result(data, cq, pre):
@@ -9908,7 +9912,8 @@ def render_trade_rank_country(data):
     if not rq:
         st.caption("조건을 고르고 '조회'를 누르면 순위가 나와요.")
         return
-    render_trade_rank_result(data, rq)
+    with st.container(border=True):
+        render_trade_rank_result(data, rq)
 
 
 def render_trade_rank_result(data, rq):
@@ -10029,7 +10034,8 @@ def render_trade_search(data):
     except tc.TradeApiError as e:
         st.error(str(e))
         return
-    render_trade_search_result(data, sq, series)
+    with st.container(border=True):
+        render_trade_search_result(data, sq, series)
     st.caption("검색 안내", help="품목은 관세청 '품목별 국가별 수출입실적'(통관 기준, 달러)을 바로 불러와요. HS 코드 2·4·6자리로 조회하고, 하위 품목·국가별 내역이 함께 나와요. 품목에 지역(국가·경제권·대륙)을 고르면 받은 자료에서 그 국가들만 합산해요.  \n"
                "20대 품목과 MTI 코드는 무역협회 HSK-MTI 연계표로 HS 10자리를 MTI에 묶어 합친 값이에요. 연계표는 기준년도(2021년 이전·2022~2024·2025~2026)별로 달라서 조회월의 해에 맞는 표를 써요. 산업부·관세청 발표와 1~5% 정도 차이가 날 수 있어요(잠정치·분류 시점 차이).  \n"
                "품목을 '전체'로 두면 모아 둔 월별 자료(최근 2년)를 써서 호출 없이 바로 나와요.  \n"
@@ -10068,14 +10074,16 @@ def render_trade_monthly(data):
     rows = [{"월": months[k].replace("-", "."), "수출": trade_eok(exp[k]), "수출 증감": px_pct(tc.yoy(exp, k)), "수입": trade_eok(imp[k]),
              "수입 증감": px_pct(tc.yoy(imp, k)), "무역수지": trade_eok(bal[k])} for k in range(i, lo - 1, -1)]
     table = pd.DataFrame(rows)
-    st.markdown("##### 최근 13개월")
-    st.dataframe(trade_styled(table, ["수출 증감", "수입 증감"]), hide_index=True, height=(len(table) + 1) * 35 + 3)
+    with st.container(border=True):
+        st.markdown("##### 최근 13개월")
+        st.dataframe(trade_styled(table, ["수출 증감", "수입 증감"]), hide_index=True, height=(len(table) + 1) * 35 + 3)
     first = max(0, i - 23)
     idx = pd.to_datetime(months[first:i + 1], format="%Y-%m")
-    st.markdown("##### 수출·수입 추이 (억달러)")
-    px_line_chart(px_long({"수출": pd.Series([v / 1e8 for v in exp[first:i + 1]], index=idx), "수입": pd.Series([v / 1e8 for v in imp[first:i + 1]], index=idx)}),
-                  "억달러", fmt="%Y-%m", axis_fmt="%y.%m")
-    st.download_button("표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="월간수출입.csv", mime="text/csv", key="tr_m_dl")
+    with st.container(border=True):
+        st.markdown("##### 수출·수입 추이 (억달러)")
+        px_line_chart(px_long({"수출": pd.Series([v / 1e8 for v in exp[first:i + 1]], index=idx), "수입": pd.Series([v / 1e8 for v in imp[first:i + 1]], index=idx)}),
+                      "억달러", fmt="%Y-%m", axis_fmt="%y.%m")
+        st.download_button("표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="월간수출입.csv", mime="text/csv", key="tr_m_dl")
 
 
 def render_trade_tenday(data):
@@ -10108,10 +10116,11 @@ def render_trade_tenday(data):
         if part == "item" and len(names) < 5:  # 순번별 품목 이름을 거의 모르면 숫자만으로는 쓸모가 없어 보이지 않는다
             st.caption(f"주요 품목({kind})은 순번별 품목 이름을 확인하는 중이라 아직 보여주지 않아요.")
             continue
-        st.markdown(f"##### {title} ({kind})")
-        table = pd.DataFrame([{"항목": names.get(r["rank"], f"{r['rank']}번째 항목"), "누계": trade_cheon(r["cur"]), "전년 같은 기간": trade_cheon(r["prev"]),
-                               "증감": px_pct(r["yoy"]), "비중": f"{r['cur'] / total * 100:.1f}%"} for r in items])
-        st.dataframe(trade_styled(table, ["증감"]), hide_index=True, height=(len(table) + 1) * 35 + 3)
+        with st.container(border=True):
+            st.markdown(f"##### {title} ({kind})")
+            table = pd.DataFrame([{"항목": names.get(r["rank"], f"{r['rank']}번째 항목"), "누계": trade_cheon(r["cur"]), "전년 같은 기간": trade_cheon(r["prev"]),
+                                   "증감": px_pct(r["yoy"]), "비중": f"{r['cur'] / total * 100:.1f}%"} for r in items])
+            st.dataframe(trade_styled(table, ["증감"]), hide_index=True, height=(len(table) + 1) * 35 + 3)
     st.caption("10일 단위 안내", help="관세청 잠정치예요(1일부터 10일·20일·말일까지의 누계). 확정치는 다음 달 중순에 나와 조금 달라질 수 있어요.  \n"
                "전년 같은 기간과 조업일수(주말·휴일)가 다르면 증감률이 왜곡돼요.  \n"
                "항목 이름은 관세청이 순번으로만 줘서, 월별 정식 통계의 금액과 맞춰 확인한 이름이에요. 확인하지 못한 항목은 '○번째 항목'으로 보여요.")
@@ -10123,26 +10132,29 @@ def render_trade_country(data):
     rows = tc.group_table(data["country"], months, i)
     total_exp = tot["exp"][i] or 1
     top = rows[:30]
-    st.markdown("##### 국가별 수출입 (수출 상위 30곳)")
     table = pd.DataFrame([{"순위": n, "국가": r["name"], "수출": trade_eok(r["exp"]), "증감": px_pct(r["exp_yoy"]), "비중": f"{r['exp'] / total_exp * 100:.1f}%",
                            "수입": trade_eok(r["imp"]), "수입 증감": px_pct(r["imp_yoy"]), "무역수지": trade_eok(r["bal"])} for n, r in enumerate(top, 1)])
-    st.dataframe(trade_styled(table, ["증감", "수입 증감"]), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
+    with st.container(border=True):
+        st.markdown("##### 국가별 수출입 (수출 상위 30곳)")
+        st.dataframe(trade_styled(table, ["증감", "수입 증감"]), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
     reg = tc.group_table(data.get("region") or {}, months, i)
     if reg:
-        st.markdown("##### 경제권별")
-        rt = pd.DataFrame([{"경제권": r["name"], "수출": trade_eok(r["exp"]), "증감": px_pct(r["exp_yoy"]), "수입": trade_eok(r["imp"]), "수입 증감": px_pct(r["imp_yoy"]),
-                            "무역수지": trade_eok(r["bal"])} for r in reg])
-        st.dataframe(trade_styled(rt, ["증감", "수입 증감"]), hide_index=True, height=(len(rt) + 1) * 35 + 3)
-        st.caption("경제권은 서로 겹치는 묶음이에요(예: EU와 EU28, OECD). 합산하지 마세요.")
-    st.markdown("##### 월별 추이 (수출, 억달러)")
-    names = [r["name"] for r in rows]
-    pick = st.multiselect("국가", names, default=names[:4], key="tr_c_pick", max_selections=8)
-    by_name = {v[0]: v for v in data["country"].values()}
-    idx = pd.to_datetime(months, format="%Y-%m")
-    series = {n: pd.Series([None if x is None else x / 1e8 for x in by_name[n][1]], index=idx).dropna() for n in pick if n in by_name}
-    if series:
-        px_line_chart(px_long(series), "억달러", fmt="%Y-%m", axis_fmt="%y.%m")
-    st.download_button("국가별 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="국가별수출입.csv", mime="text/csv", key="tr_c_dl")
+        with st.container(border=True):
+            st.markdown("##### 경제권별")
+            rt = pd.DataFrame([{"경제권": r["name"], "수출": trade_eok(r["exp"]), "증감": px_pct(r["exp_yoy"]), "수입": trade_eok(r["imp"]), "수입 증감": px_pct(r["imp_yoy"]),
+                                "무역수지": trade_eok(r["bal"])} for r in reg])
+            st.dataframe(trade_styled(rt, ["증감", "수입 증감"]), hide_index=True, height=(len(rt) + 1) * 35 + 3)
+            st.caption("경제권은 서로 겹치는 묶음이에요(예: EU와 EU28, OECD). 합산하지 마세요.")
+    with st.container(border=True):
+        st.markdown("##### 월별 추이 (수출, 억달러)")
+        names = [r["name"] for r in rows]
+        pick = st.multiselect("국가", names, default=names[:4], key="tr_c_pick", max_selections=8)
+        by_name = {v[0]: v for v in data["country"].values()}
+        idx = pd.to_datetime(months, format="%Y-%m")
+        series = {n: pd.Series([None if x is None else x / 1e8 for x in by_name[n][1]], index=idx).dropna() for n in pick if n in by_name}
+        if series:
+            px_line_chart(px_long(series), "억달러", fmt="%Y-%m", axis_fmt="%y.%m")
+        st.download_button("국가별 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="국가별수출입.csv", mime="text/csv", key="tr_c_dl")
 
 
 def render_trade():
@@ -10155,8 +10167,11 @@ def render_trade():
     st.caption("자료 기준", help=f"관세청 수출입 통계(통관 기준, 달러)예요. 월별 확정치는 보통 다음 달 중순에 나와요.  \n"
                f"월별 자료 {months[0].replace('-', '.')} ~ {months[-1].replace('-', '.')} · 자료 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}  \n"
                "증감은 전년 같은 달 대비이고, 파랑은 늘어난 것·빨강은 줄어든 것이에요.")
-    view = st.radio("보기", TRADE_VIEWS, horizontal=True, key="tr_view", label_visibility="collapsed")
-    {"검색": render_trade_search, "월간 현황": render_trade_monthly, "10일 단위 속보": render_trade_tenday, "국가·경제권": render_trade_country}[view](data)
+    with st.container(key="trade_wrap"):
+        st.markdown(f'<div class="cb-hero"><div class="t">수출입 분석</div><div class="s">관세청 통관 기준 · {months[0].replace("-", ".")} ~ {months[-1].replace("-", ".")} · 갱신 {str(data.get("updated", ""))[:16].replace("T", " ")}</div></div>',
+                    unsafe_allow_html=True)
+        view = st.radio("보기", TRADE_VIEWS, horizontal=True, key="tr_view", label_visibility="collapsed")
+        {"검색": render_trade_search, "월간 현황": render_trade_monthly, "10일 단위 속보": render_trade_tenday, "국가·경제권": render_trade_country}[view](data)
 
 
 TAB_NAMES = ["기업 브리핑", "재무 조회", "수출입 분석", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
