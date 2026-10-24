@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 18:33"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 19:13"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9038,6 +9038,11 @@ def trade_styled(table, cols):
     return table.style.map(cb_style, subset=cols)
 
 
+HS_NOTES = {  # 코드에 대해 확인된 설명(관세청 확인 내용) -> 결과 아래에 보여준다
+    "3102109000": "관세청 확인(2026.10): '질소비료의 기타'가 이 세번이고, 산업용·차량용 요소가 여기에 들어가요. 일부 목재용도 포함되지만 양이 적어 '산업용·차량용 요소'로 표현해도 큰 무리가 없다고 해요.",
+}
+
+
 @st.cache_data(ttl=6 * 3600, show_spinner=False, max_entries=60)
 def trade_query(hs, cnty, start, end):
     """품목(hs)·국가(cnty) 조건의 월별 행 (관세청 품목별 국가별 수출입실적 API). 같은 조회는 6시간 동안 저장한 결과를 쓴다. 실패는 TradeApiError."""
@@ -9063,6 +9068,13 @@ def trade_fetch_text(params):
             last = e
             time.sleep(1 + attempt)
     raise tc.TradeApiError("관세청 서버에 연결하지 못했어요. 잠시 후 다시 시도해주세요.") from last
+
+
+def trade_hs_rows(code, start, end, cnty=None):
+    """HS 코드(2·4·6·8·10자리)의 월별 행. 관세청 API는 2·4·6자리만 받아 한 단계 아래 행을 주므로, 8·10자리는 6자리로 조회해 그 코드에 속한 행만 남긴다."""
+    if len(code) in (2, 4, 6):
+        return trade_query(code, cnty, start, end)
+    return [r for r in trade_query(code[:6], cnty, start, end) if r["hs"].startswith(code)]
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False, max_entries=40)
@@ -9150,9 +9162,12 @@ def trade_series(data, q):
             label = tc.mti_label(mti, code)
             group = code[len(tc.GROUP_PREFIX):] if code.startswith(tc.GROUP_PREFIX) else None
         else:
-            rows = trade_query(code, None, s_ym, e_ym)
-            prev_rows = trade_query(code, None, p_s, p_e) if q["compare"] else None
-            label = f"{code} {hs_names.get(code[:4], '')}".strip()
+            rows = trade_hs_rows(code, s_ym, e_ym)
+            prev_rows = trade_hs_rows(code, p_s, p_e) if q["compare"] else None
+            if len(code) > 6:  # 8·10자리는 관세청 품목명(행에 있는 이름)을 붙인다
+                label = f"{code} {next((r['name'] for r in rows if r['hs'] == code), '')}".strip()
+            else:
+                label = f"{code} {hs_names.get(code[:4], '') if len(code) == 4 else ''}".strip()
             group = None
         for reg in (regions or [None]):
             if reg:
@@ -9164,7 +9179,8 @@ def trade_series(data, q):
                 cur_rows, p_rows = rows, prev_rows
             out.append({"name": label + (f" × {reg[1]}" if reg else ""), "month": tc.metrics_by_month(cur_rows),
                         "prev": trade_shift_year(tc.metrics_by_month(p_rows)) if p_rows is not None else None, "rows": cur_rows,
-                        "skipped": skipped, "mti_code": code if ikind == "mti" else None, "flash_key": ("품목", group) if group and not reg else None})
+                        "skipped": skipped, "mti_code": code if ikind == "mti" else None, "hs_code": code if ikind == "hs" else None,
+                        "flash_key": ("품목", group) if group and not reg else None})
     return trade_attach_flash(out, q)
 
 
@@ -9279,6 +9295,9 @@ def render_trade_search_result(data, q, series):
                     col.markdown(f"**{title}**")
                     col.dataframe(pd.DataFrame([{label: (r["name"] if key2 == "cnty" else f"{r['code']} {r['name'][:24]}"), "수출": trade_usd(r["exp"]), "수입": trade_usd(r["imp"])} for r in rr]),
                                   hide_index=True, height=min(len(rr) + 1, 12) * 35 + 3)
+    for sr in series:
+        if sr.get("hs_code") in HS_NOTES:
+            st.info(f"{sr['name']} — {HS_NOTES[sr['hs_code']]}")
     st.download_button("월별 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="수출입검색_월별.csv", mime="text/csv", key="tr_s_dl_m")
 
 
@@ -9316,6 +9335,7 @@ def trade_ai_prompt(text, ctx, cands, articles):
         "[국가 이름(관세청 표기) — kind=국가에 이 이름 그대로] " + ", ".join(sorted(ctx["countries"])),
         "[입력과 이름이 겹치는 MTI(산업부 품목분류) 후보 — 코드: 이름] " + ("; ".join(f"{c}: {n}" for c, n in mti_c) or "없음"),
         "[입력과 이름이 겹치는 HS 4자리 후보] " + ("; ".join(f"{c}: {n}" for c, n in hs_c) or "없음"),
+        "[관세청 등으로 확인된 코드 설명] " + (" / ".join(f"{c}: {t}" for c, t in HS_NOTES.items()) or "없음"),
         "[참고 기사(번호. 제목 - 언론사)] " + (" | ".join(f"{i}. {a['title']} - {a['publisher']}" for i, a in enumerate(articles, 1)) or "없음"),
         "",
         "아래 JSON 형식으로만 답해라.",
@@ -9327,7 +9347,8 @@ def trade_ai_prompt(text, ctx, cands, articles):
         ' "metrics": ["수출금액", "수입금액", "무역수지", "수출 중량", "수입 중량" 중 입력이 원하는 것] 또는 입력에 없으면 null, ',
         ' "notes": "코드가 정확하지 않은 이유나 확인할 점(예: 전용 코드가 없어 여러 코드의 합으로 근사)"}',
         "",
-        "규칙: ① 입력이 20대 품목 중 하나와 같은 뜻이면 kind=group을 쓴다. ② 그 밖의 품목은 HS 6자리(또는 MTI)를 제안하되 후보 목록에 있는 것을 우선하고, 한 품목에 코드가 여러 개 필요하면 모두 items에 넣는다(최대 6개). "
+        "규칙: ① 입력이 20대 품목 중 하나와 같은 뜻이면 kind=group을 쓴다. ② 그 밖의 품목은 HS를 가능한 한 구체적으로(6자리, 용도로 가려지면 한국 HSK 8·10자리까지) 제안하고, 4자리 호만 쓰는 것은 6자리를 모를 때뿐이다. "
+        "후보 목록에 있는 것을 우선하고, 한 품목에 코드가 여러 개 필요하면 모두 items에 넣는다(최대 6개). "
         "③ '2025년'처럼 연도만 있으면 그 해 1월~12월. ④ 수출액·수출금액은 수출금액, 수입액은 수입금액, 수출량·물량은 수출 중량. ⑤ 지역이 없으면 regions는 빈 배열. "
         "⑥ 입력이 수출입 통계와 무관하면 items·regions를 비우고 summary에 이유를 쓴다.",
     ]
@@ -9345,18 +9366,43 @@ def trade_ai_news(text):
     return sorted(items, key=lambda i: i["dt"], reverse=True)[:6]
 
 
-def trade_hs_check(code, ym):
+def trade_hs_check(code, ym, hs_names):
     """AI가 낸 HS 코드를 관세청 자료에서 확인 -> 관세청 품목명(찾음) / ''(그 코드는 안 보임) / None(확인 못 함)"""
     if len(code) < 4 or not CUSTOMS_KEY:
         return None
     ym = ym.replace("-", "")
     try:
-        rows = trade_query(code[:4], None, ym, ym)
+        if len(code) == 4:
+            return hs_names.get(code) or ("확인됨" if trade_query(code, None, ym, ym) else "")
+        rows = trade_query(code[:4] if len(code) == 6 else code[:6], None, ym, ym)
     except Exception:
         return None
-    if len(code) == 4:
-        return next((r["name"] for r in rows), "") if rows else ""
-    return next((r["name"] for r in rows if r["hs"] == code), "")
+    return next((r["name"] for r in rows if r["hs"].startswith(code)), "")
+
+
+def trade_hs_children(code, ym, limit=6):
+    """코드 바로 아래 단계(4자리 -> 6자리, 6자리 -> 10자리)의 [(코드, 이름, 최근 12개월 수출액)]를 수출액 큰 순으로"""
+    if len(code) not in (4, 6) or not CUSTOMS_KEY:
+        return []
+    end = ym.replace("-", "")
+    try:
+        rows = trade_query(code, None, tc.month_add(end, -11), end)
+    except Exception:
+        return []
+    acc = {}
+    for r in rows:
+        a = acc.setdefault(r["hs"], [r["name"], 0])
+        a[1] += r["exp"]
+    return sorted(((c, n, e) for c, (n, e) in acc.items()), key=lambda x: -x[2])[:limit]
+
+
+def trade_ai_expand(code, ym):
+    """HS 제안 하나의 하위 코드: 4자리면 6자리 몇 개와 그 아래 10자리, 6자리면 10자리 -> [{code, name, exp, sub: [...]}]"""
+    out = []
+    for c, n, e in trade_hs_children(code, ym):
+        sub = [{"code": c2, "name": n2, "exp": e2, "sub": []} for c2, n2, e2 in trade_hs_children(c, ym)] if len(code) == 4 and len(out) < 3 else []
+        out.append({"code": c, "name": n, "exp": e, "sub": sub})
+    return out
 
 
 def trade_ai_ask(text, data):
@@ -9377,7 +9423,8 @@ def trade_ai_ask(text, data):
 
     out = ai_cached(("trade_ai", text.strip(), ctx["months"][-1]), make)
     for it in out["items"]:  # 코드 확인은 저장하지 않고 그때그때(관세청 자료로)
-        it["checked"] = trade_hs_check(it["code"], ctx["months"][-1]) if it["kind"] == "hs" else None
+        it["checked"] = trade_hs_check(it["code"], ctx["months"][-1], ctx["hs_names"]) if it["kind"] == "hs" else None
+        it["children"] = trade_ai_expand(it["code"], ctx["months"][-1]) if it["kind"] == "hs" and len(it["code"]) in (4, 6) else []
     return out
 
 
@@ -9425,8 +9472,18 @@ def render_trade_ai(data):
             ref_links = [f"[기사{r}]({arts[r - 1]['url']})" for r in it["refs"] if 1 <= r <= len(arts)]
             if ref_links:
                 bits.append("근거 기사 " + " ".join(ref_links))
+            if it["code"] in HS_NOTES:
+                bits.append(HS_NOTES[it["code"]])
             if bits:
                 st.caption(" · ".join(bits))
+            if it.get("children"):
+                st.caption("관세청 자료의 하위 코드 (최근 12개월 수출액) — 더 세부로 보려면 체크하세요")
+                for ch in it["children"]:
+                    for node, depth in [(ch, 1)] + [(sb, 2) for sb in ch["sub"]]:
+                        mark = "↳ " if depth == 1 else "　　↳ "
+                        if st.checkbox(f"{mark}{node['code']} {node['name'][:26]} · {trade_usd(node['exp'])}", value=False,
+                                       key=f"tr_ai_ch_{st.session_state.get('tr_ai_n', 0)}_{i}_{node['code']}"):
+                            picked.append(("hs", node["code"]))
     else:
         st.caption("품목은 지정하지 않았어요 (전체).")
     reg = " · ".join(f"{n}" for _, n, _ in spec["regions"]) or "전체"
@@ -9442,8 +9499,12 @@ def render_trade_ai(data):
             st.caption("관련 기사를 찾지 못했어요(네이버 뉴스 키가 없거나 결과가 없음).")
         st.markdown("\n".join(f"- [{t}]({u})" for t, u in TRADE_AI_LINKS))
     if st.button("조회", type="primary", key="tr_ai_run"):
+        picked = list(dict.fromkeys(picked))
         if spec["items"] and not picked:
             st.warning("조회할 품목 코드를 하나 이상 체크해 주세요.")
+            st.session_state.pop("tr_ai_query", None)
+        elif len(picked) * max(1, len(spec["regions"])) > TRADE_MAX_SERIES:
+            st.warning(f"한 번에 {TRADE_MAX_SERIES}개 항목까지만 볼 수 있어요 (지금 {len(picked) * max(1, len(spec['regions']))}개). 체크를 줄여 주세요.")
             st.session_state.pop("tr_ai_query", None)
         elif (spec["items"] or any("중량" in m for m in spec["metrics"])) and not CUSTOMS_KEY:
             st.info("품목 조회에는 Streamlit Secrets에 CUSTOMS_API_KEY가 필요해요.")
@@ -9497,11 +9558,12 @@ def render_trade_search(data):
             st.caption("산업부(MOTIE)가 발표에 쓰는 품목 분류예요. 같은 이름이라도 HS 코드 하나가 아니라 여러 HS 코드를 묶은 것이에요(예: 반도체 = 집적회로·반도체 소자·웨이퍼 등). 자릿수가 짧을수록 넓은 묶음이에요.")
         if item_mode == "HS 코드":
             opts = trade_hs_options(data)
-            picked = st.multiselect("HS 품목 — 이름이나 코드로 검색 (목록에 없는 2·4·6자리 코드는 입력하고 엔터)", list(opts), key="tr_s_hs", max_selections=6,
-                                    accept_new_options=True, placeholder="예: 전자집적회로, 8542, 854231")
-            codes = [opts.get(p) or (p.strip() if p.strip().isdigit() and len(p.strip()) in (2, 4, 6) else None) for p in picked]
+            picked = st.multiselect("HS 품목 — 이름이나 코드로 검색 (목록에 없는 코드는 입력하고 엔터, 2·4·6·8·10자리)", list(opts), key="tr_s_hs", max_selections=6,
+                                    accept_new_options=True, placeholder="예: 전자집적회로, 8542, 854231, 3102109000")
+            codes = [opts.get(p) or (p.strip().replace(".", "").replace("-", "") if p.strip().replace(".", "").replace("-", "").isdigit()
+                                     and len(p.strip().replace(".", "").replace("-", "")) in (2, 4, 6, 8, 10) else None) for p in picked]
             if any(c is None for c in codes):
-                st.caption("HS 코드는 숫자 2·4·6자리로 입력해 주세요. 맞지 않는 입력은 빼고 조회해요.")
+                st.caption("HS 코드는 숫자 2·4·6·8·10자리로 입력해 주세요. 맞지 않는 입력은 빼고 조회해요.")
             q["items"] += [("hs", c) for c in dict.fromkeys(c for c in codes if c)]
             st.caption("HS 코드는 관세청 분류예요. 산업부 발표 기준(반도체·자동차 등)으로 보려면 '20대 품목'이나 'MTI 코드'를 쓰세요.")
         reg_mode = st.radio("지역", TRADE_REGION_MODES, horizontal=True, key="tr_s_reg", help="'전체'면 모든 국가를 합쳐요. 경제권은 구성국을 합산해요(관세청 경제권 합계와 같은 값).")

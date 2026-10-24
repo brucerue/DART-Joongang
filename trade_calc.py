@@ -642,8 +642,8 @@ def ai_validate(spec, ctx):
             key, label = ("mti", code), f"MTI {code} {ctx['mti_names'][code]}"
         elif kind == "hs":
             code = code.replace(".", "").replace("-", "")
-            if not (code.isdigit() and len(code) in (2, 4, 6)):
-                warns.append(f"HS 코드 '{code}'은(는) 2·4·6자리 숫자가 아니어서 뺐어요.")
+            if not (code.isdigit() and len(code) in (2, 4, 6, 8, 10)):
+                warns.append(f"HS 코드 '{code}'은(는) 2·4·6·8·10자리 숫자가 아니어서 뺐어요.")
                 continue
             name = ctx["hs_names"].get(code[:4], "")
             key, label = ("hs", code), f"HS {code}" + (f" {name}" if name and len(code) == 4 else "")
