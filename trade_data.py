@@ -5,7 +5,7 @@
   이미 받아 둔 달은 다시 받지 않고(--prev), 최근 3개월은 수정될 수 있어 매번 다시 받는다.
 - 결과는 워크플로가 저장소의 별도 'trade' 브랜치에 한 커밋으로 올린다 (main은 건드리지 않는다).
 필요한 환경변수: CUSTOMS_API_KEY (공공데이터포털 일반 인증키, Encoding·Decoding 어느 쪽이든 됨)
-사용: python trade_data.py [--prev prev.json] [--out trade.json] [--months 25]
+사용: python trade_data.py [--prev prev.json] [--out trade.json] [--months 120]
 """
 import argparse
 import json
@@ -145,7 +145,7 @@ def harvest_hs_names(key, ym):
     return names
 
 
-def build(key, prev, now, months=25):
+def build(key, prev, now, months=120):
     """prev(이전 trade.json 또는 {}) + 새로 받은 자료 -> 새 trade.json 내용"""
     current = now.strftime("%Y%m")  # 이번 달은 월별 API가 중간 집계를 주므로 월별 자료에서 빼고, 10일 단위 잠정치만 쓴다
     want = [ym for ym in month_list(now, months) if ym != current]
@@ -220,7 +220,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prev", default="")
     ap.add_argument("--out", default="trade.json")
-    ap.add_argument("--months", type=int, default=25)
+    ap.add_argument("--months", type=int, default=120)  # 10년
     args = ap.parse_args()
     prev = {}
     if args.prev and os.path.exists(args.prev):
