@@ -23,6 +23,7 @@ BASE = "https://apis.data.go.kr/1220000/"
 TOTAL_API = "Newtrade/getNewtradeList"  # 수출입총괄 (N이 대문자)
 COUNTRY_API = "nationtrade/getNationtradeList"
 REGION_API = "economytrade/getEconomytradeList"
+CONTINENT_API = "continenttradet/getContinenttradeList"  # 대륙별 (주소 이름 끝의 t가 이 API만 다름)
 SIDO_API = "sidotrade/getSidotradeList"
 PORT_API = "porttrade/getPorttradeList"
 ITEM_API = "nitemtrade/getNitemtradeList"  # 품목별 국가별: 품목 2자리를 넣으면 4자리 품목 행이 이름과 함께 온다 (앱 '검색'의 품목 이름 목록용)
@@ -103,6 +104,7 @@ def month_values(key, ym):
     for r in get_items(key, SIDO_API, strtYymm=ym, endYymm=ym):
         if r.get("sidoNm"):  # 천달러 -> 달러
             sido[r["sidoNm"]] = [num(r["expUsdAmt"]) * 1000, num(r["impUsdAmt"]) * 1000]
+    out["continent"] = {r["statCd"]: [r["statCdCntnKor1"], num(r["expDlr"]), num(r["impDlr"])] for r in get_items(key, CONTINENT_API, strtYymm=ym, endYymm=ym) if r.get("statCd")}
     out["sido"] = sido
     port = {}
     for r in get_items(key, PORT_API, strtYymm=ym, endYymm=ym):  # 항구·공항 행을 세관 단위로 합친다
@@ -153,11 +155,14 @@ def build(key, prev, now, months=25):
             "total": {k: v[i] for k, v in prev["total"].items()},
             "country": {c: [n, e[i], m[i]] for c, (n, e, m) in prev.get("country", {}).items() if e[i] is not None},
             "region": {c: [n, e[i], m[i]] for c, (n, e, m) in prev.get("region", {}).items() if e[i] is not None},
+            "continent": {c: [n, e[i], m[i]] for c, (n, e, m) in prev.get("continent", {}).items() if e[i] is not None},
             "sido": {c: [e[i], m[i]] for c, (e, m) in prev.get("sido", {}).items() if e[i] is not None},
             "port": {c: [e[i], m[i]] for c, (e, m) in prev.get("port", {}).items() if e[i] is not None},
         }
     store.pop(current, None)  # 이전에 중간 집계가 저장돼 있었어도 버린다
     refresh = set(want[-REFRESH_MONTHS - 1:])
+    if not prev.get("continent"):  # 대륙별이 아직 없던 이전 자료면 모든 달을 한 번 다시 받는다
+        refresh = set(want)
     errors = []
     for ym in want:
         if ym in store and ym not in refresh:
@@ -175,7 +180,7 @@ def build(key, prev, now, months=25):
 
     result = {"updated": now.strftime("%Y-%m-%dT%H:%M"), "months": [f"{ym[:4]}-{ym[4:]}" for ym in done]}
     result["total"] = {k: [store[ym]["total"][k] for ym in done] for k in ("exp", "imp", "bal", "expCnt", "impCnt")}
-    for group in ("country", "region"):
+    for group in ("country", "region", "continent"):
         names = {}
         for ym in done:
             for c, (n, _, _) in store[ym][group].items():
@@ -227,7 +232,7 @@ def main():
     out = build(api_key(), prev, datetime.now(KST), args.months)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
-    print(f"월 {len(out['months'])}개({out['months'][0]}~{out['months'][-1]}), 국가 {len(out['country'])}곳, 시도 {len(out['sido'])}곳, "
+    print(f"월 {len(out['months'])}개({out['months'][0]}~{out['months'][-1]}), 국가 {len(out['country'])}곳, 시도 {len(out['sido'])}곳, 대륙 {len(out['continent'])}곳, "
           f"세관 {len(out['port'])}곳, 10일 단위 {len(out['tenday'])}개월, {os.path.getsize(args.out) / 1e3:.0f}KB")
 
 
