@@ -10132,7 +10132,7 @@ def render_trade_tenday(data):
     for r in rows:
         end = r["period"][3:]
         label = f"{int(ym[4:])}월 1~{int(end)}일 누계"
-        cards.append((label, trade_cheon(r["cur"]), None if r["yoy"] is None else f"{px_pct(r['yoy'])} (전년 같은 기간比)", None))
+        cards.append((label, trade_cheon(r["cur"]), None if r["yoy"] is None else f"{px_pct(r['yoy'])} (전년 동기比)", None))
     st.markdown(cb_cards(cards), unsafe_allow_html=True)
     period = st.radio("누계 기간", [r["period"] for r in rows], index=len(rows) - 1, horizontal=True, key="tr_t_period",
                       format_func=lambda p: f"1~{int(p[3:])}일")
