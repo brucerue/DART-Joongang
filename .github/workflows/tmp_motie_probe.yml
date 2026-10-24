@@ -1,0 +1,37 @@
+name: 산업부 보도자료 시험
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 접속 시험
+        run: |
+          cat > p.py <<'PY'
+          import re, requests
+          H = {"User-Agent": "Mozilla/5.0"}
+          urls = [
+            "https://www.korea.kr/rss/dept_motie.xml",
+            "https://www.korea.kr/rss/pressrelease.xml",
+            "https://www.motie.go.kr/kor/article/ATCL3f49a5a8c",
+            "https://www.motie.go.kr/",
+            "https://www.motie.go.kr/rss/motie_press.xml",
+          ]
+          out = []
+          for u in urls:
+              try:
+                  r = requests.get(u, headers=H, timeout=25)
+                  t = r.text
+                  titles = re.findall(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", t)[:40]
+                  hit = [x for x in titles if "수출입" in x]
+                  out.append(f"{u} -> {r.status_code} {len(t)}자 {r.headers.get('content-type','')[:30]} | 수출입제목 {hit[:5]} | 앞부분 {re.sub(chr(10),' ',t[:150])}")
+              except Exception as e:
+                  out.append(f"{u} -> 실패 {type(e).__name__}: {str(e)[:100]}")
+          msg = "%0A".join(o.replace("%","%25") for o in out)
+          print(f"::notice title=산업부시험::{msg}")
+          PY
+          python p.py
