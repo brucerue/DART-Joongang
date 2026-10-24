@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 04:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 05:05"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3850,7 +3850,10 @@ def render_financials():
     st.session_state.setdefault("fin_start", 2021)  # 기간 기본값 (조회 단위를 바꾸면 위 함수가 다시 채운다)
     st.session_state.setdefault("fin_end", this_year - 1)
     # 조회 단위는 폼 밖에 둔다(폼 안에서는 '조회'를 눌러야 반영돼 기간 기본값이 바로 바뀌지 않음)
-    period = st.radio("조회 단위", ["연도별", "분기별"], horizontal=True, key="fin_period", on_change=set_default_years)
+    with st.container(key="fin_unit_bar"):  # '조회 단위' 글자와 선택지를 '조회 방식'과 같은 모양으로 한 줄에
+        u1, u2 = st.columns([1, 4], vertical_alignment="center")
+        u1.markdown('<span class="mode-lbl">조회 단위</span>', unsafe_allow_html=True)
+        period = u2.radio("조회 단위", ["연도별", "분기별"], horizontal=True, key="fin_period", on_change=set_default_years, label_visibility="collapsed")
     with st.form("search"):
         corp_text = st.text_input("기업명 또는 종목코드", key="fin_corp", placeholder="예: 삼성전자 또는 005930")
         c1, c2 = st.columns(2)
@@ -7208,9 +7211,9 @@ footer { visibility: hidden; }
 [class*="secbar"] button p { font-size: 0.8rem !important; }
 .sec-lbl { font-size: 0.9rem; color: #31333f; white-space: nowrap; }
 .mode-lbl { font-size: 0.9rem; font-weight: 600; color: #334155; white-space: nowrap; }
-.st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"], .st-key-news_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
-.st-key-fin_mode_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"], .st-key-news_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
-.st-key-fin_mode_bar [data-testid="stColumn"]:first-child, .st-key-disc_mode_bar [data-testid="stColumn"]:first-child, .st-key-news_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
+.st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-fin_unit_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"], .st-key-news_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
+.st-key-fin_mode_bar [data-testid="stColumn"], .st-key-fin_unit_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"], .st-key-news_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
+.st-key-fin_mode_bar [data-testid="stColumn"]:first-child, .st-key-fin_unit_bar [data-testid="stColumn"]:first-child, .st-key-disc_mode_bar [data-testid="stColumn"]:first-child, .st-key-news_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
 .st-key-news_opts_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
 .st-key-news_opts_bar [data-testid="stColumn"] { min-width: 0 !important; }
 .st-key-ovs_fx_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.75rem !important; }  /* 모바일에서도 한 줄 */
@@ -7323,12 +7326,12 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 @media (max-width: 500px) { :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .v { font-size: 1.25rem; } }
 :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d { display: inline-block; font-size: 0.76rem; border-radius: 999px; padding: 0.05rem 0.5rem; background: #eef2f7; }
 :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d.up { background: #e7f1fd; } :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d.down { background: #fdecec; }
-/* 수출입 검색 조건(종류·품목·지역·기간)·재무 조회 단위: 이름 바로 옆에 선택지 */
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level,.st-key-fin_period) [data-testid="stRadio"] { display: flex; flex-direction: row; align-items: flex-start; gap: 0.7rem; }
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level,.st-key-fin_period) [data-testid="stRadio"] > label { flex: 0 0 auto; width: 4.1rem; min-width: 4.1rem; margin: 0.15rem 0 0 0; white-space: nowrap; }
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level,.st-key-fin_period) [data-testid="stRadio"] > label * { white-space: nowrap; flex-wrap: nowrap !important; }
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level,.st-key-fin_period) [data-testid="stRadio"] > div[role="radiogroup"] { flex: 1 1 auto; min-width: 0; }
-.st-key-tr_r_level [data-testid="stRadio"] > label, .st-key-fin_period [data-testid="stRadio"] > label { width: 5.2rem; min-width: 5.2rem; }
+/* 수출입 검색 조건(종류·품목·지역·기간): 이름 바로 옆에 선택지 */
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] { display: flex; flex-direction: row; align-items: flex-start; gap: 0.7rem; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > label { flex: 0 0 auto; width: 4.1rem; min-width: 4.1rem; margin: 0.15rem 0 0 0; white-space: nowrap; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > label * { white-space: nowrap; flex-wrap: nowrap !important; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > div[role="radiogroup"] { flex: 1 1 auto; min-width: 0; }
+.st-key-tr_r_level [data-testid="stRadio"] > label { width: 5.2rem; min-width: 5.2rem; }
 .cb-hero { position: relative; overflow: hidden; background: linear-gradient(135deg, #3d86dc 0%, #5ea6ee 100%); border: 0; border-radius: 18px; padding: 1.2rem 1.3rem; margin: 0.2rem 0 0.8rem; box-shadow: 0 6px 16px rgba(61, 134, 220, 0.25); }
 .cb-hero::after { content: ""; position: absolute; right: -2.2rem; top: -2.2rem; width: 9rem; height: 9rem; border-radius: 50%; background: radial-gradient(circle, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 70%); pointer-events: none; }
 .cb-hero .t { position: relative; font-size: 1.7rem; font-weight: 800; color: #ffffff; letter-spacing: -0.03em; line-height: 1.25; }
