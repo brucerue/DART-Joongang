@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 05:25"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 05:45"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7344,14 +7344,6 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .cb-hero .s { position: relative; color: #e6f1ff; font-size: 0.85rem; margin-top: 0.3rem; }
 .st-key-trade_wrap { gap: 1.35rem !important; }  /* 수출입 분석: 칸 사이를 넓게 */
 .st-key-trade_wrap [data-testid="stRadio"], .st-key-trade_wrap [data-testid="stMultiSelect"] { margin-bottom: 0.2rem; }
-.st-key-trade_hero { background: linear-gradient(135deg, #eaf3ff 0%, #ffffff 70%); border: 1px solid #d6e6fb; border-radius: 18px; padding: 1.2rem 1.3rem 2rem; margin: 0.2rem 0 0.3rem; box-shadow: 0 2px 12px rgba(28, 126, 214, 0.08); }
-.st-key-trade_hero [data-testid="stMarkdown"] > div { display: flex; align-items: center; justify-content: flex-start !important; gap: 0.4rem; }
-.st-key-trade_hero [data-testid="stMarkdownContainer"] { flex: 0 0 auto; width: auto !important; }
-.st-key-trade_hero p { margin: 0 !important; }
-.st-key-trade_hero .s { color: #7a8699; font-size: 0.85rem; margin-top: -0.2rem; white-space: nowrap; }
-.st-key-trade_hero .t { display: inline-block; font-size: 1.7rem; font-weight: 800; color: #0b2545; letter-spacing: -0.03em; line-height: 1.5; }
-.st-key-trade_hero [data-testid="stMarkdownContainer"], .st-key-trade_hero [data-testid="stMarkdown"] { overflow: visible !important; }
-.st-key-trade_hero [data-testid="stTooltipIcon"] { transform: scale(0.8); opacity: 0.8; }
 .cb-top { display: block; }
 @media (min-width: 900px) {
   .cb-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.1fr); gap: 0.8rem; align-items: stretch; margin: 0.2rem 0 0.8rem; }
@@ -10207,11 +10199,10 @@ def render_trade():
         return
     months = data["months"]
     with st.container(key="trade_wrap"):
-        with st.container(key="trade_hero"):
-            st.markdown('<span class="t">수출입 분석</span>', unsafe_allow_html=True, help=f"관세청 수출입 통계(통관 기준, 달러)예요. 월별 확정치는 보통 다음 달 중순에 나와요.  \n"
-                        f"월별 자료 {months[0].replace('-', '.')} ~ {months[-1].replace('-', '.')} · 자료 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}  \n"
-                        "증감은 전년 같은 달 대비이고, 파랑은 늘어난 것·빨강은 줄어든 것이에요.")
-            st.markdown(f'<div class="s">관세청 통관 기준 · 갱신 {str(data.get("updated", ""))[:16].replace("T", " ")}</div>', unsafe_allow_html=True)
+        st.caption(f"관세청 통관 기준 · 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}",
+                   help=f"관세청 수출입 통계(통관 기준, 달러)예요. 월별 확정치는 보통 다음 달 중순에 나와요.  \n"
+                   f"월별 자료 {months[0].replace('-', '.')} ~ {months[-1].replace('-', '.')} · 자료 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}  \n"
+                   "증감은 전년 같은 달 대비이고, 파랑은 늘어난 것·빨강은 줄어든 것이에요.")
         view = st.radio("보기", TRADE_VIEWS, horizontal=True, key="tr_view", label_visibility="collapsed")
         {"검색": render_trade_search, "월간 현황": render_trade_monthly, "10일 단위 속보": render_trade_tenday, "국가·경제권": render_trade_country}[view](data)
 
