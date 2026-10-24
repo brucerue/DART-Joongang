@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 00:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 01:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7214,7 +7214,11 @@ footer { visibility: hidden; }
 
 .block-container { max-width: 1080px; padding-top: 2.5rem; padding-bottom: 4rem; }
 
-h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !important; padding-bottom: 0.2rem; }
+h1 { font-size: 2.15rem !important; font-weight: 800 !important; letter-spacing: -0.045em; line-height: 1.2 !important; color: #0b2545 !important; padding: 0.2rem 0 0.1rem !important;
+     background: linear-gradient(100deg, #0b2545 0%, #1c4f9c 55%, #1c7ed6 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
+[data-testid="stElementContainer"]:has(h1) + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"] { font-size: 0.78rem; letter-spacing: 0.06em; color: #7a8699; margin-top: 0.1rem; }
+[data-testid="stElementContainer"]:has(h1) + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"] p::before { content: ""; display: inline-block; width: 1.6rem; height: 3px; border-radius: 2px; background: #1c7ed6; vertical-align: middle; margin-right: 0.5rem; }
 [data-testid="stCaptionContainer"] { color: #7a8699; }
 
 /* 탭: 모바일은 한 줄에 4개씩 2줄 바둑판으로 (옆으로 밀지 않아도 모두 보이게) */
@@ -7325,7 +7329,7 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 .cb-hero .s { color: #7a8699; font-size: 0.85rem; margin-top: 0.25rem; }
 .st-key-trade_wrap { gap: 1.35rem !important; }  /* 수출입 분석: 칸 사이를 넓게 */
 .st-key-trade_wrap [data-testid="stRadio"], .st-key-trade_wrap [data-testid="stMultiSelect"] { margin-bottom: 0.2rem; }
-.st-key-trade_hero { background: linear-gradient(135deg, #eaf3ff 0%, #ffffff 70%); border: 1px solid #d6e6fb; border-radius: 18px; padding: 1.2rem 1.3rem 1.6rem; margin: 0.2rem 0 0.3rem; box-shadow: 0 2px 12px rgba(28, 126, 214, 0.08); }
+.st-key-trade_hero { background: linear-gradient(135deg, #eaf3ff 0%, #ffffff 70%); border: 1px solid #d6e6fb; border-radius: 18px; padding: 1.2rem 1.3rem 2rem; margin: 0.2rem 0 0.3rem; box-shadow: 0 2px 12px rgba(28, 126, 214, 0.08); }
 .st-key-trade_hero [data-testid="stMarkdown"] > div { display: flex; align-items: center; justify-content: flex-start !important; gap: 0.4rem; }
 .st-key-trade_hero [data-testid="stMarkdownContainer"] { flex: 0 0 auto; width: auto !important; }
 .st-key-trade_hero p { margin: 0 !important; }
@@ -9015,8 +9019,8 @@ TRADE_BRANCH = "trade"
 TRADE_VIEWS = ["검색", "월간 현황", "10일 단위 속보", "국가·경제권"]
 CUSTOMS_KEY = load_secret("CUSTOMS_API_KEY")  # 공공데이터포털 일반 인증키 (검색 화면이 품목별 국가별 수출입실적 API를 직접 부른다)
 TRADE_ITEM_URL = "https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH
-TRADE_KINDS = ["일반 검색", "국가별 순위", "품목별 구성", "AI 검색"]
-TRADE_ITEM_MODES = ["전체", "20대 품목", "HS 코드", "MTI 코드"]
+TRADE_KINDS = ["일반 검색", "국가별", "품목별", "AI 검색"]
+TRADE_ITEM_MODES = ["전체", "20대 품목", "HS코드", "MTI코드"]
 TRADE_REGION_MODES = ["전체", "국가", "경제권", "대륙"]
 MTI_FILE = "mti_map.json"  # mti_build.py가 무역협회 HSK-MTI 연계표(엑셀)로 만든 파일 (앱과 같은 폴더)
 TRADE_MTI_WARN_CALLS = 300  # 한 조회가 이만큼 넘는 관세청 호출이 필요하면 오래 걸린다고 알린다
@@ -9645,7 +9649,7 @@ def render_trade_ai(data):
         render_trade_search_result(data, sq, series)
 
 
-TRADE_PERIOD_PRESETS = ["올해", "작년", "최근 12개월", "최근 3년", "최근 5년", "전체 기간", "직접 선택"]
+TRADE_PERIOD_PRESETS = ["올해", "최근 1년", "최근 3년", "직접 선택"]
 
 
 def trade_period_pick(data, pre, fm=None):
@@ -9655,9 +9659,8 @@ def trade_period_pick(data, pre, fm=None):
     last = end_opts[-1]
     ly = int(last[:4])
     mode = st.radio("기간", TRADE_PERIOD_PRESETS, horizontal=True, key=f"{pre}period",
-                    help="'올해'는 올해 1월부터 가장 최근 달까지, '작년'은 작년 1~12월이에요. '최근 3년·5년'은 해(1월)부터 시작해요. 모아 둔 자료는 최근 10년이에요.")
-    fixed = {"올해": (f"{ly}-01", last), "작년": (f"{ly - 1}-01", f"{ly - 1}-12"), "최근 12개월": (tc._dash_add(last, -11), last),
-             "최근 3년": (f"{ly - 2}-01", last), "최근 5년": (f"{ly - 4}-01", last), "전체 기간": (months[0], last)}
+                    help="'올해'는 올해 1월부터 가장 최근 달까지, '최근 1년'은 최근 12개월이에요. '최근 3년'은 해(1월)부터 시작해요. 그 밖의 기간은 '직접 선택'에서 고르세요(모아 둔 자료는 최근 10년이에요).")
+    fixed = {"올해": (f"{ly}-01", last), "최근 1년": (tc._dash_add(last, -11), last), "최근 3년": (f"{ly - 2}-01", last)}
     if mode != "직접 선택":
         start, end = fixed[mode]
         start, end = max(start, months[0]), min(end, last)
@@ -9681,7 +9684,7 @@ def trade_item_picker(data, pre):
     if live and not CUSTOMS_KEY:
         st.info("품목 조회에는 Streamlit Secrets에 CUSTOMS_API_KEY(공공데이터포털 인증키)가 필요해요. 추가하면 바로 쓸 수 있어요. (품목을 '전체'로 두면 지금도 지역별로 볼 수 있어요.)")
         return None
-    if live and item_mode != "HS 코드":
+    if live and item_mode != "HS코드":
         mti = get_mti()
         if mti is None:
             st.info("산업부 품목(MTI) 연계표(mti_map.json)를 불러오지 못했어요.")
@@ -9690,13 +9693,13 @@ def trade_item_picker(data, pre):
         st.caption("보고 싶은 품목을 눌러 선택하세요 (여러 개 가능). 산업부 보도자료의 품목별 수출액과 맞춰 확인했고, 석유제품은 MTI 133 전체(나프타 포함), 일반기계는 반도체·디스플레이 제조장비 제외로 맞췄어요.")
         picked = st.pills("20대 품목", list(tc.MTI_GROUPS), selection_mode="multi", key=f"{pre}groups", label_visibility="collapsed")
         items += [("mti", tc.GROUP_PREFIX + g) for g in (picked or [])]
-    if item_mode == "MTI 코드":
+    if item_mode == "MTI코드":
         opts = {f"{c} {n}": c for c, n in sorted(mti["names"].items())}
         picked = st.multiselect("MTI 품목 — 이름이나 코드(1~6자리)를 입력해 검색", list(opts), key=f"{pre}mti", max_selections=6,
                                 placeholder="예: 반도체, 8312, 831110")
         items += [("mti", opts[p]) for p in picked]
         st.caption("산업부(MOTIE)가 발표에 쓰는 품목 분류예요. 같은 이름이라도 HS 코드 하나가 아니라 여러 HS 코드를 묶은 것이에요(예: 반도체 = 집적회로·반도체 소자·웨이퍼 등). 자릿수가 짧을수록 넓은 묶음이에요.")
-    if item_mode == "HS 코드":
+    if item_mode == "HS코드":
         opts = trade_hs_options(data)
         picked = st.multiselect("HS 품목 — 이름이나 코드로 검색 (목록에 없는 코드는 입력하고 엔터, 2·4·6·8·10자리)", list(opts), key=f"{pre}hs", max_selections=6,
                                 accept_new_options=True, placeholder="예: 전자집적회로, 8542, 854231, 3102109000")
@@ -9705,7 +9708,7 @@ def trade_item_picker(data, pre):
         if any(c is None for c in codes):
             st.caption("HS 코드는 숫자 2·4·6·8·10자리로 입력해 주세요. 맞지 않는 입력은 빼고 조회해요.")
         items += [("hs", c) for c in dict.fromkeys(c for c in codes if c)]
-        st.caption("HS 코드는 관세청 분류예요. 산업부 발표 기준(반도체·자동차 등)으로 보려면 '20대 품목'이나 'MTI 코드'를 쓰세요.")
+        st.caption("HS 코드는 관세청 분류예요. 산업부 발표 기준(반도체·자동차 등)으로 보려면 '20대 품목'이나 'MTI코드'를 쓰세요.")
     return items, live, mti
 
 
@@ -9980,10 +9983,10 @@ def render_trade_search(data):
     if kind == "AI 검색":
         render_trade_ai(data)
         return
-    if kind == "국가별 순위":
+    if kind == "국가별":
         render_trade_rank_country(data)
         return
-    if kind == "품목별 구성":
+    if kind == "품목별":
         render_trade_composition(data)
         return
     q = {"kind": kind, "items": [], "regions": []}
