@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 03:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 03:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3812,6 +3812,21 @@ def fin_ai_analysis(corp, records, period):
     return ai_cached(("fin", sig), lambda: ai_generate(prompt, system=AI_FIN_SYSTEM)), sig
 
 
+def fin_summary_cards(records):
+    """재무 조회 결과 맨 위 카드: 가장 최근 기간의 매출액·영업이익·순이익 (전년비)"""
+    recs = sorted_records(records)
+    if not recs:
+        return []
+    r = recs[-1]
+    cards = []
+    for name, k in (("매출액", "rev"), ("영업이익", "op"), ("순이익", "net")):
+        if r.get(k) is None:
+            continue
+        yoy = fmt_change(r.get(f"{k}_yoy")) if r.get(f"{k}_yoy") is not None else None
+        cards.append((f"{r['label']} {name}", won_text(r[k]), f"전년比 {yoy}" if yoy else None, None if yoy and yoy[:1] in "+-" else "flat"))
+    return cards
+
+
 def render_fin_ai(result):
     """재무 조회 결과 아래 'AI 분석' 상자."""
     st.markdown("##### AI 분석")
@@ -3901,69 +3916,75 @@ def render_financials():
         st.warning("조회된 데이터가 없습니다. 기업명(종목코드)과 연도를 확인해주세요.")
         return
 
-    st.markdown(f"##### {result['corp']} 실적")  # 아래 '재무상태'와 같은 크기의 소제목
-    unit = st.radio("단위", list(UNITS), horizontal=True, key="fin_unit", label_visibility="collapsed")  # 기본 억원, 조원으로 바꿀 수 있음
-    table = build_table(result["records"], result["period"], unit=unit)
-    basis = "연결 기준" if FS_DIV == "CFS" else "별도 기준"  # 지금은 항상 연결재무제표(CFS)로 조회
-    st.caption(f"단위: {unit} · {basis}")
-    alts = {r["alt"] for r in result["records"] if r.get("alt")}
-    if "ofs" in alts:
-        st.caption("†연결재무제표가 없어 별도 재무제표 기준으로 보여줘요.")
-    if "doc" in alts:
-        st.caption("†DART 재무 자료에 없어 정기보고서 원문 표에서 읽은 매출액·영업이익·순이익이에요(4분기는 연간 − 3분기 누적. 기준·단위는 원문 확인).")
-    if any(r.get("prov") for r in result["records"]):
-        st.caption("\\*잠정실적: 분기보고서 제출 전, '영업(잠정)실적(공정공시)'에서 읽은 매출액·영업이익만 보여줘요(연결 기준). 확정치와 다를 수 있어요")
-    elif st.session_state.get("fin_prov_note") and result["period"] == "분기별":
-        st.caption(st.session_state["fin_prov_note"])
-    # 스크롤 없이 전체가 보이도록 높이를 행 수에 맞춘다 (머리글 1줄 + 데이터 행, 한 줄당 약 35px)
-    st.dataframe(
-        style_table(table),
-        hide_index=True,
-        # 기간 칸: "2025 4Q"가 모바일에서도 잘리지 않게 넓힌다
-        column_config={
-            "기간": st.column_config.TextColumn("기간", width=95),
-            # 금액 칸: 삼성전자 매출(3,336,059억원)도 굵은 글씨로 잘리지 않는 너비
-            "매출액": st.column_config.TextColumn("매출액", width=108),
-            "영업이익": st.column_config.TextColumn("영업이익", width=95),
-            "순이익": st.column_config.TextColumn("순이익", width=95),
-            "원문": LINK_COLUMN,
-        },
-        height=(len(table) + 1) * 35 + 3,
-    )
-    if st.toggle("그래프", key="fin_chart_on"):
-        render_fin_charts(result["records"], unit)
+    cards = fin_summary_cards(result["records"])
+    if cards:
+        st.markdown(cb_cards(cards), unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown(f"##### {result['corp']} 실적")  # 아래 '재무상태'와 같은 크기의 소제목
+        unit = st.radio("단위", list(UNITS), horizontal=True, key="fin_unit", label_visibility="collapsed")  # 기본 억원, 조원으로 바꿀 수 있음
+        table = build_table(result["records"], result["period"], unit=unit)
+        basis = "연결 기준" if FS_DIV == "CFS" else "별도 기준"  # 지금은 항상 연결재무제표(CFS)로 조회
+        st.caption(f"단위: {unit} · {basis}")
+        alts = {r["alt"] for r in result["records"] if r.get("alt")}
+        if "ofs" in alts:
+            st.caption("†연결재무제표가 없어 별도 재무제표 기준으로 보여줘요.")
+        if "doc" in alts:
+            st.caption("†DART 재무 자료에 없어 정기보고서 원문 표에서 읽은 매출액·영업이익·순이익이에요(4분기는 연간 − 3분기 누적. 기준·단위는 원문 확인).")
+        if any(r.get("prov") for r in result["records"]):
+            st.caption("\\*잠정실적: 분기보고서 제출 전, '영업(잠정)실적(공정공시)'에서 읽은 매출액·영업이익만 보여줘요(연결 기준). 확정치와 다를 수 있어요")
+        elif st.session_state.get("fin_prov_note") and result["period"] == "분기별":
+            st.caption(st.session_state["fin_prov_note"])
+        # 스크롤 없이 전체가 보이도록 높이를 행 수에 맞춘다 (머리글 1줄 + 데이터 행, 한 줄당 약 35px)
+        st.dataframe(
+            style_table(table),
+            hide_index=True,
+            # 기간 칸: "2025 4Q"가 모바일에서도 잘리지 않게 넓힌다
+            column_config={
+                "기간": st.column_config.TextColumn("기간", width=95),
+                # 금액 칸: 삼성전자 매출(3,336,059억원)도 굵은 글씨로 잘리지 않는 너비
+                "매출액": st.column_config.TextColumn("매출액", width=108),
+                "영업이익": st.column_config.TextColumn("영업이익", width=95),
+                "순이익": st.column_config.TextColumn("순이익", width=95),
+                "원문": LINK_COLUMN,
+            },
+            height=(len(table) + 1) * 35 + 3,
+        )
+        if st.toggle("그래프", key="fin_chart_on"):
+            render_fin_charts(result["records"], unit)
 
     bs_table = build_bs_table(result["records"], result["period"], unit=unit)
     if not bs_table.empty:
-        st.markdown("##### 재무상태")
-        yearly = result["period"] != "분기별"
-        capex_note = "  \n**CAPEX** = 유형자산 취득액(연간, 현금흐름표)  \n**잉여현금흐름** = 영업활동현금흐름 − CAPEX" if yearly else ""
-        st.caption(
-            f"단위: {unit} · 기말 기준",
-            help="**부채비율** = 부채총계 ÷ 자본총계  \n**순차입금** = 차입금 − 현금성자산 (마이너스는 현금이 빚보다 많은 순현금)" + capex_note,
-        )
-        st.dataframe(
-            bs_table, hide_index=True,
-            column_config={"기간": st.column_config.TextColumn("기간", width=95)},
-            height=(len(bs_table) + 1) * 35 + 3,
-        )
-        only_year = "" if yearly else " 현금흐름·이자·EBITDA·ROE는 연도별 조회에서만 나와요."
-        more_help = (
-            "**순차입금비율** = 순차입금 ÷ 자본총계  \n**유동비율** = 유동자산 ÷ 유동부채  \n"
-            "**이자보상배율** = 영업이익 ÷ 이자비용(없으면 현금흐름표의 이자 지급액)  \n"
-            "**EBITDA** = 영업이익 + 감가상각비 + 무형자산상각비  \n**ROE** = 순이익 ÷ 기말 자본총계  \n"
-            "차입금은 재무상태표의 단기차입금·유동성장기부채·사채·장기차입금 등을 더한 값이에요. "
-            "은행·보험·증권사는 계정 구조가 달라 '-'로 나올 수 있어요." + only_year
-        )
-        if st.toggle("더 보기", key="fin_bs_more", help=more_help):
-            more = build_bs_more_table(result["records"], result["period"], unit=unit)
-            st.dataframe(
-                more, hide_index=True,
-                column_config={"기간": st.column_config.TextColumn("기간", width=95)},
-                height=(len(more) + 1) * 35 + 3,
+        with st.container(border=True):
+            st.markdown("##### 재무상태")
+            yearly = result["period"] != "분기별"
+            capex_note = "  \n**CAPEX** = 유형자산 취득액(연간, 현금흐름표)  \n**잉여현금흐름** = 영업활동현금흐름 − CAPEX" if yearly else ""
+            st.caption(
+                f"단위: {unit} · 기말 기준",
+                help="**부채비율** = 부채총계 ÷ 자본총계  \n**순차입금** = 차입금 − 현금성자산 (마이너스는 현금이 빚보다 많은 순현금)" + capex_note,
             )
+            st.dataframe(
+                bs_table, hide_index=True,
+                column_config={"기간": st.column_config.TextColumn("기간", width=95)},
+                height=(len(bs_table) + 1) * 35 + 3,
+            )
+            only_year = "" if yearly else " 현금흐름·이자·EBITDA·ROE는 연도별 조회에서만 나와요."
+            more_help = (
+                "**순차입금비율** = 순차입금 ÷ 자본총계  \n**유동비율** = 유동자산 ÷ 유동부채  \n"
+                "**이자보상배율** = 영업이익 ÷ 이자비용(없으면 현금흐름표의 이자 지급액)  \n"
+                "**EBITDA** = 영업이익 + 감가상각비 + 무형자산상각비  \n**ROE** = 순이익 ÷ 기말 자본총계  \n"
+                "차입금은 재무상태표의 단기차입금·유동성장기부채·사채·장기차입금 등을 더한 값이에요. "
+                "은행·보험·증권사는 계정 구조가 달라 '-'로 나올 수 있어요." + only_year
+            )
+            if st.toggle("더 보기", key="fin_bs_more", help=more_help):
+                more = build_bs_more_table(result["records"], result["period"], unit=unit)
+                st.dataframe(
+                    more, hide_index=True,
+                    column_config={"기간": st.column_config.TextColumn("기간", width=95)},
+                    height=(len(more) + 1) * 35 + 3,
+                )
 
-    render_fin_ai(result)
+    with st.container(border=True):
+        render_fin_ai(result)
 
     export = build_table(result["records"], result["period"], for_export=True, unit=unit)
     bs_export = build_bs_table(result["records"], result["period"], for_export=True, unit=unit)
@@ -3997,16 +4018,18 @@ def fill_industry():
 
 def render_fin_hub():
     """탭: 재무 조회 - 기업 한 곳의 기간별 추이 / 국내 섹터 합산 / 해외 섹터(미국 SEC 등)를 고른다."""
-    with st.container(key="fin_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
-        c1, c2 = st.columns([1, 4], vertical_alignment="center")
-        c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["기업", "국내 섹터", "해외 섹터"], horizontal=True, key="fin_mode", label_visibility="collapsed")
-    if mode == "기업":
-        render_financials()
-    elif mode == "국내 섹터":
-        render_industry()
-    else:
-        render_overseas()
+    with st.container(key="fin_wrap"):
+        st.markdown('<div class="cb-hero"><div class="t">재무 조회</div><div class="s">DART 공시 기준 · 기업 / 국내 섹터 / 해외 섹터</div></div>', unsafe_allow_html=True)
+        with st.container(key="fin_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
+            c1, c2 = st.columns([1, 4], vertical_alignment="center")
+            c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
+            mode = c2.radio("조회 방식", ["기업", "국내 섹터", "해외 섹터"], horizontal=True, key="fin_mode", label_visibility="collapsed")
+        if mode == "기업":
+            render_financials()
+        elif mode == "국내 섹터":
+            render_industry()
+        else:
+            render_overseas()
 
 
 def render_industry():
@@ -7307,18 +7330,18 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .news-item li a:hover { color: #1c7ed6; text-decoration: underline; }
 .news-tags { color: #4c6ef5; font-weight: 600; }
 .news-item li span { color: #7a8699; font-size: 0.8rem; margin-left: 0.3rem; }
-/* 기업 브리핑·수출입 분석: 카드형 화면 (다른 탭에는 영향 없음) */
-:is(.st-key-brief_wrap, .st-key-trade_wrap) h5 { display: flex; align-items: center; gap: 0.5rem; font-size: 1.05rem !important; font-weight: 800 !important; color: #0b2545 !important; margin: 0.9rem 0 0.5rem !important; padding: 0 !important; }
-:is(.st-key-brief_wrap, .st-key-trade_wrap) h5::before { content: ""; width: 4px; height: 1.05em; border-radius: 2px; background: #1c7ed6; flex: 0 0 auto; }
-:is(.st-key-brief_wrap, .st-key-trade_wrap) [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); padding: 0.4rem 0.6rem 0.6rem; }
-:is(.st-key-brief_wrap, .st-key-trade_wrap) [data-testid="stVerticalBlockBorderWrapper"] h5:first-child { margin-top: 0.3rem !important; }
-:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-stats { gap: 0.6rem; }
-:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card { border-radius: 14px; padding: 0.8rem 0.95rem; background: linear-gradient(160deg, #ffffff 0%, #f1f6fd 100%); box-shadow: 0 2px 10px rgba(16, 42, 84, 0.05); }
-:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .l { font-size: 0.8rem; }
-:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .v { font-size: 1.5rem; margin: 0.1rem 0; }
-@media (max-width: 500px) { :is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .v { font-size: 1.25rem; } }
-:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .d { display: inline-block; font-size: 0.76rem; border-radius: 999px; padding: 0.05rem 0.5rem; background: #eef2f7; }
-:is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .d.up { background: #e7f1fd; } :is(.st-key-brief_wrap, .st-key-trade_wrap) .cb-card .d.down { background: #fdecec; }
+/* 기업 브리핑·수출입 분석·재무 조회: 카드형 화면 (다른 탭에는 영향 없음) */
+:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) h5 { display: flex; align-items: center; gap: 0.5rem; font-size: 1.05rem !important; font-weight: 800 !important; color: #0b2545 !important; margin: 0.9rem 0 0.5rem !important; padding: 0 !important; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) h5::before { content: ""; width: 4px; height: 1.05em; border-radius: 2px; background: #1c7ed6; flex: 0 0 auto; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); padding: 0.4rem 0.6rem 0.6rem; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) [data-testid="stVerticalBlockBorderWrapper"] h5:first-child { margin-top: 0.3rem !important; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-stats { gap: 0.6rem; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card { border-radius: 14px; padding: 0.8rem 0.95rem; background: linear-gradient(160deg, #ffffff 0%, #f1f6fd 100%); box-shadow: 0 2px 10px rgba(16, 42, 84, 0.05); }
+:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .l { font-size: 0.8rem; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .v { font-size: 1.5rem; margin: 0.1rem 0; }
+@media (max-width: 500px) { :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .v { font-size: 1.25rem; } }
+:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d { display: inline-block; font-size: 0.76rem; border-radius: 999px; padding: 0.05rem 0.5rem; background: #eef2f7; }
+:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d.up { background: #e7f1fd; } :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d.down { background: #fdecec; }
 /* 수출입 검색 조건(종류·품목·지역·기간): 이름 바로 옆에 선택지 */
 :is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] { display: flex; flex-direction: row; align-items: flex-start; gap: 0.7rem; }
 :is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > label { flex: 0 0 auto; width: 4.1rem; min-width: 4.1rem; margin: 0.15rem 0 0 0; white-space: nowrap; }
