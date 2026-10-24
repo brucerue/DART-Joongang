@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 20:55"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 22:05"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9637,7 +9637,7 @@ def trade_item_picker(data, pre):
             st.info("산업부 품목(MTI) 연계표(mti_map.json)를 불러오지 못했어요.")
             return None
     if item_mode == "20대 품목":
-        st.caption("보고 싶은 품목을 눌러 선택하세요 (여러 개 가능). 산업부 보도자료의 품목별 수출액과 맞춰 확인했고, 석유제품은 나프타 제외, 일반기계는 반도체·디스플레이 제조장비 제외로 맞췄어요.")
+        st.caption("보고 싶은 품목을 눌러 선택하세요 (여러 개 가능). 산업부 보도자료의 품목별 수출액과 맞춰 확인했고, 석유제품은 MTI 133 전체(나프타 포함), 일반기계는 반도체·디스플레이 제조장비 제외로 맞췄어요.")
         picked = st.pills("20대 품목", list(tc.MTI_GROUPS), selection_mode="multi", key=f"{pre}groups", label_visibility="collapsed")
         items += [("mti", tc.GROUP_PREFIX + g) for g in (picked or [])]
     if item_mode == "MTI 코드":
