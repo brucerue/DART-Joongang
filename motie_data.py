@@ -24,7 +24,7 @@ BASE = "https://www.motie.go.kr"
 LIST_URL = BASE + "/kor/article/ATCL3f49a5a8c"  # 보도자료 게시판
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 KEEP_MONTHS = 14
-MAX_PAGES = 6  # 최신 글이 앞쪽이라 몇 쪽만 보면 된다
+MAX_PAGES = 15  # 최신 글이 앞쪽이라 1일 당일에는 1~2쪽이면 되지만, 늦게 받거나 지난 달을 받을 때를 위해 넉넉히
 PAUSE = 1.0
 
 
