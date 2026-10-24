@@ -18,35 +18,45 @@ jobs:
               o = re.sub(r"\s+", " ", o).replace("%", "%25")
               print(f"::notice title=산업부시험{i}::{o}")
           base = "https://www.motie.go.kr"
-          import io
+          import io, time
+          notes = []
+          def get(u, **kw):
+              for k in range(4):
+                  try:
+                      return requests.get(u, headers=H, timeout=60, **kw)
+                  except Exception as e:
+                      time.sleep(3 * (k + 1))
+              return None
           L = base + "/kor/article/ATCL3f49a5a8c"
-          found = []
-          for pg in range(1, 41):
-              try:
-                  t = requests.get(f"{L}?pageIndex={pg}", headers=H, timeout=25).text
-              except Exception as e:
-                  note(0, f"p{pg} 실패 {e}"); continue
-              for tr in re.findall(r"<tr>.*?</tr>", t, re.S):
-                  title = re.sub(r"<[^>]+>", "", (re.search(r'class="ta-l".*?</td>', tr, re.S) or [""])[0] if re.search(r'class="ta-l"', tr) else "")
-                  title = re.sub(r"\s+", " ", title).strip()
+          found, fails = [], 0
+          for pg in range(1, 31):
+              r = get(f"{L}?pageIndex={pg}")
+              time.sleep(1)
+              if r is None:
+                  fails += 1; continue
+              for tr in re.findall(r"<tr>.*?</tr>", r.text, re.S):
+                  m = re.search(r'class="ta-l".*?</td>', tr, re.S)
+                  title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", m.group(0))).strip() if m else ""
                   if "수출입" in title and "동향" in title:
                       date = re.findall(r"20\d\d-\d\d-\d\d", tr)
                       atts = re.findall(r'href="(/attach/down/[^"]+)"[^>]*title="([^"]*)"', tr)
                       found.append((pg, title, date[:1], atts))
-          note(1, "찾은 수출입 동향 글 %d개" % len(found))
-          for k, f in enumerate(found[:6]):
-              note(2, f"{k}: p{f[0]} {f[1]} {f[2]} 첨부 {[(a[1][:60]) for a in f[3]]}")
+          notes.append(f"30쪽 중 실패 {fails}쪽, 수출입 동향 글 {len(found)}개")
+          for k, f in enumerate(found[:8]):
+              notes.append(f"{k}: p{f[0]} {f[1][:70]} {f[2]} 첨부 {[a[1][:50] for a in f[3]]}")
           if found and found[0][3]:
               for href, ttl in found[0][3][:3]:
-                  r = requests.get(base + href, headers=H, timeout=60)
-                  ct = r.headers.get("content-type", "")
-                  cd = r.headers.get("content-disposition", "")
-                  info = f"{ttl[:50]} -> {r.status_code} {ct} {len(r.content)}B {cd[:80]}"
+                  r = get(base + href)
+                  if r is None:
+                      notes.append(f"{ttl[:40]} 다운로드 실패"); continue
+                  info = f"{ttl[:50]} -> {r.status_code} {r.headers.get('content-type','')} {len(r.content)}B {r.headers.get('content-disposition','')[:80]}"
                   if r.content[:4] == b"%PDF":
                       from pypdf import PdfReader
                       rd = PdfReader(io.BytesIO(r.content))
                       tx = rd.pages[0].extract_text() or ""
                       info += f" | PDF {len(rd.pages)}쪽 1쪽 글자 {len(tx)}: {tx[:300]}"
-                  note(3, info)
+                  notes.append(info)
+          for i, n in enumerate(notes[:9]):
+              note(i, n)
           PY
           python p.py
