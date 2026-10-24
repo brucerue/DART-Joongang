@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 20:37"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 20:49"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8968,7 +8968,7 @@ TRADE_BRANCH = "trade"
 TRADE_VIEWS = ["검색", "월간 현황", "10일 단위 속보", "국가·경제권"]
 CUSTOMS_KEY = load_secret("CUSTOMS_API_KEY")  # 공공데이터포털 일반 인증키 (검색 화면이 품목별 국가별 수출입실적 API를 직접 부른다)
 TRADE_ITEM_URL = "https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH
-TRADE_KINDS = ["일반 검색", "국가별 순위", "AI 검색"]
+TRADE_KINDS = ["일반 검색", "국가별 순위", "품목별 구성", "AI 검색"]
 TRADE_ITEM_MODES = ["전체", "20대 품목", "HS 코드", "MTI 코드"]
 TRADE_REGION_MODES = ["전체", "국가", "경제권", "대륙"]
 MTI_FILE = "mti_map.json"  # mti_build.py가 무역협회 HSK-MTI 연계표(엑셀)로 만든 파일 (앱과 같은 폴더)
@@ -9617,10 +9617,10 @@ def trade_rank_metrics(live):
     return ["수출금액", "수입금액", "무역수지"] + (["수출 중량", "수입 중량"] if live else [])
 
 
-def render_trade_rank_table(title, entries, metric, top_n, denom, level, compare, key):
+def render_trade_rank_table(title, entries, metric, top_n, denom, level, compare, key, with_other=None):
     """순위 표·막대 그래프 하나 (entries: tc.rank_entries_* 결과)"""
     mk = tc.RANK_METRICS[metric]
-    rows, tot = tc.rank_table(entries, mk, top_n, denom=denom, with_other=(level == "국가"))
+    rows, tot = tc.rank_table(entries, mk, top_n, denom=denom, with_other=(level == "국가") if with_other is None else with_other)
     if not rows:
         st.info("이 조건으로 조회된 자료가 없어요. 기간이나 품목을 바꿔 보세요.")
         return
@@ -9636,7 +9636,7 @@ def render_trade_rank_table(title, entries, metric, top_n, denom, level, compare
             row["전년 같은 기간"] = fmt(r["prev"]) if r["prev"] is not None else "-"
             row["증감"] = px_pct(r["chg"]) if mk != "bal" else ("-" if r["prev"] is None or r["value"] is None else f"{(r['value'] - r['prev']) / 1e8:+,.1f}억달러")
         table_rows.append(row)
-    total_row = {"순위": "", level: "합계" if level == "국가" else "(전체)", short: fmt(denom if denom and level != "국가" else tot["value"]), "점유율": "100.0%" if mk != "bal" else "-"}
+    total_row = {"순위": "", level: "합계" if level in ("국가", "품목") else "(전체)", short: fmt(denom if denom and level not in ("국가", "품목") else tot["value"]), "점유율": "100.0%" if mk != "bal" else "-"}
     if compare:
         total_row["전년 같은 기간"] = fmt(tot["prev"]) if tot["prev"] is not None else "-"
         total_row["증감"] = px_pct(tot["chg"]) if tot["chg"] is not None else "-"
@@ -9646,7 +9646,7 @@ def render_trade_rank_table(title, entries, metric, top_n, denom, level, compare
     st.dataframe(trade_styled(table, ["증감"]) if compare else table, hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
     if compare and not has_prev:
         st.caption("전년 같은 기간 자료가 모아 둔 기간 밖이라 비교는 비어 있어요.")
-    if level != "국가":
+    if level in ("경제권", "대륙"):
         st.caption("경제권은 서로 겹칠 수 있어요(예: ASEAN은 APEC에도 들어가요)." if level == "경제권" else "대륙은 관세청 분류예요(예: 북아프리카는 '중동').")
     import altair as alt
 
@@ -9657,6 +9657,135 @@ def render_trade_rank_table(title, entries, metric, top_n, denom, level, compare
                                            tooltip=["이름", alt.Tooltip("값:Q", format=",.1f")]).properties(height=min(len(top) * 26 + 30, 420))
     st.altair_chart(chart, use_container_width=True)
     st.download_button("순위 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="수출입_순위.csv", mime="text/csv", key=f"{key}_dl")
+
+
+def trade_country_hs(cnty, s_ym, e_ym):
+    """한 나라의 HS 10자리 품목별 기간 합계 -> {hs10: [이름, 수출, 수입, 수출중량, 수입중량]}. 관세청은 국가만 지정하면 10자리 행을 주므로 12개월 단위로 받아 바로 합친다(캐시 없음, 스레드에서 호출)."""
+    out = {}
+    for s, e in tc.chunk_months(s_ym, e_ym):
+        for r in tc.parse_items(trade_fetch_text({"strtYymm": s, "endYymm": e, "cntyCd": cnty})):
+            a = out.setdefault(r["hs"], [r["name"], 0, 0, 0, 0])
+            a[1] += r["exp"]
+            a[2] += r["imp"]
+            a[3] += r["exp_wgt"]
+            a[4] += r["imp_wgt"]
+    return out
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False, max_entries=8)
+def trade_region_hs(parts, s_ym, e_ym):
+    """지역(국가 코드들)의 HS 10자리 품목별 기간 합계. parts: ((국가코드, 시작월 또는 '', 끝월 또는 ''), ...) — 구성국 기간이 있는 나라는 그 기간만 받는다(예: 영국은 2020-12까지)."""
+    jobs = []
+    for code, w_from, w_to in parts:
+        s = max(s_ym, w_from.replace("-", "")) if w_from else s_ym
+        e = min(e_ym, w_to.replace("-", "")) if w_to else e_ym
+        if s <= e:
+            jobs.append((code, s, e))
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        got = list(pool.map(lambda j: trade_country_hs(*j), jobs))
+    return tc.merge_hs_totals(got)
+
+
+def trade_hs_calls(parts, start, end):
+    """품목별 구성에 필요한 관세청 호출 수(나라 수 × 12개월 구간 수)"""
+    s_ym, e_ym = start.replace("-", ""), end.replace("-", "")
+    n = 0
+    for code, w_from, w_to in parts:
+        s = max(s_ym, w_from.replace("-", "")) if w_from else s_ym
+        e = min(e_ym, w_to.replace("-", "")) if w_to else e_ym
+        if s <= e:
+            n += len(tc.chunk_months(s, e))
+    return n
+
+
+def render_trade_composition(data):
+    """품목별 구성: 지역(국가·경제권·대륙)이 주고받은 품목의 구성을 HS 2자리(류)부터 보여주고, 눌러서 4·6·10자리로 내려간다"""
+    months = data["months"]
+    st.caption("지역을 고르면 그 지역과 주고받은 품목의 구성을 큰 단위(HS 2자리 류)부터 보여주고, 아래 칸에서 골라 4·6·10자리 세부로 내려가요. 전 세계 합계는 관세청 자료 한계로 지원하지 않아요(국가별 순위나 일반 검색을 쓰세요).")
+    reg_mode = st.radio("지역", ["국가", "경제권", "대륙"], horizontal=True, key="tr_c_reg")
+    regions = []
+    if reg_mode == "국가":
+        order = sorted(data["country"].items(), key=lambda kv: -(sum(x or 0 for x in kv[1][1][-12:])))
+        cmap = {v[0]: k for k, v in order}
+        sel = st.multiselect("국가", list(cmap), key="tr_c_cnty", max_selections=5)
+        regions = [("국가", n, (cmap[n],)) for n in sel]
+    elif reg_mode == "경제권":
+        sel = st.multiselect("경제권", [z for z in tc.ZONES if tc.zone_codes(z)], key="tr_c_zone", max_selections=3)
+        regions = [("경제권", z, tuple(tc.zone_codes(z))) for z in sel]
+    else:
+        sel = st.multiselect("대륙", list(tc.CONTINENTS), key="tr_c_cont", max_selections=3)
+        regions = [("대륙", c, tuple(tc.continent_codes(c))) for c in sel]
+    start, end = trade_period_pick(data, "tr_c_")
+    c3, c4 = st.columns([3, 2])
+    metric = c3.radio("지표", ["수출금액", "수입금액", "무역수지", "수출 중량", "수입 중량"], horizontal=True, key="tr_c_metric")
+    top_label = c4.selectbox("상위", ["5", "10", "20", "50", "전체"], index=1, key="tr_c_top")
+    compare = st.toggle("전년 같은 기간과 비교", value=True, key="tr_c_compare")
+    if st.button("조회", type="primary", key="tr_c_go"):
+        problems = []
+        if start > end:
+            problems.append("시작월이 종료월보다 늦어요.")
+        if not regions:
+            problems.append(f"{reg_mode}을(를) 하나 이상 골라 주세요.")
+        if tc.month_span(start.replace("-", ""), end.replace("-", "")) > 36:
+            problems.append("기간은 최대 3년(36개월)까지 볼 수 있어요.")
+        codes = []
+        for _kind, name, cc in regions:
+            win = tc.ZONE_WINDOW.get(name) if _kind == "경제권" else None
+            codes += [(c, (win or {}).get(c, (None, None))[0] or "", (win or {}).get(c, (None, None))[1] or "") for c in cc]
+        codes = list(dict.fromkeys(codes))
+        calls = trade_hs_calls(tuple(codes), start, end) * (2 if compare else 1) if not problems else 0
+        if calls > 150:
+            problems.append(f"조회할 범위가 너무 커요(관세청 호출 약 {calls}번). 지역 수나 기간을 줄여 주세요.")
+        elif calls > 25:
+            st.info(f"국가가 많아서 시간이 걸려요(관세청 호출 약 {calls}번, 1~3분). 같은 조회를 6시간 안에 다시 하면 바로 나와요.")
+        if problems:
+            st.warning(" ".join(problems))
+            st.session_state.pop("tr_c_query", None)
+        else:
+            st.session_state["tr_c_query"] = {"parts": tuple(codes), "label": " + ".join(n for _, n, _ in regions), "start": start, "end": end, "metric": metric,
+                                              "top": top_label, "compare": compare}
+            st.session_state["tr_c_path"] = ""
+    cq = st.session_state.get("tr_c_query")
+    if not cq:
+        st.caption("지역과 기간을 고르고 '조회'를 누르면 품목 구성이 나와요.")
+        return
+    s_ym, e_ym = cq["start"].replace("-", ""), cq["end"].replace("-", "")
+    p_s, p_e = tc.month_add(s_ym, -12), tc.month_add(e_ym, -12)
+    try:
+        with st.spinner("관세청 자료를 불러오는 중입니다... (나라마다 몇 초씩, 큰 나라는 12개월에 10초 정도 걸려요)"):
+            cur = trade_region_hs(cq["parts"], s_ym, e_ym)
+            prev = trade_region_hs(cq["parts"], p_s, p_e) if cq["compare"] else None
+    except tc.TradeApiError as e:
+        st.error(str(e))
+        return
+    if not cur:
+        st.info("이 조건으로 조회된 자료가 없어요. 기간이나 지역을 바꿔 보세요.")
+        return
+    path = st.session_state.get("tr_c_path", "")
+    entries, length = tc.hs_entries(cur, prev, path, data.get("hs") or {})
+    crumbs = " › ".join(["전체"] + [f"{path[:n]}" for n in (2, 4, 6, 10) if len(path) >= n])
+    st.markdown(f"##### {cq['label']} · 품목별 구성 · {cq['start'].replace('-', '.')} ~ {cq['end'].replace('-', '.')} · {cq['metric']}")
+    st.caption(f"HS {length}자리 단위 · 위치: {crumbs}")
+    top_n = None if cq["top"] == "전체" else int(cq["top"])
+    render_trade_rank_table("품목별 구성" + (f" ({path} 안)" if path else ""), entries, cq["metric"], top_n, None, "품목", cq["compare"], "tr_c_tab", with_other=True)
+    if length == 6:
+        st.caption("HS 6자리의 이름은 그 안에서 가장 큰 세부 품목의 이름으로 적었어요.")
+    mk = tc.RANK_METRICS[cq["metric"]]
+    top_rows, _ = tc.rank_table(entries, mk, top_n or 15, None, with_other=False)
+    opts = [""] + [r["name"] for r in top_rows if r["rank"] is not None]
+    bc1, bc2, bc3 = st.columns([3, 1, 1])
+    if length < 10 and len(opts) > 1:
+        pick = bc1.selectbox("더 세부로 내려가기 (위 표의 품목을 고르세요)", opts, key=f"tr_c_drill_{path}", format_func=lambda x: x or "(선택)")
+        if pick:
+            st.session_state["tr_c_path"] = pick.split()[0]
+            st.rerun()
+    if path:
+        if bc2.button("한 단계 위로", key="tr_c_up"):
+            st.session_state["tr_c_path"] = path[:{2: 0, 4: 2, 6: 4, 10: 6}[len(path)]]
+            st.rerun()
+        if bc3.button("처음으로", key="tr_c_top_btn"):
+            st.session_state["tr_c_path"] = ""
+            st.rerun()
 
 
 def render_trade_rank_country(data):
@@ -9744,6 +9873,9 @@ def render_trade_search(data):
         return
     if kind == "국가별 순위":
         render_trade_rank_country(data)
+        return
+    if kind == "품목별 구성":
+        render_trade_composition(data)
         return
     q = {"kind": kind, "items": [], "regions": []}
     live = False
