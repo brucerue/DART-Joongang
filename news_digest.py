@@ -569,16 +569,18 @@ def sports_feed_keys():
         return ()
 
 
-def collect(mode, sector, cutoff):
+def collect(mode, sector, cutoff, google=None):
+    """(모드, 섹터)의 cutoff 이후 기사. google: 구글 뉴스 검색 함수를 바꿔 끼울 때(과거 채우기용, 기본은 최근 2일을 찾는 google_search)"""
+    google = google or google_search
     search, owner = sector_terms(sector)
     if mode == "통신":
-        items, err = google_search(search, list(WIRE_DOMAINS), "", cutoff)
+        items, err = google(search, list(WIRE_DOMAINS), "", cutoff)
         if err:
             raise RuntimeError(f"구글 뉴스 오류: {err}")
         sports_keys = sports_feed_keys()  # 연합뉴스 스포츠 RSS의 제목 (낱말 목록과 함께 스포츠 기사를 뺀다)
         items = [i for i in items if i["category"] == "통신사" and i["publisher"] == "연합뉴스" and not A["is_sports"](i["title"], sports_keys)]
     else:
-        items, err = google_search(search, list(A["PUBLISHERS"]), "단독", cutoff)
+        items, err = google(search, list(A["PUBLISHERS"]), "단독", cutoff)
         if USE_NAVER and os.environ.get("NAVER_CLIENT_ID"):  # 구글 뉴스에 네이버 뉴스를 항상 합친다(구글이 늦게 반영하는 기사를 네이버가 메움)
             have = {title_key(i["title"]) for i in items}
             extra = [n for n in naver_search(search, cutoff) if title_key(n["title"]) not in have]

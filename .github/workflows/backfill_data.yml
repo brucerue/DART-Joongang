@@ -1,0 +1,68 @@
+name: 이슈 타임라인 과거 채우기
+
+# 손으로 한 번 돌리는 작업입니다(Actions → 이 이름 → Run workflow).
+# 공시는 DART 날짜별 목록, 기사는 구글 뉴스 기간 검색으로 'data' 브랜치의 archive.json 과거를 채웁니다.
+on:
+  workflow_dispatch:
+    inputs:
+      disc_days:
+        description: "공시를 채울 기간(일, 0이면 건너뜀)"
+        default: "183"
+      news_days:
+        description: "기사를 채울 기간(일, 0이면 건너뜀)"
+        default: "45"
+      news_sectors:
+        description: "기사를 채울 섹터(쉼표로)"
+        default: "반도체,자동차"
+      news_step:
+        description: "기사 검색을 쪼개는 기간(일)"
+        default: "7"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect-data # 매시간 수집과 겹치지 않게
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 지금까지 쌓인 자료 가져오기
+        run: |
+          mkdir -p data
+          git fetch origin data --depth=1 || true
+          git show origin/data:archive.json > data/archive.json 2>/dev/null || rm -f data/archive.json
+      - name: 과거 채우기
+        run: |
+          python backfill_data.py --out data --disc-days "${{ inputs.disc_days }}" --news-days "${{ inputs.news_days }}" \
+            --news-sectors "${{ inputs.news_sectors }}" --news-step "${{ inputs.news_step }}" 2>&1 | tee backfill.log
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+      - name: 결과 요약(화면 맨 위 주석)
+        if: always()
+        run: |
+          if [ -f backfill.log ]; then
+            split -b 2800 -d backfill.log part_
+            for f in part_*; do echo "::notice title=과거채우기::$(cat "$f" | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"; done
+          fi
+      - name: data 브랜치에 올리기 (기록을 남기지 않고 한 커밋으로 덮어씀)
+        run: |
+          cd data
+          git init -q -b data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add archive.json recent.json
+          git commit -q -m "data backfill $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
