@@ -221,8 +221,8 @@ DISCLOSURE_TYPES = {
 NAVER_NEWS_URL = "https://openapi.naver.com/v1/search/news.json"
 NEWS_PAGE_SIZE = 100  # 한 번에 받는 최대 기사 수
 MAX_NEWS_PAGES = 3  # 검색어 하나당 최신 300건까지만 확인 (네이버 하루 호출 한도 25,000회를 아끼기 위해. 제목에 [단독]이 붙은 기사는 대부분 앞쪽에 있음)
-NEWS_TTL = 30 * 60  # 같은 검색은 30분 동안 저장해 둔 결과를 재사용 (호출 절약)
-NEWS_TTL_TODAY = 10 * 60  # 기간이 '오늘'인 검색은 새 기사가 계속 올라오므로 더 짧게
+NEWS_TTL = 10 * 60  # 같은 검색은 10분 동안 저장해 둔 결과를 재사용 (호출 절약). 길게 두면 방금 나온 기사가 저장분 때문에 안 보임
+NEWS_TTL_TODAY = 5 * 60  # 기간이 '오늘'인 검색은 새 기사가 계속 올라오므로 더 짧게
 SIMILAR_TITLE = 0.8  # 제목이 이 정도(0~1) 이상 비슷하면 같은 기사로 묶는다
 NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7}
 
@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 07:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 08:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9065,6 +9065,37 @@ def get_trade():
     return data if isinstance(data, dict) and data.get("months") and isinstance(data.get("total"), dict) else None
 
 
+GROUPS_BRANCH = "groups"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_groups():
+    res = requests.get(f"https://raw.githubusercontent.com/{DATA_REPO}/{GROUPS_BRANCH}/groups.json", timeout=(10, 60))
+    res.raise_for_status()
+    return res.json()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _groups_country(updated, months):
+    g = _fetch_groups()
+    data = get_trade()
+    names = {c: v[0] for c, v in (data or {}).get("country", {}).items()}
+    return tc.groups_country(g, list(months), names)
+
+
+def get_groups_country(data, metrics=()):
+    """20대 품목 × 국가 × 월 자료(groups 브랜치)를 {품목: {국가코드: [이름, 수출[], 수입[]]}}로. 못 읽거나 덜 받았거나, 중량 지표가 필요하면 None(관세청에서 직접 조회)"""
+    if any("중량" in m for m in metrics):
+        return None
+    try:
+        g = _fetch_groups()
+        if not tc.groups_usable(g, data["months"]):
+            return None
+        return _groups_country(str(g.get("updated", "")), tuple(data["months"]))
+    except Exception:
+        return None
+
+
 FLASH_BRANCH = "flash"
 
 
@@ -9219,9 +9250,20 @@ def trade_series(data, q):
             stored(name, tc.sum_arrays(data["country"], codes, months, since), (rkind, name))
         return trade_attach_flash(out, q)
     hs_names = data.get("hs") or {}
-    mti = get_mti() if any(k == "mti" for k, _ in items) else None
+    gcountry = get_groups_country(data, q.get("metrics") or ()) if any(k == "mti" and c.startswith(tc.GROUP_PREFIX) for k, c in items) else None
+    mti = get_mti() if any(k == "mti" and not (gcountry and c.startswith(tc.GROUP_PREFIX) and c[len(tc.GROUP_PREFIX):] in gcountry) for k, c in items) else None
     for ikind, code in items:  # 품목은 국가를 정하지 않고 한 번 받아 두고, 지역은 그 행에서 거른다(호출 수가 지역 수와 무관)
         skipped = []
+        gname = code[len(tc.GROUP_PREFIX):] if ikind == "mti" and code.startswith(tc.GROUP_PREFIX) else None
+        if gname and gcountry and gname in gcountry:  # 20대 품목: 미리 모아 둔 품목×국가×월 자료로 바로 (관세청 호출 없음, 중량·HS 내역은 없음)
+            for reg in (regions or [None]):
+                if reg:
+                    rkind, rname, codes = reg
+                    arrays = tc.sum_arrays(gcountry[gname], codes, months, tc.ZONE_WINDOW.get(rname) if rkind == "경제권" else None)
+                else:
+                    arrays = tc.sum_arrays(gcountry[gname], list(gcountry[gname]), months)
+                stored(gname + (f" × {reg[1]}" if reg else ""), arrays if arrays[0] else ([None] * len(months), [None] * len(months)), ("품목", gname) if not reg else None)
+            continue
         if ikind == "mti":
             rows, skipped = trade_mti_query(code, None, s_ym, e_ym)
             prev_rows = trade_mti_query(code, None, p_s, p_e)[0] if q["compare"] else None
@@ -10054,8 +10096,17 @@ def render_trade_rank_result(data, rq):
         p_s, p_e = tc.month_add(s_ym, -12), tc.month_add(e_ym, -12)
         mti_tab = get_mti() if any(k == "mti" for k, _ in rq["items"]) else None
         tabs = st.tabs([trade_item_label(data, k, c, mti_tab) for k, c in rq["items"]]) if len(rq["items"]) > 1 else [st.container()]
+        gcountry = get_groups_country(data, metrics) if any(k == "mti" and c.startswith(tc.GROUP_PREFIX) for k, c in rq["items"]) else None
         with st.spinner("관세청 자료를 불러오는 중입니다... (산업부 품목은 묶인 HS 코드마다 조회해서 몇 초~1분 걸려요)"):
             for (ikind, code), tab in zip(rq["items"], tabs):
+                gname = code[len(tc.GROUP_PREFIX):] if ikind == "mti" and code.startswith(tc.GROUP_PREFIX) else None
+                if gname and gcountry and gname in gcountry:  # 20대 품목: 미리 모아 둔 자료로 바로
+                    entries = tc.rank_entries_arrays(gcountry[gname], months, rq["level"], rq["start"], rq["end"], rq["compare"])
+                    st_tot = tc.stored_period(*tc.sum_arrays(gcountry[gname], list(gcountry[gname]), months), months, rq["start"], rq["end"]) or {}
+                    denoms = {mk: st_tot.get(mk) for mk in mks}
+                    with tab:
+                        render_trade_rank_table(gname, entries, metrics, top_n, denoms, rq["level"], rq["compare"], f"tr_r_{ikind}_{code}")
+                    continue
                 if ikind == "mti":
                     rows = trade_mti_query(code, None, s_ym, e_ym)[0]
                     prev_rows = trade_mti_query(code, None, p_s, p_e)[0] if rq["compare"] else None

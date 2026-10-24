@@ -807,6 +807,51 @@ def rank_entries_stored(data, level, start, end, compare=True):
     return out
 
 
+# ---- 20대 품목 자료(groups.json: 품목 × 국가 × 월, 천달러)를 trade.json 국가 배열 모양으로 ----
+def groups_usable(g, months):
+    """groups.json이 앱에서 쓸 수 있는 상태인가: 다 받았고(complete), trade.json의 마지막 달까지 있고, 단위가 천달러"""
+    return bool(isinstance(g, dict) and g.get("complete") and g.get("unit") == "천달러" and g.get("months") and g.get("data")
+                and months and g["months"][-1] >= months[-1])
+
+
+def groups_country(g, months, names=None):
+    """groups.json -> {품목: {국가코드: [이름, 수출[], 수입[]]}} (달러, months 순서. groups에 없는 달은 None). sum_arrays·rank_entries_arrays에 그대로 쓴다"""
+    gi = {m: i for i, m in enumerate(g["months"])}
+    pos = [gi.get(m) for m in months]
+    out = {}
+    for name, per in g["data"].items():
+        d = {}
+        for code, (e, im) in per.items():
+            d[code] = [(names or {}).get(code, code),
+                       [None if k is None else e[k] * 1000 for k in pos],
+                       [None if k is None else im[k] * 1000 for k in pos]]
+        out[name] = d
+    return out
+
+
+def rank_entries_arrays(country, months, level, start, end, compare=True):
+    """국가별 월 배열({코드: [이름, 수출[], 수입[]]})로 만든 순위 후보 -> [{code, name, cur, prev}]. level: '국가' / '경제권' / '대륙' (경제권·대륙은 소속 국가를 합산, 경제권끼리는 겹칠 수 있다)"""
+    pstart, pend = prev_period_bounds(start, end)
+    full_prev = compare and pstart >= months[0]
+    if level == "국가":
+        src = {c: (v[0], v[1], v[2]) for c, v in country.items()}
+    else:
+        table = ZONES if level == "경제권" else CONTINENTS
+        src = {}
+        for name, codes in table.items():
+            members = codes.split() if isinstance(codes, str) else codes
+            e, i = sum_arrays(country, members, months, ZONE_WINDOW.get(name) if level == "경제권" else None)
+            if e:
+                src[name] = (name, e, i)
+    out = []
+    for code, (name, exp, imp) in src.items():
+        cur = stored_period(exp, imp, months, start, end)
+        if cur is None or not (cur["exp"] or cur["imp"]):
+            continue
+        out.append({"code": code, "name": name, "cur": cur, "prev": stored_period(exp, imp, months, pstart, pend) if full_prev else None})
+    return out
+
+
 def rank_entries_rows(rows, prev_rows, level):
     """품목 조회 행(국가 코드 포함)으로 만든 순위 후보 -> [{code, name, cur, prev}] (prev_rows가 None이면 prev는 None).
     level: '국가' / '경제권' / '대륙' (경제권·대륙은 소속 국가 행을 합산, 경제권끼리는 겹칠 수 있다)"""
