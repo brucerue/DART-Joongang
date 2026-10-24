@@ -9700,7 +9700,7 @@ def trade_item_picker(data, pre):
             st.info("산업부 품목(MTI) 연계표(mti_map.json)를 불러오지 못했어요.")
             return None
     if item_mode == "20대":
-        st.caption("보고 싶은 품목을 눌러 선택하세요 (여러 개 가능). 산업부 보도자료의 품목별 수출액과 맞춰 확인했고, 석유제품은 MTI 133 전체(나프타 포함), 일반기계는 반도체·디스플레이 제조장비 제외로 맞췄어요.")
+        st.caption("보고 싶은 품목을 눌러 선택하세요 (여러 개 가능).")
         picked = st.pills("20대 품목", list(tc.MTI_GROUPS), selection_mode="multi", key=f"{pre}groups", label_visibility="collapsed")
         items += [("mti", tc.GROUP_PREFIX + g) for g in (picked or [])]
     if item_mode == "MTI코드":
