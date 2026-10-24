@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 16:53"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 17:22"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9214,49 +9214,65 @@ def render_trade_search_result(data, q, series):
         st.info("이 조건으로 조회된 자료가 없어요. 기간이나 품목을 바꿔 보세요.")
         return
     st.markdown(f"##### 월별 추이 · {q['start'].replace('-', '.')} ~ {q['end'].replace('-', '.')}")
-    c1, c2 = st.columns([3, 2])
-    pick = c1.radio("지표", wanted, horizontal=True, key="tr_s_metric")
-    base_label = c2.radio("증감 기준", ["전년 동월", "전월"], horizontal=True, key="tr_s_base")
+    base_label = st.radio("증감 기준", ["전년 동월", "전월"], horizontal=True, key="tr_s_base")
     base = "yoy" if base_label == "전년 동월" else "mom"
-    key = METRIC_KEYS[pick]
-    is_wgt = key.endswith("wgt")
-    rows, total = tc.trend_rows(series, months_all, key, base, flash_ym)
+    short = {"수출금액": "수출", "수입금액": "수입", "무역수지": "무역수지", "수출 중량": "수출 중량", "수입 중량": "수입 중량"}
+    per_metric = {}  # 지표 -> (rows, total)
+    for m in wanted:
+        per_metric[m] = tc.trend_rows(series, months_all, METRIC_KEYS[m], base, flash_ym)
 
-    def fmt_val(v):
-        return "-" if v is None else (trade_ton(v) if is_wgt else trade_usd(v))
-
-    def fmt_chg(v):
+    def fmt_val(m, v):
         if v is None:
             return "-"
-        return f"{v / 1e8:+,.1f}억달러" if key == "bal" else px_pct(v)
+        return trade_ton(v) if METRIC_KEYS[m].endswith("wgt") else trade_usd(v)
+
+    def fmt_chg(m, v):
+        if v is None:
+            return "-"
+        return f"{v / 1e8:+,.1f}억달러" if METRIC_KEYS[m] == "bal" else px_pct(v)
+
+    def col_name(sr, m):
+        if len(wanted) == 1:
+            return sr["name"]
+        return short[m] if len(series) == 1 else f"{sr['name']} · {short[m]}"
 
     table_rows = []
-    for r in rows:
-        row = {"월": r["ym"].replace("-", ".") + (" (잠정)" if r["prov"] else "")}
-        for sr, (v, chg) in zip(series, r["cells"]):
-            row[sr["name"]] = fmt_val(v)
-            row[sr["name"] + " 증감"] = fmt_chg(chg)
+    first_rows = per_metric[wanted[0]][0]
+    for r_i, r0 in enumerate(first_rows):
+        row = {"월": r0["ym"].replace("-", ".") + (" (잠정)" if r0["prov"] else "")}
+        for k, sr in enumerate(series):
+            for m in wanted:
+                v, chg = per_metric[m][0][r_i]["cells"][k]
+                row[col_name(sr, m)] = fmt_val(m, v)
+                row[col_name(sr, m) + " 증감"] = fmt_chg(m, chg)
         table_rows.append(row)
     row = {"월": "합계"}
-    for sr, (v, chg) in zip(series, total["cells"]):
-        row[sr["name"]] = fmt_val(v)
-        row[sr["name"] + " 증감"] = fmt_chg(chg)
+    for k, sr in enumerate(series):
+        for m in wanted:
+            v, chg = per_metric[m][1]["cells"][k]
+            row[col_name(sr, m)] = fmt_val(m, v)
+            row[col_name(sr, m) + " 증감"] = fmt_chg(m, chg)
     table_rows.append(row)
     table = pd.DataFrame(table_rows)
     chg_cols = [c for c in table.columns if c.endswith(" 증감")]
     st.dataframe(trade_styled(table, chg_cols), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
-    notes = [f"증감은 {'전년 같은 달 대비(합계는 전년 같은 기간 대비)' if base == 'yoy' else '바로 앞 달 대비(합계 증감은 전년 동월 기준에서만)'}" + ("이고, 무역수지는 증감액이에요." if key == "bal" else "예요.")]
+    notes = [f"증감은 {'전년 같은 달 대비(합계는 전년 같은 기간 대비)' if base == 'yoy' else '바로 앞 달 대비(합계 증감은 전년 동월 기준에서만)'}예요." + (" 무역수지의 증감은 증감액이에요." if "무역수지" in wanted else "")
+             + " 보고 싶지 않은 지표는 위 '지표' 칸에서 빼면 돼요."]
     if flash_ym:
         notes.append(f"'잠정'은 산업부 {flash_ym.replace('-', '.')} 수출입 동향 보도자료(백만 달러 단위) 숫자예요. 관세청 확정치가 올라오면(보통 15일 전후) 자동으로 확정치로 바뀌어요. 보도자료에 없는 항목은 '-'로 나와요.")
     if q["compare"] is False and base == "yoy":
         notes.append("'전년 같은 기간과 비교'를 꺼 두면 전년 동월 증감이 나오지 않아요.")
     st.caption(" ".join(notes))
+    pick = st.radio("그래프 지표", wanted, horizontal=True, key="tr_s_metric") if len(wanted) > 1 else wanted[0]
+    key = METRIC_KEYS[pick]
+    is_wgt = key.endswith("wgt")
+    rows = per_metric[pick][0]
     idx = pd.to_datetime(months_all, format="%Y-%m")
     scale, unit = (1e3, "톤") if is_wgt else (1e6, "백만달러")
     px_line_chart(px_long({sr["name"]: pd.Series([c[0] / scale if c[0] is not None else None for c in [r["cells"][k] for r in rows]], index=idx).dropna() for k, sr in enumerate(series)}),
                   unit, fmt="%Y-%m", axis_fmt="%y.%m")
     if key != "bal" and any(c[1] is not None for r in rows for c in r["cells"]):
-        st.markdown(f"**증감률 추이 (%, {base_label} 대비)**")
+        st.markdown(f"**{short[pick]} 증감률 추이 (%, {base_label} 대비)**")
         px_line_chart(px_long({sr["name"]: pd.Series([c[1] if c[1] is not None else None for c in [r["cells"][k] for r in rows]], index=idx).dropna() for k, sr in enumerate(series)}),
                       "%", fmt="%Y-%m", axis_fmt="%y.%m")
     # 산업부 품목(MTI): 하위 MTI별·국가별·하위 HS 품목별 내역
