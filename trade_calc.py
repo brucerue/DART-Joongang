@@ -422,3 +422,100 @@ def group_mti(rows, mti, level):
         a["bal"] = a["exp"] - a["imp"]
     out.sort(key=lambda a: (-a["exp"], -a["imp"]))
     return out
+
+
+# ---- 산업부 보도자료 잠정치(flash.json)와 월별 추이 표 ----
+FLASH_REGION_ALIAS = {"EU": "EU(27)", "ASEAN": "아세안", "CIS": "CIS"}  # 관세청 경제권 이름 -> 보도자료 지역 이름
+
+
+def flash_new(flash, months):
+    """flash.json 중 가장 최근 달이 확정 자료(months)보다 새로우면 그 달의 자료, 아니면 None"""
+    if not isinstance(flash, dict) or not flash.get("months") or not months:
+        return None
+    ym = max(flash["months"])
+    fm = flash["months"][ym]
+    return fm if ym > months[-1] and isinstance(fm, dict) and fm.get("monthly") else None
+
+
+def flash_metrics(fm, kind, name):
+    """잠정 자료 fm에서 항목의 {'ym', 'cur', 'prev'}(달러; 보도자료는 백만 달러 단위) 또는 None.
+    kind: '총괄' / '국가'(보도자료 지역 중 개별 국가) / '경제권' / '품목'(산업부 20대 주력 수출품목, 수출만)"""
+    ym = fm["month"]
+
+    def usd(v):
+        return None if v is None else v * 1e6
+
+    def pack(cur_e, prev_e, cur_i, prev_i):
+        out = {}
+        for tag, (e, i) in (("cur", (cur_e, cur_i)), ("prev", (prev_e, prev_i))):
+            out[tag] = {"exp": usd(e), "imp": usd(i), "bal": None if e is None or i is None else usd(e - i), "exp_wgt": None, "imp_wgt": None}
+        return {"ym": ym, "cur": out["cur"], "prev": out["prev"]}
+
+    if kind == "총괄":
+        cur = fm["monthly"].get(ym)
+        prev = fm["monthly"].get(f"{int(ym[:4]) - 1}-{ym[5:]}")
+        return pack(cur["exp"], prev["exp"], cur["imp"], prev["imp"]) if cur and prev else None
+    if kind == "품목":
+        v = fm.get("items", {}).get(name)
+        return pack(v[-1], v[0], None, None) if v else None
+    name = FLASH_REGION_ALIAS.get(name, name) if kind == "경제권" else name
+    e, i = fm.get("exp_region", {}).get(name), fm.get("imp_region", {}).get(name)
+    return pack(e[-1], e[0], i[-1], i[0]) if e and i else None
+
+
+def _dash_add(ym, n):
+    """'2026-09' + n개월 -> '2026-08' 꼴"""
+    t = month_add(ym.replace("-", ""), n)
+    return f"{t[:4]}-{t[4:]}"
+
+
+def _cell(sr, ym, key, base, prov):
+    """한 항목의 한 달 -> (값, 비교 대상 값)"""
+    if prov:
+        fl = sr.get("flash")
+        if not fl:
+            return None, None
+        cur = fl["cur"].get(key)
+        if base == "yoy":
+            return cur, fl["prev"].get(key)
+        return cur, sr["month"].get(_dash_add(ym, -1), {}).get(key)
+    cur = sr["month"].get(ym, {}).get(key)
+    if base == "yoy":
+        return cur, ((sr.get("prev") or {}).get(ym) or {}).get(key)
+    return cur, sr["month"].get(_dash_add(ym, -1), {}).get(key)
+
+
+def trend_rows(series, months_all, key, base="yoy", flash_ym=None):
+    """월별 추이 표(오래된 달부터) -> (rows, total).
+    rows: [{'ym', 'prov'(잠정 여부), 'cells': [(값, 증감) ...]}], total: {'cells': [(합계, 증감) ...]}
+    증감: 무역수지(bal)는 증감액(달러), 나머지는 증감률(%). base='yoy' 전년 동월 / 'mom' 전월.
+    합계의 증감은 전년 동월 기준일 때만(모든 달에 전년 값이 있어야) 계산한다."""
+    rows = []
+    sums = [{"cur": 0, "prev": 0, "n": 0, "np": 0} for _ in series]
+    for ym in months_all:
+        prov = ym == flash_ym
+        cells = []
+        for k, sr in enumerate(series):
+            cur, prev = _cell(sr, ym, key, base, prov)
+            if cur is None:
+                chg = None
+            elif key == "bal":
+                chg = None if prev is None else cur - prev
+            else:
+                chg = pct(cur, prev)
+            cells.append((cur, chg))
+            if cur is not None:
+                sums[k]["cur"] += cur
+                sums[k]["n"] += 1
+                if prev is not None:
+                    sums[k]["prev"] += prev
+                    sums[k]["np"] += 1
+        rows.append({"ym": ym, "prov": prov, "cells": cells})
+    total = []
+    for s in sums:
+        v = s["cur"] if s["n"] else None
+        chg = None
+        if base == "yoy" and s["n"] and s["n"] == s["np"]:
+            chg = s["cur"] - s["prev"] if key == "bal" else pct(s["cur"], s["prev"])
+        total.append((v, chg))
+    return rows, {"cells": total}

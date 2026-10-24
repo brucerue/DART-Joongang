@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 10:35"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 16:37"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8997,6 +8997,24 @@ def get_trade():
     return data if isinstance(data, dict) and data.get("months") and isinstance(data.get("total"), dict) else None
 
 
+FLASH_BRANCH = "flash"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_flash():
+    res = requests.get(f"https://raw.githubusercontent.com/{DATA_REPO}/{FLASH_BRANCH}/flash.json", timeout=(10, 30))
+    res.raise_for_status()
+    return res.json()
+
+
+def trade_flash(data):
+    """산업부 보도자료 잠정치 중 관세청 확정 자료(data)보다 새로운 달 -> 그 달의 자료 또는 None (없거나 읽지 못하면 None)"""
+    try:
+        return tc.flash_new(_fetch_flash(), data["months"])
+    except Exception:
+        return None
+
+
 def trade_eok(v):
     """달러 -> '659.0억달러'"""
     return "-" if v is None else f"{v / 1e8:,.1f}억달러"
@@ -9118,6 +9136,7 @@ def trade_shift_year(by_month):
 def trade_series(data, q):
     """검색 조건 q -> [{name, month(월별 지표), prev(전년 동기 월별 또는 None), rows(품목 행 또는 None)}]. API 오류는 TradeApiError."""
     months, kind = data["months"], q["kind"]
+    q = dict(q, end=min(q["end"], months[-1]), end_sel=q["end"])  # 잠정 달은 관세청 자료에 없으니 확정된 마지막 달까지만 조회하고, 잠정치는 보도자료에서 붙인다
     s_ym, e_ym = q["start"].replace("-", ""), q["end"].replace("-", "")
     p_s, p_e = tc.month_add(s_ym, -12), tc.month_add(e_ym, -12)
     out = []
@@ -9133,8 +9152,8 @@ def trade_series(data, q):
             cur = tc.stored_metrics(arrays, months, q["start"], q["end"])
             prev = tc.stored_metrics(arrays, months, f"{p_s[:4]}-{p_s[4:]}", f"{p_e[:4]}-{p_e[4:]}")
             expected = tc.month_span(s_ym, e_ym)
-            out.append({"name": name, "month": cur, "prev": trade_shift_year(prev) if len(prev) == expected else None, "rows": None})
-        return out
+            out.append({"name": name, "month": cur, "prev": trade_shift_year(prev) if len(prev) == expected else None, "rows": None, "flash_key": (kind, name)})
+        return trade_attach_flash(out, q)
     if kind == "산업부 품목(MTI)":
         mti = get_mti()
         for code in q["mti"]:
@@ -9145,8 +9164,9 @@ def trade_series(data, q):
                 if q["compare"]:
                     prev = trade_shift_year(tc.metrics_by_month(trade_mti_query(code, cc, p_s, p_e)[0]))
                 label = tc.mti_label(mti, code) + (f" × {cnty[1]}" if cnty else "")
-                out.append({"name": label, "month": tc.metrics_by_month(rows), "prev": prev, "rows": rows, "skipped": skipped, "mti_code": code})
-        return out
+                out.append({"name": label, "month": tc.metrics_by_month(rows), "prev": prev, "rows": rows, "skipped": skipped, "mti_code": code,
+                            "flash_key": ("품목", code[len(tc.GROUP_PREFIX):]) if code.startswith(tc.GROUP_PREFIX) and not cnty else None})
+        return trade_attach_flash(out, q)
     hs_names = data.get("hs") or {}
     pairs = [(h, None) for h in q["hs"]] if kind == "품목" else [(h, c) for h in q["hs"] for c in q["cnty"]]
     mti = get_mti() if q["mti"] else None
@@ -9156,13 +9176,24 @@ def trade_series(data, q):
             rows, skipped = trade_mti_query(key, cc, s_ym, e_ym)
             prev = trade_shift_year(tc.metrics_by_month(trade_mti_query(key, cc, p_s, p_e)[0])) if q["compare"] else None
             out.append({"name": tc.mti_label(mti, key) + (f" × {cnty[1]}" if cnty else ""), "month": tc.metrics_by_month(rows), "prev": prev, "rows": rows,
-                        "skipped": skipped, "mti_code": key})
+                        "skipped": skipped, "mti_code": key,
+                        "flash_key": ("품목", key[len(tc.GROUP_PREFIX):]) if key.startswith(tc.GROUP_PREFIX) and not cnty else None})
     for hs, cnty in pairs:
         rows = trade_query(hs, cnty[0] if cnty else None, s_ym, e_ym)
         prev_rows = trade_query(hs, cnty[0] if cnty else None, p_s, p_e) if q["compare"] else None
         label = f"{hs} {hs_names.get(hs[:4], '')}".strip() + (f" × {cnty[1]}" if cnty else "")
         prev = trade_shift_year(tc.metrics_by_month(prev_rows)) if prev_rows is not None else None
         out.append({"name": label, "month": tc.metrics_by_month(rows), "prev": prev, "rows": rows})
+    return trade_attach_flash(out, q)
+
+
+def trade_attach_flash(out, q):
+    """잠정 달을 고른 조회면, 보도자료에 있는 항목(20대 주력품목·주요 국가·경제권)에 잠정치를 붙인다"""
+    fm = q.get("flash")
+    if fm and q["end_sel"] >= fm["month"]:
+        for sr in out:
+            key = sr.get("flash_key")
+            sr["flash"] = tc.flash_metrics(fm, *key) if key else None
     return out
 
 
@@ -9171,54 +9202,57 @@ def render_trade_search_result(data, q, series):
     wanted = [m for m in q["metrics"] if m in METRIC_KEYS]
     if not wanted:
         wanted = ["수출금액"]
-    months_all = sorted({ym for sr in series for ym in sr["month"]})
+    flash_ym = q["flash"]["month"] if q.get("flash") and q["end"] >= q["flash"]["month"] and any(sr.get("flash") for sr in series) else None
+    months_all = sorted({ym for sr in series for ym in sr["month"]} | ({flash_ym} if flash_ym else set()))
     if not months_all:
         st.info("이 조건으로 조회된 자료가 없어요. 기간이나 품목을 바꿔 보세요.")
         return
-    st.markdown(f"##### 결과 · {q['start'].replace('-', '.')} ~ {q['end'].replace('-', '.')}")
-    # 기간 합계
-    rows = []
-    for sr in series:
-        t = tc.totals(sr["month"])
-        tp = tc.totals(sr["prev"]) if sr["prev"] else None
-        row = {"항목": sr["name"]}
-        if "수출금액" in wanted:
-            row["수출"] = trade_usd(t["exp"])
-            if q["compare"]:
-                row["수출 증감"] = px_pct(tc.pct(t["exp"], tp["exp"]) if tp else None)
-        if "수입금액" in wanted:
-            row["수입"] = trade_usd(t["imp"])
-            if q["compare"]:
-                row["수입 증감"] = px_pct(tc.pct(t["imp"], tp["imp"]) if tp else None)
-        if "무역수지" in wanted:
-            row["무역수지"] = trade_usd(t["bal"])
-        if "수출 중량" in wanted and sr["rows"] is not None:
-            row["수출 중량"] = trade_ton(t["exp_wgt"])
-        if "수입 중량" in wanted and sr["rows"] is not None:
-            row["수입 중량"] = trade_ton(t["imp_wgt"])
-        rows.append(row)
-    total_table = pd.DataFrame(rows)
-    chg_cols = [c for c in ("수출 증감", "수입 증감") if c in total_table]
-    st.markdown("**기간 합계**" + (" (증감은 전년 같은 기간 대비)" if q["compare"] else ""))
-    st.dataframe(trade_styled(total_table, chg_cols) if chg_cols else total_table, hide_index=True, height=min(len(total_table) + 1, 14) * 35 + 3)
-    # 월별
-    pick = st.radio("월별 표·그래프의 지표", wanted, horizontal=True, key="tr_s_metric")
+    st.markdown(f"##### 월별 추이 · {q['start'].replace('-', '.')} ~ {q['end'].replace('-', '.')}")
+    c1, c2 = st.columns([3, 2])
+    pick = c1.radio("지표", wanted, horizontal=True, key="tr_s_metric")
+    base_label = c2.radio("증감 기준", ["전년 동월", "전월"], horizontal=True, key="tr_s_base")
+    base = "yoy" if base_label == "전년 동월" else "mom"
     key = METRIC_KEYS[pick]
     is_wgt = key.endswith("wgt")
-    month_rows = []
-    for ym in months_all:
-        row = {"월": ym.replace("-", ".")}
-        for sr in series:
-            v = sr["month"].get(ym, {}).get(key)
-            row[sr["name"]] = (trade_ton(v) if is_wgt else trade_usd(v)) if v is not None else "-"
-        month_rows.append(row)
-    month_table = pd.DataFrame(month_rows[::-1])
-    st.markdown(f"**월별 {pick}**")
-    st.dataframe(month_table, hide_index=True, height=min(len(month_table) + 1, 14) * 35 + 3)
+    rows, total = tc.trend_rows(series, months_all, key, base, flash_ym)
+
+    def fmt_val(v):
+        return "-" if v is None else (trade_ton(v) if is_wgt else trade_usd(v))
+
+    def fmt_chg(v):
+        if v is None:
+            return "-"
+        return f"{v / 1e8:+,.1f}억달러" if key == "bal" else px_pct(v)
+
+    table_rows = []
+    for r in rows:
+        row = {"월": r["ym"].replace("-", ".") + (" (잠정)" if r["prov"] else "")}
+        for sr, (v, chg) in zip(series, r["cells"]):
+            row[sr["name"]] = fmt_val(v)
+            row[sr["name"] + " 증감"] = fmt_chg(chg)
+        table_rows.append(row)
+    row = {"월": "합계"}
+    for sr, (v, chg) in zip(series, total["cells"]):
+        row[sr["name"]] = fmt_val(v)
+        row[sr["name"] + " 증감"] = fmt_chg(chg)
+    table_rows.append(row)
+    table = pd.DataFrame(table_rows)
+    chg_cols = [c for c in table.columns if c.endswith(" 증감")]
+    st.dataframe(trade_styled(table, chg_cols), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
+    notes = [f"증감은 {'전년 같은 달 대비(합계는 전년 같은 기간 대비)' if base == 'yoy' else '바로 앞 달 대비(합계 증감은 전년 동월 기준에서만)'}" + ("이고, 무역수지는 증감액이에요." if key == "bal" else "예요.")]
+    if flash_ym:
+        notes.append(f"'잠정'은 산업부 {flash_ym.replace('-', '.')} 수출입 동향 보도자료(백만 달러 단위) 숫자예요. 관세청 확정치가 올라오면(보통 15일 전후) 자동으로 확정치로 바뀌어요. 보도자료에 없는 항목은 '-'로 나와요.")
+    if q["compare"] is False and base == "yoy":
+        notes.append("'전년 같은 기간과 비교'를 꺼 두면 전년 동월 증감이 나오지 않아요.")
+    st.caption(" ".join(notes))
     idx = pd.to_datetime(months_all, format="%Y-%m")
     scale, unit = (1e3, "톤") if is_wgt else (1e6, "백만달러")
-    px_line_chart(px_long({sr["name"]: pd.Series([sr["month"].get(ym, {}).get(key) / scale if ym in sr["month"] else None for ym in months_all], index=idx).dropna() for sr in series}),
+    px_line_chart(px_long({sr["name"]: pd.Series([c[0] / scale if c[0] is not None else None for c in [r["cells"][k] for r in rows]], index=idx).dropna() for k, sr in enumerate(series)}),
                   unit, fmt="%Y-%m", axis_fmt="%y.%m")
+    if key != "bal" and any(c[1] is not None for r in rows for c in r["cells"]):
+        st.markdown(f"**증감률 추이 (%, {base_label} 대비)**")
+        px_line_chart(px_long({sr["name"]: pd.Series([c[1] if c[1] is not None else None for c in [r["cells"][k] for r in rows]], index=idx).dropna() for k, sr in enumerate(series)}),
+                      "%", fmt="%Y-%m", axis_fmt="%y.%m")
     # 산업부 품목(MTI): 하위 MTI별·국가별·하위 HS 품목별 내역
     for sr in series:
         if sr.get("skipped"):
@@ -9248,8 +9282,7 @@ def render_trade_search_result(data, q, series):
                     col.markdown(f"**{title}**")
                     col.dataframe(pd.DataFrame([{label: (r["name"] if key2 == "cnty" else f"{r['code']} {r['name'][:24]}"), "수출": trade_usd(r["exp"]), "수입": trade_usd(r["imp"])} for r in rr]),
                                   hide_index=True, height=min(len(rr) + 1, 12) * 35 + 3)
-    st.download_button("월별 표 내려받기 (CSV)", pd.DataFrame(month_rows).to_csv(index=False).encode("utf-8-sig"), file_name="수출입검색_월별.csv", mime="text/csv", key="tr_s_dl_m")
-    st.download_button("기간 합계 내려받기 (CSV)", total_table.to_csv(index=False).encode("utf-8-sig"), file_name="수출입검색_합계.csv", mime="text/csv", key="tr_s_dl_t")
+    st.download_button("월별 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="수출입검색_월별.csv", mime="text/csv", key="tr_s_dl_m")
 
 
 def render_trade_search(data):
@@ -9300,13 +9333,16 @@ def render_trade_search(data):
                "세관": [n for n, _ in sorted(data.get("port", {}).items(), key=lambda kv: -(sum(x or 0 for x in kv[1][0][-12:])))]}[kind]
         q["names"] = st.multiselect(kind, src, key=f"tr_s_names_{kind}", max_selections=10)
     c1, c2 = st.columns(2)
-    default_start = months[-12] if len(months) >= 12 else months[0]
+    fm = trade_flash(data)  # 산업부 보도자료 잠정치가 관세청 확정 자료보다 새로우면 종료월에 '잠정' 달이 더 생긴다
+    default_start = next((m for m in months if m.startswith(months[-1][:4])), months[0])  # 기본: 올해 1월부터
     start = c1.selectbox("시작월", months, index=months.index(default_start), key="tr_s_start", format_func=lambda m: m.replace("-", "."))
-    end = c2.selectbox("종료월", months, index=len(months) - 1, key="tr_s_end", format_func=lambda m: m.replace("-", "."))
+    end_opts = months + ([fm["month"]] if fm else [])
+    end = c2.selectbox("종료월", end_opts, index=len(end_opts) - 1, key="tr_s_end",
+                       format_func=lambda m: m.replace("-", ".") + (" (잠정)" if fm and m == fm["month"] else ""))
     metric_opts = ["수출금액", "수입금액", "무역수지"] + (["수출 중량", "수입 중량"] if live else [])
     q["metrics"] = st.multiselect("지표", metric_opts, default=["수출금액", "수입금액", "무역수지"], key=f"tr_s_metrics_{'live' if live else 'stored'}")
     q["compare"] = st.toggle("전년 같은 기간과 비교", value=True, key="tr_s_compare")
-    q["start"], q["end"] = start, end
+    q["start"], q["end"], q["flash"] = start, end, fm
     if st.button("조회", type="primary", key="tr_s_go"):
         problems = []
         if start > end:
@@ -9353,8 +9389,24 @@ def render_trade_search(data):
                "증감은 전년 같은 기간 대비이고, 같은 조건을 6시간 안에 다시 보면 저장한 결과를 써요.")
 
 
+def render_trade_flash_cards(data):
+    """관세청 확정 자료보다 새로운 달의 산업부 잠정치(보도자료 총괄)를 카드로 보여준다"""
+    fm = trade_flash(data)
+    f = tc.flash_metrics(fm, "총괄", "") if fm else None
+    if not f:
+        return
+    c, p = f["cur"], f["prev"]
+    st.markdown(f"##### 산업부 잠정치 · {fm['month'].replace('-', '.')}")
+    cards = [("수출", trade_eok(c["exp"]), f"{px_pct(tc.pct(c['exp'], p['exp']))} (전년동월比)", None),
+             ("수입", trade_eok(c["imp"]), f"{px_pct(tc.pct(c['imp'], p['imp']))} (전년동월比)", None),
+             ("무역수지", trade_eok(c["bal"]), f"{(c['bal'] - p['bal']) / 1e8:+,.1f}억달러 (전년동월比)", None)]
+    st.markdown(cb_cards(cards), unsafe_allow_html=True)
+    st.caption(f"산업부 보도자료({fm.get('released', '')} 발표) 잠정치예요. 관세청 확정치가 올라오면 아래 표·그래프에 확정치로 들어가요.")
+
+
 def render_trade_monthly(data):
     months, tot = data["months"], data["total"]
+    render_trade_flash_cards(data)
     i = trade_month_pick(data, "tr_m_month")
     exp, imp, bal = tot["exp"], tot["imp"], tot["bal"]
     ey, iy = tc.yoy(exp, i), tc.yoy(imp, i)
