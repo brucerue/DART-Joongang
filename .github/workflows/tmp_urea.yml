@@ -1,0 +1,58 @@
+name: 요소수 시험
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 2025년 요소 관련 코드 조회
+        env:
+          CUSTOMS_API_KEY: ${{ secrets.CUSTOMS_API_KEY }}
+        run: |
+          cat > p.py <<'PY'
+          import os, re, urllib.parse, requests, collections
+          import trade_calc as tc
+          key = os.environ["CUSTOMS_API_KEY"].strip()
+          key = urllib.parse.unquote(key) if "%" in key else key
+          URL = "https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList"
+          def fetch(params):
+              for k in range(4):
+                  try:
+                      return requests.get(URL, params={"serviceKey": key, **params}, timeout=90).text
+                  except Exception:
+                      pass
+              raise RuntimeError("fail")
+          notes = []
+          def summarize(hs, label):
+              rows = tc.query_items(fetch, hs, None, "202501", "202512")
+              acc = collections.defaultdict(lambda: [0, 0, 0, ""])
+              for r in rows:
+                  a = acc[r["hs"]]; a[0] += r["exp"]; a[1] += r["exp_wgt"]; a[2] += r["imp"]; a[3] = r["name"]
+              top = sorted(acc.items(), key=lambda kv: -kv[1][0])
+              notes.append(f"{label} hsSgn={hs}: 행 {len(rows)}, 하위코드 {len(acc)}개")
+              for code, (e, w, i, n) in top[:8]:
+                  notes.append(f"  {code} {n[:40]} | 수출 {e/1e6:,.1f}백만$ 중량 {w/1e3:,.0f}톤 | 수입 {i/1e6:,.1f}백만$")
+              return rows
+          rows = summarize("310210", "HS6 3102.10")
+          summarize("3102", "HS4 3102")
+          # 3102.10 국가별 상위
+          cn = collections.Counter()
+          for r in rows: cn[r["cnty_name"]] += r["exp"]
+          notes.append("3102.10 수출 상위 국가: " + ", ".join(f"{k} {v/1e6:,.1f}" for k, v in cn.most_common(6)))
+          # 3824 하위(HS6) 중 요소 관련 이름 찾기
+          try:
+              rows2 = tc.query_items(fetch, "3824", None, "202509", "202509")
+              names = {(r["hs"], r["name"]) for r in rows2}
+              hit = [x for x in sorted(names) if "요소" in x[1] or "요소" in x[0]]
+              notes.append(f"HS4 3824 하위 {len(names)}개 중 '요소' 이름: {hit[:6]}")
+          except Exception as e:
+              notes.append("3824 조회 실패 " + str(e)[:80])
+          for i, n in enumerate(notes[:60]):
+              print("::notice title=요소수%02d::%s" % (i, n.replace("%", "%25")))
+          PY
+          python p.py
