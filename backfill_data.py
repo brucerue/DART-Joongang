@@ -160,7 +160,7 @@ def main():
         if not os.environ.get("DART_API_KEY", "").strip():
             errors.append("공시: DART_API_KEY 없음")
         else:
-            sectors = list(dict.fromkeys(list(nd.SECTORS) + news_sectors))
+            sectors = list(dict.fromkeys(list(cd.SECTORS) + news_sectors))
             added, failed = backfill_disclosures(store, nd.dart_key(), args.disc_days, sectors, now)
             print(f"공시: 최근 {args.disc_days}일, 섹터 {sectors}, 새로 {added}건, 실패한 날 {len(failed)}곳")
             errors += [f"공시 {f}" for f in failed[:10]]

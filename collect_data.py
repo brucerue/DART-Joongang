@@ -18,6 +18,7 @@ import news_digest as nd
 KST = nd.KST
 KEEP_DAYS = 183  # 6개월
 RECENT_DAYS = 7
+SECTORS = list(nd.SECTORS) + ["반도체"]  # 텔레그램 알람 섹터 + 타임라인에만 쓰는 섹터
 LOOKBACK_HOURS = 48  # 매시간 돌지만, 실패한 회차가 있어도 메워지도록 이틀 전까지 훑는다
 FMT = "%Y-%m-%dT%H:%M"
 
@@ -79,7 +80,7 @@ def main():
     before = len(store)
 
     errors, added = [], 0
-    for sector in nd.SECTORS:
+    for sector in SECTORS:
         for mode in ("통신", "단독"):
             try:
                 items = nd.collect(mode, sector, cutoff)
@@ -90,7 +91,7 @@ def main():
     if os.environ.get("DART_API_KEY", "").strip():
         try:
             feed = nd.fetch_dart_feed(now, wide=True)
-            for sector in nd.SECTORS:
+            for sector in SECTORS:
                 added += merge(store, disclosure_rows(feed, sector))
         except Exception as e:
             errors.append(f"공시: {e}")
@@ -108,7 +109,7 @@ def main():
     print(f"수집 완료: 새로 {added}건, 보관 {len(rows)}건(이전 {before}건), 실패 {len(errors)}곳")
     for e in errors:
         print("  실패:", e, file=sys.stderr)
-    if errors and len(errors) >= len(nd.SECTORS) * 2:  # 전부 실패했으면 오류로 끝내 알림이 가게 한다
+    if errors and len(errors) >= len(SECTORS) * 2:  # 전부 실패했으면 오류로 끝내 알림이 가게 한다
         sys.exit(1)
 
 
