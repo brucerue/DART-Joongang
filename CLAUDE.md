@@ -19,7 +19,7 @@
 - `backfill_data.py` + `.github/workflows/backfill_data.yml`: 손으로 한 번 돌리는 '이슈 타임라인' 과거 채우기(공시=DART 날짜별, 기사=구글 뉴스 `after:/before:` 기간 검색). 같은 `data` 브랜치 archive.json에 합침. 구글이 막으면 일부 빠질 수 있음.
 - `stock_calc.py`(주가 탭의 계산, 화면 없음) + `price_history.py` + `.github/workflows/price_history.yml`: 평일 09:40 KRX 일별 시세(섹터 기업 + 재계 상위 50개 그룹 상장 계열사)를 `prices` 브랜치(`prices.json`, 약 1년)에 한 커밋으로 덮어써 저장. GitHub Secrets에 `KRX_API_KEY` 필요. 앱 '주가' 탭(숨김, `?lab=1`)이 읽음. KRX는 전일 종가 기준이라 장중 시세 없음.
 - `intraday.py` + `.github/workflows/intraday.yml`: 평일 장중(09:05~15:35) 30분마다 추적 종목의 오늘 5분봉(야후 파이낸스 yfinance, 비공식)을 `intraday` 브랜치(`intraday.json`, 한 커밋으로 덮어씀)에 저장. 앱 시세판·특징주의 '장중' 기준이 읽음(전일 종가는 KRX 자료). 야후 자료는 지연·오차가 있을 수 있음.
-- `trade_calc.py`(수출 탭의 계산, 화면 없음) + `trade_data.py` + `.github/workflows/trade_data.yml`: 매일 08:30·18:00 관세청 수출입 통계(공공데이터포털 API: 총괄·국가별·경제권별·시도별·세관별 월별, 10일 단위 잠정치)를 `trade` 브랜치(`trade.json`, 한 커밋 덮어쓰기)에 저장. GitHub Secrets에 `CUSTOMS_API_KEY` 필요(Encoding·Decoding 어느 쪽이든). 앱 '수출입 분석' 탭이 읽음. API 주소는 `trade_data.py` 상단. 10일 단위 잠정치는 항목 이름 없이 순번(1~10위)만 줘서 앱의 `TRADE_RANK_NAMES`에 확인된 이름만 적어 둠(기술문서로 확인되면 채움).
+- `trade_calc.py`(수출 탭의 계산, 화면 없음) + `trade_data.py` + `.github/workflows/trade_data.yml`: 매일 08:30·18:00 관세청 수출입 통계(공공데이터포털 API: 총괄·국가별·경제권별·대륙별(`continenttradet/getContinenttradeList`, 끝 t 주의)·시도별·세관별 월별, 10일 단위 잠정치)를 `trade` 브랜치(`trade.json`, 한 커밋 덮어쓰기)에 저장. GitHub Secrets에 `CUSTOMS_API_KEY` 필요(Encoding·Decoding 어느 쪽이든). 앱 '수출입 분석' 탭이 읽음. API 주소는 `trade_data.py` 상단. 10일 단위 잠정치는 항목 이름 없이 순번(1~10위)만 줘서 앱의 `TRADE_RANK_NAMES`에 확인된 이름만 적어 둠(기술문서로 확인되면 채움).
 - `motie_flash.py`: 산업통상부 매월 1일 '○월 수출입 동향' 보도자료(PDF, `pdftotext -layout`)의 '참고' 표(월별 총괄·20대 품목·주요 지역 수출입, 백만 달러)를 읽고 검산하는 파서(화면 없음). 검산이 틀리면 ValueError로 저장을 막음. 목록은 motie.go.kr 보도자료 게시판(`/kor/article/ATCL3f49a5a8c`, 글마다 pdf·hwp 첨부)에서 GitHub 서버로 받아짐(연결이 가끔 끊겨 재시도 필요).
 - `motie_data.py` + `.github/workflows/motie_flash.yml`: 매월 1일 12:10·15:10·18:10(2일 09:10 마지막) KST에 산업부 게시판에서 '○월 수출입 동향' PDF를 받아 `motie_flash.py`로 읽고 `flash` 브랜치(`flash.json`, 한 커밋 덮어쓰기, 최근 14개월)에 저장. 이미 받은 달은 건너뜀. 수동 실행 입력: month, force. 워크플로에서 `poppler-utils`를 설치함.
 - `mti_map.json` + `mti_build.py`: 무역협회 K-stat HSK-MTI 연계표(엑셀)를 앱이 읽는 파일로 바꾼 것(기준년도별 표 3개 + MTI 이름). '수출입 분석' 탭 검색의 '산업부 품목(MTI)'이 HS 10자리를 MTI로 묶는 데 씀. 연계표가 갱신되면 `mti_build.py`로 다시 만든다.
@@ -35,3 +35,4 @@
 - JS 블록 주석 안에 `*/`를 쓰면 주석이 끝난다.
 - Telegram 안내 고정(핀)은 08~20시에만 보낸다.
 - `data` 브랜치는 orphan 한 커밋으로 덮어쓴다(기록을 쌓지 않음). main에 자료를 푸시하면 Streamlit이 재배포되므로 금지.
+- 수출입 검색의 지역(경제권·대륙) 구성국은 `trade_calc.py`의 `ZONES`·`CONTINENTS`에 있고, 관세청 경제권·대륙 월별 합계와 국가별 합계가 모든 달 정확히 같도록 trade.json으로 검산해 맞춘 것이다(새 국가가 생기거나 합계가 어긋나면 다시 검산할 것).

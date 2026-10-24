@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 17:22"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 17:37"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8970,7 +8970,7 @@ CUSTOMS_KEY = load_secret("CUSTOMS_API_KEY")  # 공공데이터포털 일반 인
 TRADE_ITEM_URL = "https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH
 TRADE_KINDS = ["품목·지역", "시도", "세관"]
 TRADE_ITEM_MODES = ["전체", "HS 품목", "산업부 품목(MTI)"]
-TRADE_REGION_MODES = ["전체", "국가", "경제권"]
+TRADE_REGION_MODES = ["전체", "국가", "경제권", "대륙"]
 MTI_FILE = "mti_map.json"  # mti_build.py가 무역협회 HSK-MTI 연계표(엑셀)로 만든 파일 (앱과 같은 폴더)
 TRADE_MTI_WARN_CALLS = 300  # 한 조회가 이만큼 넘는 관세청 호출이 필요하면 오래 걸린다고 알린다
 TRADE_MAX_SERIES = 12  # 한 번에 보는 항목 수(품목×국가 조합 포함). 조합마다 API를 부르므로 제한한다
@@ -9354,8 +9354,12 @@ def render_trade_search(data):
         elif reg_mode == "경제권":
             zones = [z for z in tc.ZONES if tc.zone_codes(z)]
             sel = st.multiselect("경제권", zones, key="tr_s_zone", max_selections=8,
-                                 help="관세청 월별 경제권 합계와 구성국 합계가 최근 24개월 모두 같은 것만 넣었어요. 대륙은 구성국 기준을 확인하지 못해 아직 없어요. ASEAN은 티모르가 2026년 1월부터 포함돼요.")
+                                 help="관세청 월별 경제권 합계와 구성국 합계가 최근 24개월 모두 같은 것만 넣었어요. ASEAN은 티모르가 2026년 1월부터 포함돼요.")
             q["regions"] = [("경제권", z, tuple(tc.zone_codes(z))) for z in sel]
+        elif reg_mode == "대륙":
+            sel = st.multiselect("대륙", list(tc.CONTINENTS), key="tr_s_cont", max_selections=8,
+                                 help="관세청 대륙별 월별 합계와 구성국 합계가 최근 24개월 수출·수입 모두 같도록 맞춘 분류예요. 관세청 분류는 지리와 달라서, 북아프리카(이집트·알제리 등)는 '중동', 튀르키예·조지아는 '유럽', 괌은 '오세아니아'에 들어가요.")
+            q["regions"] = [("대륙", c, tuple(tc.continent_codes(c))) for c in sel]
     else:
         src = sorted(data.get("sido", {})) if kind == "시도" else [n for n, _ in sorted(data.get("port", {}).items(), key=lambda kv: -(sum(x or 0 for x in kv[1][0][-12:])))]
         q["names"] = st.multiselect(kind, src, key=f"tr_s_names_{kind}", max_selections=10)
@@ -9409,7 +9413,7 @@ def render_trade_search(data):
         st.error(str(e))
         return
     render_trade_search_result(data, sq, series)
-    st.caption("검색 안내", help="품목은 관세청 '품목별 국가별 수출입실적'(통관 기준, 달러)을 바로 불러와요. HS 코드 2·4·6자리로 조회하고, 하위 품목·국가별 내역이 함께 나와요. 품목에 지역(국가·경제권)을 고르면 받은 자료에서 그 국가들만 합산해요.  \n"
+    st.caption("검색 안내", help="품목은 관세청 '품목별 국가별 수출입실적'(통관 기준, 달러)을 바로 불러와요. HS 코드 2·4·6자리로 조회하고, 하위 품목·국가별 내역이 함께 나와요. 품목에 지역(국가·경제권·대륙)을 고르면 받은 자료에서 그 국가들만 합산해요.  \n"
                "빠른 선택과 산업부 품목(MTI)은 무역협회 HSK-MTI 연계표로 HS 10자리를 MTI에 묶어 합친 값이에요. 연계표는 기준년도(2021년 이전·2022~2024·2025~2026)별로 달라서 조회월의 해에 맞는 표를 써요. 산업부·관세청 발표와 1~5% 정도 차이가 날 수 있어요(잠정치·분류 시점 차이).  \n"
                "품목을 '전체'로 두면 모아 둔 월별 자료(최근 2년)를 써서 호출 없이 바로 나와요. 시도·세관도 마찬가지예요.  \n"
                "증감은 전년 같은 기간 대비이고, 같은 조건을 6시간 안에 다시 보면 저장한 결과를 써요.")

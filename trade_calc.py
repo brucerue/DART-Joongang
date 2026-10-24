@@ -567,3 +567,22 @@ def filter_rows(rows, codes, since=None):
     """품목 조회 행 중 codes(국가 코드)에 속한 것만 (since: {코드: 'YYYY-MM'} 이 달부터 구성국)"""
     keep = set(codes)
     return [r for r in rows if r["cnty"] in keep and not (since and r["cnty"] in since and r["ym"] < since[r["cnty"]])]
+
+# 대륙 구성국: 관세청 대륙별 월별 합계와 국가별 합계가 최근 24개월 수출·수입 모두 정확히 같아지도록 맞춘 목록이다(trade.json으로 검산).
+# 관세청 분류는 지리와 다른 곳이 있다(예: 북아프리카는 '중동', 튀르키예·조지아는 '유럽', 괌은 '오세아니아'). 국제통화기금(Z1)·해외교포(RK)는 어느 대륙 합계에도 안 들어간다.
+CONTINENTS = {
+    "아시아": "AF AM AZ BD BN BT CN HK ID IN JP KG KH KZ LA LK MM MN MO MV MY NP PH PK SG TH TJ TL TM TW UZ VN",
+    "중동": "AE BH DZ EG IL IQ IR JO KW LB LY MA MR OM QA SA SD SY TN YE",
+    "유럽": "AD AL AT AX BA BE BG BY CH CY CZ DE DK EE ER ES FI FO FR GB GE GG GI GR GS HR HU IE IM IS IT JE LI LT LU LV MC MD ME MK MT NL NO PL PT RO RS RU SE SI SJ SK SM TR UA VA",
+    "북미": "CA US",
+    "중남미": "AG AN AQ AR AW BB BL BM BO BQ BR BS BZ CL CO CR CU CW DM DO EC FK GD GF GL GP GT GY HN HT JM KN KY LC MF MQ MS MX NI PA PE PM PR PY SR SV SX TC TT UY VC VE VG VI",
+    "아프리카": "AI AO BF BI BJ BW CD CF CG CI CM CV DJ ET GA GH GM GN GQ GW IO KE KM LR LS MG ML MU MW MZ NA NE NG PS RE RW SC SH SL SN SO SS ST SZ TD TF TG TZ UG YT ZA ZM ZW",
+    "오세아니아": "AU CK FJ GU NC NR NU NZ PF PG SB TK TO WS",
+    "대양주": "AS CC CX FM HM KI MH MP NF PN PW TV UM VU WF",
+    "기타": "ZZ",
+}
+
+
+def continent_codes(name):
+    """대륙 이름 -> 구성국 코드 목록 (없으면 [])"""
+    return CONTINENTS.get(name, "").split()
