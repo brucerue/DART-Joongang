@@ -8,7 +8,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install requests
+      - run: pip install requests pypdf
       - name: 목록·첨부 시험
         run: |
           cat > p.py <<'PY'
@@ -18,12 +18,35 @@ jobs:
               o = re.sub(r"\s+", " ", o).replace("%", "%25")
               print(f"::notice title=산업부시험{i}::{o}")
           base = "https://www.motie.go.kr"
+          import io
           L = base + "/kor/article/ATCL3f49a5a8c"
-          t = requests.get(L + "?pageIndex=2", headers=H, timeout=25).text
-          i0 = t.find("수출입")
-          note(0, "페이지2 '수출입' 주변: " + t[max(0, i0 - 700):i0 + 500])
-          links = re.findall(r"href=\"(/kor/article/ATCL3f49a5a8c/[^\"]+)\"", t)
-          note(1, "글 링크 예: %d개 %s" % (len(links), links[:3]))
-          note(2, "페이지 번호 링크: " + " ".join(re.findall(r"(?:pageIndex|page)=\d+", t)[:8]))
+          found = []
+          for pg in range(1, 41):
+              try:
+                  t = requests.get(f"{L}?pageIndex={pg}", headers=H, timeout=25).text
+              except Exception as e:
+                  note(0, f"p{pg} 실패 {e}"); continue
+              for tr in re.findall(r"<tr>.*?</tr>", t, re.S):
+                  title = re.sub(r"<[^>]+>", "", (re.search(r'class="ta-l".*?</td>', tr, re.S) or [""])[0] if re.search(r'class="ta-l"', tr) else "")
+                  title = re.sub(r"\s+", " ", title).strip()
+                  if "수출입" in title and "동향" in title:
+                      date = re.findall(r"20\d\d-\d\d-\d\d", tr)
+                      atts = re.findall(r'href="(/attach/down/[^"]+)"[^>]*title="([^"]*)"', tr)
+                      found.append((pg, title, date[:1], atts))
+          note(1, "찾은 수출입 동향 글 %d개" % len(found))
+          for k, f in enumerate(found[:6]):
+              note(2, f"{k}: p{f[0]} {f[1]} {f[2]} 첨부 {[(a[1][:60]) for a in f[3]]}")
+          if found and found[0][3]:
+              for href, ttl in found[0][3][:3]:
+                  r = requests.get(base + href, headers=H, timeout=60)
+                  ct = r.headers.get("content-type", "")
+                  cd = r.headers.get("content-disposition", "")
+                  info = f"{ttl[:50]} -> {r.status_code} {ct} {len(r.content)}B {cd[:80]}"
+                  if r.content[:4] == b"%PDF":
+                      from pypdf import PdfReader
+                      rd = PdfReader(io.BytesIO(r.content))
+                      tx = rd.pages[0].extract_text() or ""
+                      info += f" | PDF {len(rd.pages)}쪽 1쪽 글자 {len(tx)}: {tx[:300]}"
+                  note(3, info)
           PY
           python p.py
