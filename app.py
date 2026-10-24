@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 03:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 04:05"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -4019,7 +4019,6 @@ def fill_industry():
 def render_fin_hub():
     """탭: 재무 조회 - 기업 한 곳의 기간별 추이 / 국내 섹터 합산 / 해외 섹터(미국 SEC 등)를 고른다."""
     with st.container(key="fin_wrap"):
-        st.markdown('<div class="cb-hero"><div class="t">재무 조회</div><div class="s">DART 공시 기준 · 기업 / 국내 섹터 / 해외 섹터</div></div>', unsafe_allow_html=True)
         with st.container(key="fin_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
             c1, c2 = st.columns([1, 4], vertical_alignment="center")
             c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
