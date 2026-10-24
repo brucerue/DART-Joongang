@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 09:36"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 10:35"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -6258,10 +6258,10 @@ def render_quote(q):
     except Exception:
         rng = None
     cards = [("거래대금", won_text(r.val) if r.val else "-", f"직전 20일 평균의 {rng['ratio']:.1f}배" if rng and rng["ratio"] else (f"{r.vol:,.0f}주" if r.vol else None), "flat")]
+    cards.append(("상장주식수", f"{r.shares:,.0f}주" if r.shares else "-", q["market"], "flat"))
     if rng:
         cards.append(("52주 최고 대비", pct_text(rng["from_hi"], 1), f"최고가 {rng['hi']:,.0f}원", None))
         cards.append(("52주 최저 대비", pct_text(rng["from_lo"], 1), f"최저가 {rng['lo']:,.0f}원", None))
-    cards.append(("상장주식수", f"{r.shares:,.0f}주" if r.shares else "-", q["market"], "flat"))
     st.markdown(cb_cards(cards), unsafe_allow_html=True)
     ret = pd.DataFrame([{"기간": k, "수익률": pct_text(v)} for k, v in q["ret"].items()]).set_index("기간").T
     st.dataframe(ret.style.map(price_style), height=(len(ret) + 1) * 35 + 3)
