@@ -1,0 +1,39 @@
+name: 중량 항목 시험
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: API별 응답 항목 이름
+        env:
+          CUSTOMS_API_KEY: ${{ secrets.CUSTOMS_API_KEY }}
+        run: |
+          cat > p.py <<'PY'
+          import os, re, urllib.parse, requests
+          import xml.etree.ElementTree as ET
+          key = os.environ["CUSTOMS_API_KEY"].strip()
+          key = urllib.parse.unquote(key) if "%" in key else key
+          base = "https://apis.data.go.kr/1220000/"
+          apis = {"총괄": "Newtrade/getNewtradeList", "국가": "nationtrade/getNationtradeList", "경제권": "economytrade/getEconomytradeList",
+                  "대륙": "continenttradet/getContinenttradeList", "시도": "sidotrade/getSidotradeList", "세관": "porttrade/getPorttradeList"}
+          notes = []
+          for name, path in apis.items():
+              try:
+                  r = requests.get(base + path, params={"serviceKey": key, "strtYymm": "202609", "endYymm": "202609"}, timeout=60)
+                  root = ET.fromstring(r.text)
+                  items = root.findall(".//item")
+                  tags = [c.tag for c in items[0]] if items else []
+                  first = {c.tag: (c.text or "") for c in items[0]} if items else {}
+                  wgt = {t: first[t] for t in tags if "gt" in t.lower() or "wgt" in t.lower() or "weight" in t.lower()}
+                  notes.append(f"{name}: 행 {len(items)}, 항목 {tags}, 중량류 {wgt}")
+              except Exception as e:
+                  notes.append(f"{name}: 실패 {type(e).__name__} {str(e)[:80]}")
+          for i, n in enumerate(notes):
+              print("::notice title=중량시험%d::%s" % (i, n.replace("%", "%25")))
+          PY
+          python p.py
