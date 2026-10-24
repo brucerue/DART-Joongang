@@ -720,3 +720,26 @@ def ai_infer_metrics(text):
     if "수지" in t:
         out.append("무역수지")
     return out or None
+
+
+AI_FILLER = ["수출입", "수출액", "수입액", "수출량", "수입량", "무역수지", "수출", "수입", "금액", "중량", "물량", "통계", "실적", "현황", "찾아줘", "찾아", "알려줘", "보여줘", "조회",
+             "올해", "작년", "지난해", "지난달", "최근", "으로", "에서", "에게", "한테", "수지", "년", "월", "된", "한", "의", "을", "를", "이", "가", "은", "는", "와", "과", "로", "에", "도", "만"]
+
+
+def ai_clear_groups(text, groups, other_names=()):
+    """질문이 '산업부 20대 품목 이름 + 지역·기간·지표 말'뿐이면 그 20대 품목들을, 아니면 [] (예: '자동차' -> ['자동차'], '반도체 장비'·'전기차' -> []).
+    '자동차부품'처럼 긴 이름이 먼저 맞고 짧은 이름은 그 안에서 다시 세지 않는다."""
+    rest, found = text or "", []
+    for g in sorted(groups, key=len, reverse=True):
+        if g in rest:
+            found.append(g)
+            rest = rest.replace(g, " ")
+    if not found:
+        return []
+    rest = re.sub(r"20\d\d|\d{1,2}\s*(?:~|-)\s*\d{1,2}\s*월|\d{1,2}\s*월|\d\s*분기|상반기|하반기", " ", rest)  # 연·월·분기 말은 기간
+    for w in sorted(set(AI_FILLER) | set(other_names), key=len, reverse=True):
+        rest = rest.replace(w, " ")
+    if re.search(r"\d", rest):  # 남은 숫자는 코드로 본다(예: '자동차 8703')
+        return []
+    left = re.sub(r"[^가-힣A-Za-z]", "", rest)
+    return found if len(left) == 0 else []

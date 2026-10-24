@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 19:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 19:41"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9420,6 +9420,12 @@ def trade_ai_ask(text, data):
         if isinstance(spec, dict) and not spec.get("metrics"):
             spec["metrics"] = tc.ai_infer_metrics(text)  # AI가 지표를 비웠으면 질문 글에서 읽는다('수입된' -> 수입금액만)
         out = tc.ai_validate(spec, ctx)
+        clear = tc.ai_clear_groups(text, ctx["groups"], list(ctx["countries"]) + ctx["zones"] + ctx["continents"])
+        if clear:  # 질문이 20대 품목 이름 그대로면 그것만 보여준다(AI가 덧붙인 MTI·HS 코드는 과잉 정보)
+            have = {it["code"]: it for it in out["items"] if it["kind"] == "group"}
+            out["items"] = [have.get(g) or {"kind": "group", "code": g, "key": ("mti", tc.GROUP_PREFIX + g), "label": f"{g} (산업부 20대 품목)",
+                                            "reason": "입력한 말이 산업부 20대 주력 수출품목 이름과 같아요.", "confidence": "높음", "refs": []} for g in clear]
+            out["clear_group"] = True
         out["articles"] = [{"title": a["title"], "url": a["url"], "publisher": a["publisher"], "date": a["dt"].strftime("%Y.%m.%d")} for a in articles]
         out["refs"] = [r for it in out["items"] for r in it["refs"]]
         return out
@@ -9481,13 +9487,15 @@ def render_trade_ai(data):
             if bits:
                 st.caption(" · ".join(bits))
             if it.get("children"):
-                st.caption("관세청 자료의 하위 코드 (최근 12개월 수출액) — 더 세부로 보려면 체크하세요")
-                for ch in it["children"]:
-                    for node, depth in [(ch, 1)] + [(sb, 2) for sb in ch["sub"]]:
-                        mark = "↳ " if depth == 1 else "　　↳ "
-                        if st.checkbox(f"{mark}{node['code']} {node['name'][:26]} · {trade_usd(node['exp'])}", value=node["code"] in HS_NOTES,
-                                       key=f"tr_ai_ch_{st.session_state.get('tr_ai_n', 0)}_{i}_{node['code']}"):
-                            picked.append(("hs", node["code"]))
+                with st.expander(f"하위 코드 보기 ({len(it['children'])}개 · 최근 12개월 수출액, 더 세부로 보려면 체크)", expanded=bool(noted)):
+                    for ch in it["children"]:
+                        for node, depth in [(ch, 1)] + [(sb, 2) for sb in ch["sub"]]:
+                            mark = "↳ " if depth == 1 else "　　↳ "
+                            if st.checkbox(f"{mark}{node['code']} {node['name'][:26]} · {trade_usd(node['exp'])}", value=node["code"] in HS_NOTES,
+                                           key=f"tr_ai_ch_{st.session_state.get('tr_ai_n', 0)}_{i}_{node['code']}"):
+                                picked.append(("hs", node["code"]))
+        if spec.get("clear_group"):
+            st.caption("20대 품목 이름과 같은 말이라 그 품목만 보여드려요. 더 세부 코드(HS·MTI)가 필요하면 구체적으로 적어 주세요(예: 전기차, 승용차 8703, 3102109000).")
     else:
         st.caption("품목은 지정하지 않았어요 (전체).")
     reg = " · ".join(f"{n}" for _, n, _ in spec["regions"]) or "전체"
