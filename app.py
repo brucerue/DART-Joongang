@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 00:25"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 00:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7325,7 +7325,7 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 .cb-hero .s { color: #7a8699; font-size: 0.85rem; margin-top: 0.25rem; }
 .st-key-trade_wrap { gap: 1.35rem !important; }  /* 수출입 분석: 칸 사이를 넓게 */
 .st-key-trade_wrap [data-testid="stRadio"], .st-key-trade_wrap [data-testid="stMultiSelect"] { margin-bottom: 0.2rem; }
-.st-key-trade_hero { background: linear-gradient(135deg, #eaf3ff 0%, #ffffff 70%); border: 1px solid #d6e6fb; border-radius: 18px; padding: 1.2rem 1.3rem; margin: 0.2rem 0 1.1rem; box-shadow: 0 2px 12px rgba(28, 126, 214, 0.08); }
+.st-key-trade_hero { background: linear-gradient(135deg, #eaf3ff 0%, #ffffff 70%); border: 1px solid #d6e6fb; border-radius: 18px; padding: 1.2rem 1.3rem 1.6rem; margin: 0.2rem 0 0.3rem; box-shadow: 0 2px 12px rgba(28, 126, 214, 0.08); }
 .st-key-trade_hero [data-testid="stMarkdown"] > div { display: flex; align-items: center; justify-content: flex-start !important; gap: 0.4rem; }
 .st-key-trade_hero [data-testid="stMarkdownContainer"] { flex: 0 0 auto; width: auto !important; }
 .st-key-trade_hero p { margin: 0 !important; }
