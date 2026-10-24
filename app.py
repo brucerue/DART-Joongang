@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 08:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 08:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7333,10 +7333,10 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d { display: inline-block; font-size: 0.76rem; border-radius: 999px; padding: 0.05rem 0.5rem; background: #eef2f7; }
 :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d.up { background: #e7f1fd; } :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d.down { background: #fdecec; }
 /* 수출입 검색 조건(종류·품목·지역·기간): 이름 바로 옆에 선택지 */
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] { display: flex; flex-direction: row; align-items: flex-start; gap: 0.7rem; }
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > label { flex: 0 0 auto; width: 4.1rem; min-width: 4.1rem; margin: 0.15rem 0 0 0; white-space: nowrap; }
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > label * { white-space: nowrap; flex-wrap: nowrap !important; }
-:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > div[role="radiogroup"] { flex: 1 1 auto; min-width: 0; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level,.st-key-tr_c_basis) [data-testid="stRadio"] { display: flex; flex-direction: row; align-items: flex-start; gap: 0.7rem; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level,.st-key-tr_c_basis) [data-testid="stRadio"] > label { flex: 0 0 auto; width: 4.1rem; min-width: 4.1rem; margin: 0.15rem 0 0 0; white-space: nowrap; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level,.st-key-tr_c_basis) [data-testid="stRadio"] > label * { white-space: nowrap; flex-wrap: nowrap !important; }
+:is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level,.st-key-tr_c_basis) [data-testid="stRadio"] > div[role="radiogroup"] { flex: 1 1 auto; min-width: 0; }
 .st-key-tr_r_level [data-testid="stRadio"] > label { width: 5.2rem; min-width: 5.2rem; }
 .cb-hero { position: relative; overflow: hidden; background: linear-gradient(135deg, #3d86dc 0%, #5ea6ee 100%); border: 0; border-radius: 18px; padding: 1.2rem 1.3rem; margin: 0.2rem 0 0.8rem; box-shadow: 0 6px 16px rgba(61, 134, 220, 0.25); }
 .cb-hero::after { content: ""; position: absolute; right: -2.2rem; top: -2.2rem; width: 9rem; height: 9rem; border-radius: 50%; background: radial-gradient(circle, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 70%); pointer-events: none; }
@@ -9935,6 +9935,8 @@ def render_trade_composition(data):
     """품목별 구성: 지역(국가·경제권·대륙)이 주고받은 품목의 구성을 HS 2자리(류)부터 보여주고, 눌러서 4·6·10자리로 내려간다"""
     months = data["months"]
     st.caption("지역을 고르면 그 지역과 주고받은 품목의 구성을 큰 단위(HS 2자리 류)부터 보여주고, 아래 칸에서 골라 4·6·10자리 세부로 내려가요.")
+    basis = st.radio("기준", ["HS", "20대"], horizontal=True, key="tr_c_basis",
+                     help="'HS'는 HS 2자리(류)부터 4·6·10자리로 내려가며 봐요. '20대'는 산업부 20대 주력 품목별 구성이에요(미리 모아 둔 자료로 바로 나오고, 금액만 있어요).")
     reg_mode = st.radio("지역", ["국가", "경제권", "대륙"], horizontal=True, key="tr_c_reg")
     regions = []
     if reg_mode == "국가":
@@ -9961,14 +9963,16 @@ def render_trade_composition(data):
             problems.append(f"{reg_mode}을(를) 하나 이상 골라 주세요.")
         if not metrics:
             problems.append("지표를 하나 이상 골라 주세요.")
-        if tc.month_span(start.replace("-", ""), end.replace("-", "")) > 36:
+        if basis == "20대" and any("중량" in m for m in metrics):
+            problems.append("20대 기준은 금액 지표만 볼 수 있어요(중량은 HS 기준에서).")
+        if basis == "HS" and tc.month_span(start.replace("-", ""), end.replace("-", "")) > 36:
             problems.append("기간은 최대 3년(36개월)까지 볼 수 있어요.")
         codes = []
         for _kind, name, cc in regions:
             win = tc.ZONE_WINDOW.get(name) if _kind == "경제권" else None
             codes += [(c, (win or {}).get(c, (None, None))[0] or "", (win or {}).get(c, (None, None))[1] or "") for c in cc]
         codes = list(dict.fromkeys(codes))
-        calls = trade_hs_calls(tuple(codes), start, end) * (2 if compare else 1) if not problems else 0
+        calls = trade_hs_calls(tuple(codes), start, end) * (2 if compare else 1) if not problems and basis == "HS" else 0
         if calls > 150:
             problems.append(f"조회할 범위가 너무 커요(관세청 호출 약 {calls}번). 지역 수나 기간을 줄여 주세요.")
         elif calls > 25:
@@ -9977,7 +9981,7 @@ def render_trade_composition(data):
             st.warning(" ".join(problems))
             st.session_state.pop("tr_c_query", None)
         else:
-            st.session_state["tr_c_query"] = {"parts": tuple(codes), "label": " + ".join(n for _, n, _ in regions), "start": start, "end": end, "metrics": metrics,
+            st.session_state["tr_c_query"] = {"parts": tuple(codes), "label": " + ".join(n for _, n, _ in regions), "start": start, "end": end, "metrics": metrics, "basis": basis,
                                               "top": top_label, "compare": compare}
             st.session_state["tr_c_path"] = ""
     cq = st.session_state.get("tr_c_query")
@@ -9988,8 +9992,41 @@ def render_trade_composition(data):
         render_trade_composition_result(data, cq, "tr_c_")
 
 
+def render_trade_composition_groups(data, cq, pre):
+    """품목별 구성 · 20대 기준: 지역이 주고받은 금액을 산업부 20대 주력 품목별로 (미리 모아 둔 groups 자료, 관세청 호출 없음, 금액만)"""
+    months = data["months"]
+    metrics = cq.get("metrics") or [cq["metric"]]
+    gcountry = get_groups_country(data)
+    st.markdown(f"##### {cq['label']} · 20대 품목별 구성 · {cq['start'].replace('-', '.')} ~ {cq['end'].replace('-', '.')} · {' · '.join(metrics)}")
+    if not gcountry:
+        st.info("20대 품목 자료(미리 모아 둔 자료)를 아직 불러오지 못했어요. 잠시 뒤 다시 시도하거나 기준을 'HS'로 바꿔 보세요.")
+        return
+    window = {c: (wf or None, wt or None) for c, wf, wt in cq["parts"] if wf or wt}
+    codes = list(dict.fromkeys(c for c, _, _ in cq["parts"]))
+    pstart, pend = tc.prev_period_bounds(cq["start"], cq["end"])
+    full_prev = cq["compare"] and pstart >= months[0]
+    entries = []
+    for name, per in gcountry.items():
+        exp, imp = tc.sum_arrays(per, codes, months, window or None)
+        if not exp:
+            continue
+        cur = tc.stored_period(exp, imp, months, cq["start"], cq["end"])
+        if not cur or not (cur["exp"] or cur["imp"]):
+            continue
+        entries.append({"code": name, "name": name, "cur": cur, "prev": tc.stored_period(exp, imp, months, pstart, pend) if full_prev else None})
+    if not entries:
+        st.info("이 조건으로 조회된 자료가 없어요. 기간이나 지역을 바꿔 보세요.")
+        return
+    top_n = None if cq["top"] == "전체" else int(cq["top"])
+    st.caption("산업부 20대 주력 품목 기준이에요(미리 모아 둔 자료, 금액만). 점유율은 20대 품목 합계 기준이고, 20대 품목 합은 지역 전체 수출입과 같지 않아요.")
+    render_trade_multi_table("20대 품목별 구성", entries, metrics, top_n, cq["compare"], f"{pre}tab", denom=None, with_other=True)
+
+
 def render_trade_composition_result(data, cq, pre):
     """품목별 구성 결과(표·내려가기). cq: {parts, label, start, end, metric, top, compare}. pre: 위젯·상태 키 접두어"""
+    if cq.get("basis") == "20대":
+        render_trade_composition_groups(data, cq, pre)
+        return
     s_ym, e_ym = cq["start"].replace("-", ""), cq["end"].replace("-", "")
     p_s, p_e = tc.month_add(s_ym, -12), tc.month_add(e_ym, -12)
     try:
