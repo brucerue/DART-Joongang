@@ -25,15 +25,19 @@ jobs:
                   try: return requests.get(URL, params={"serviceKey": key, **p}, timeout=120).text
                   except Exception: pass
               raise RuntimeError("x")
-          mti = tc.load_mti("mti_map.json"); t = tc.mti_table_for_year(mti, 2026)
-          hs10 = tc.mti_hsk(t, ("1334",))
-          hs6 = sorted({h[:6] for h in hs10})
-          acc = collections.defaultdict(float)
-          for h6 in hs6:
-              for r in tc.query_items(fetch, h6, None, "202509", "202609"):
-                  if r["hs"] in hs10:
-                      acc[r["ym"]] += r["exp"]
-          msg = " ".join(f"{m}:{v/1e6:,.0f}" for m, v in sorted(acc.items()))
-          print("::notice title=나프타::" + msg)
+          try:
+              mti = tc.load_mti("mti_map.json"); t = tc.mti_table_for_year(mti, 2026)
+              hs10 = tc.mti_hsk(t, ("1334",))
+              hs6 = sorted({h[:6] for h in hs10})
+              acc = collections.defaultdict(float)
+              for h6 in hs6:
+                  for r in tc.query_items(fetch, h6, None, "202509", "202609"):
+                      if r["hs"] in hs10:
+                          acc[r["ym"]] += r["exp"]
+              msg = " ".join(f"{m}:{v/1e6:,.0f}" for m, v in sorted(acc.items()))
+              print("::notice title=나프타::" + msg)
+          except Exception as e:
+              print("::error title=나프타::" + type(e).__name__ + " " + str(e)[:300])
+              raise
           PY
           python p.py
