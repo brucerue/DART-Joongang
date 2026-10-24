@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 22:05"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 22:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7303,6 +7303,28 @@ h1 { font-weight: 800 !important; letter-spacing: -0.03em; color: #0b2545 !impor
 .news-item li a:hover { color: #1c7ed6; text-decoration: underline; }
 .news-tags { color: #4c6ef5; font-weight: 600; }
 .news-item li span { color: #7a8699; font-size: 0.8rem; margin-left: 0.3rem; }
+/* 기업 브리핑: 카드형 화면 (다른 탭에는 영향 없음) */
+.st-key-brief_wrap h5 { display: flex; align-items: center; gap: 0.5rem; font-size: 1.05rem !important; font-weight: 800 !important; color: #0b2545 !important; margin: 0.9rem 0 0.5rem !important; padding: 0 !important; }
+.st-key-brief_wrap h5::before { content: ""; width: 4px; height: 1.05em; border-radius: 2px; background: #1c7ed6; flex: 0 0 auto; }
+.st-key-brief_wrap [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); padding: 0.4rem 0.6rem 0.6rem; }
+.st-key-brief_wrap [data-testid="stVerticalBlockBorderWrapper"] h5:first-child { margin-top: 0.3rem !important; }
+.st-key-brief_wrap .cb-stats { gap: 0.6rem; }
+.st-key-brief_wrap .cb-card { border-radius: 14px; padding: 0.8rem 0.95rem; background: linear-gradient(160deg, #ffffff 0%, #f1f6fd 100%); box-shadow: 0 2px 10px rgba(16, 42, 84, 0.05); }
+.st-key-brief_wrap .cb-card .l { font-size: 0.8rem; }
+.st-key-brief_wrap .cb-card .v { font-size: 1.5rem; margin: 0.1rem 0; }
+@media (max-width: 500px) { .st-key-brief_wrap .cb-card .v { font-size: 1.25rem; } }
+.st-key-brief_wrap .cb-card .d { display: inline-block; font-size: 0.76rem; border-radius: 999px; padding: 0.05rem 0.5rem; background: #eef2f7; }
+.st-key-brief_wrap .cb-card .d.up { background: #e7f1fd; } .st-key-brief_wrap .cb-card .d.down { background: #fdecec; }
+.cb-hero { background: linear-gradient(135deg, #eaf3ff 0%, #ffffff 70%); border: 1px solid #d6e6fb; border-radius: 18px; padding: 1.1rem 1.2rem; margin: 0.2rem 0 0.8rem; box-shadow: 0 2px 12px rgba(28, 126, 214, 0.08); }
+.cb-hero .t { font-size: 1.7rem; font-weight: 800; color: #0b2545; letter-spacing: -0.03em; line-height: 1.25; }
+.cb-hero .s { color: #7a8699; font-size: 0.85rem; margin-top: 0.25rem; }
+.cb-latest { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; margin: 0 0 0.8rem; }
+@media (min-width: 700px) { .cb-latest { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cb-latest .it { background: #ffffff; border: 1px solid #e3e8ef; border-left: 4px solid #1c7ed6; border-radius: 12px; padding: 0.6rem 0.85rem; }
+.cb-latest .k { color: #1c7ed6; font-size: 0.75rem; font-weight: 700; }
+.cb-latest .m { color: #7a8699; font-size: 0.78rem; margin-left: 0.4rem; }
+.cb-latest a, .cb-latest .x { display: block; color: #0b2545; font-weight: 600; text-decoration: none; line-height: 1.45; margin-top: 0.15rem; word-break: keep-all; }
+.cb-latest a:hover { color: #1c7ed6; text-decoration: underline; }
 </style>
 """
 
@@ -8139,91 +8161,100 @@ def render_brief_glance(b):
     cards = brief_glance_cards(b, pr)
     if cards:
         st.markdown(cb_cards(cards), unsafe_allow_html=True)
+    latest = []
     d = b.get("disc")
     if d is not None and not d.empty:
         r = d.iloc[0]
-        link = f"[{r['보고서명']}]({r['원문']})" if r.get("원문") else r["보고서명"]
-        st.markdown(f"**가장 최근 주요 공시** {str(r['접수일'])[5:].replace('-', '.')} · {link}")
+        latest.append(("가장 최근 주요 공시", str(r["접수일"])[5:].replace("-", "."), r["보고서명"], r.get("원문")))
     news = [c["rep"] for key in ("news", "wire", "news_all") for c in (b.get(key) or [])]
     if news:
         n = max(news, key=lambda i: i["dt"])
-        url = n.get("url") or ""
-        title = n["title"].replace("[", "(").replace("]", ")")
-        st.markdown(f"**가장 최근 기사** {n['dt']:%m.%d} · " + (f"[{title}]({url})" if url.startswith("http") else title))
+        latest.append(("가장 최근 기사", f"{n['dt']:%m.%d}", n["title"], n.get("url")))
+    if latest:
+        items = []
+        for k, day, title, url in latest:
+            t = html.escape(str(title))
+            body = f'<a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener">{t}</a>' if url and str(url).startswith("http") else f'<span class="x">{t}</span>'
+            items.append(f'<div class="it"><span class="k">{k}</span><span class="m">{day}</span>{body}</div>')
+        st.markdown(f'<div class="cb-latest">{"".join(items)}</div>', unsafe_allow_html=True)
 
 
 def render_brief_result(b):
-    st.markdown(f"#### {b['corp']} 브리핑")
-    st.caption(f"{b['asof']:%Y.%m.%d %H:%M} 기준 · 연결 기준")
+    st.markdown(f'<div class="cb-hero"><div class="t">{html.escape(b["corp"])} 브리핑</div><div class="s">{b["asof"]:%Y.%m.%d %H:%M} 기준 · 연결 기준</div></div>', unsafe_allow_html=True)
     errs = b["errors"]
 
     render_brief_glance(b)
-    render_brief_overview(b)
+    with st.container(border=True):
+        render_brief_overview(b)
 
-    if b.get("quote") is False:
-        krx_hint()
-    elif errs.get("quote"):
-        krx_error_box(errs["quote"])
-    else:
-        render_quote(b.get("quote"))
+    with st.container(border=True):
+        if b.get("quote") is False:
+            krx_hint()
+        elif errs.get("quote"):
+            krx_error_box(errs["quote"])
+        else:
+            render_quote(b.get("quote"))
     render_brief_peers(b)
 
-    st.markdown(f"##### 실적 (최근 {BRIEF_YEARS}년, 억원)")
-    if errs.get("fin"):
-        st.warning(errs["fin"])
-    elif not b["records"]:
-        st.info("조회된 실적이 없어요.")
-    else:
-        table = build_table(b["records"], "연도별", unit="억원")
-        st.dataframe(style_table(table), hide_index=True, height=(len(table) + 1) * 35 + 3,
-                     column_config={"기간": st.column_config.TextColumn("기간", width=95), "원문": LINK_COLUMN})
-        bs = build_bs_table(b["records"], "연도별", unit="억원")
-        if not bs.empty and st.toggle("재무상태 보기 (부채비율·현금성자산·재고자산·CAPEX·순차입금·잉여현금흐름)", key="brief_bs"):
-            st.dataframe(bs, hide_index=True, height=(len(bs) + 1) * 35 + 3,
-                         column_config={"기간": st.column_config.TextColumn("기간", width=95)})
+    with st.container(border=True):
+        st.markdown(f"##### 실적 (최근 {BRIEF_YEARS}년, 억원)")
+        if errs.get("fin"):
+            st.warning(errs["fin"])
+        elif not b["records"]:
+            st.info("조회된 실적이 없어요.")
+        else:
+            table = build_table(b["records"], "연도별", unit="억원")
+            st.dataframe(style_table(table), hide_index=True, height=(len(table) + 1) * 35 + 3,
+                         column_config={"기간": st.column_config.TextColumn("기간", width=95), "원문": LINK_COLUMN})
+            bs = build_bs_table(b["records"], "연도별", unit="억원")
+            if not bs.empty and st.toggle("재무상태 보기 (부채비율·현금성자산·재고자산·CAPEX·순차입금·잉여현금흐름)", key="brief_bs"):
+                st.dataframe(bs, hide_index=True, height=(len(bs) + 1) * 35 + 3,
+                             column_config={"기간": st.column_config.TextColumn("기간", width=95)})
 
-    st.markdown("##### 최근 3개월 주요 공시")
-    if errs.get("disc"):
-        st.warning(errs["disc"])
-    elif b["disc"] is None or b["disc"].empty:
-        st.info("최근 3개월 동안 실적·공급계약·증자·자기주식·지분 변동 등 주요 공시가 없어요.")
-    else:
-        st.caption(f"최근 3개월 공시 {b.get('disc_total', 0):,}건 중 주요 공시 · 최신순")
-        st.dataframe(b["disc"], hide_index=True, column_config={"원문": LINK_COLUMN, "보고서명": st.column_config.TextColumn("보고서명", width="large")},
-                     height=min(len(b["disc"]) + 1, 14) * 35 + 3)
+    with st.container(border=True):
+        st.markdown("##### 최근 3개월 주요 공시")
+        if errs.get("disc"):
+            st.warning(errs["disc"])
+        elif b["disc"] is None or b["disc"].empty:
+            st.info("최근 3개월 동안 실적·공급계약·증자·자기주식·지분 변동 등 주요 공시가 없어요.")
+        else:
+            st.caption(f"최근 3개월 공시 {b.get('disc_total', 0):,}건 중 주요 공시 · 최신순")
+            st.dataframe(b["disc"], hide_index=True, column_config={"원문": LINK_COLUMN, "보고서명": st.column_config.TextColumn("보고서명", width="large")},
+                         height=min(len(b["disc"]) + 1, 14) * 35 + 3)
 
-    st.markdown("##### 최근 한 달 단독 뉴스")
-    if errs.get("news"):
-        st.warning(errs["news"])
-    elif not b["news"]:
-        st.info("최근 한 달 동안 제목에 [단독]이 붙은 기사가 없어요.")
-    else:
-        st.markdown(news_html(b["news"]), unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown("##### 최근 한 달 단독 뉴스")
+        if errs.get("news"):
+            st.warning(errs["news"])
+        elif not b["news"]:
+            st.info("최근 한 달 동안 제목에 [단독]이 붙은 기사가 없어요.")
+        else:
+            st.markdown(news_html(b["news"]), unsafe_allow_html=True)
 
     render_brief_timeline(b)
     render_brief_trend(b)
 
-    st.markdown("##### AI 취재 포인트")
-    if not AI_PROVIDER:
-        st.caption("AI 취재 포인트를 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude) 또는 GEMINI_API_KEY(Gemini)를 추가해주세요.")
-        return
-    prompt = brief_ai_prompt(b)
-    sig = hashlib.sha1(prompt.encode("utf-8")).hexdigest()
-    if st.button("위 자료로 취재 포인트 뽑기", key="brief_ai_go", type="primary"):
-        with st.spinner("자료를 종합하는 중입니다... (10~30초)"):
-            try:
-                (text, used) = ai_cached(("brief", sig), lambda: ai_generate(prompt, system=AI_BRIEF_SYSTEM))
-            except AiError as e:
-                st.error(str(e))
-            else:
-                st.session_state["brief_ai"] = {"sig": sig, "text": text, "model": used}
-    saved = st.session_state.get("brief_ai")
-    if saved and saved["sig"] == sig:
-        st.markdown(saved["text"])
-        st.caption(f"AI 분석({saved['model']}) · 위 실적·공시 자료만 근거로 한 해석이에요. 공시는 제목만 보고 판단한 것이라 원문 확인이 필요해요")
-    else:
-        st.caption("누르면 위 실적·공시 자료를 종합해 취재 포인트와 확인할 질문을 정리해 줘요. (뉴스는 포함하지 않아요)")
-
+    with st.container(border=True):
+        st.markdown("##### AI 취재 포인트")
+        if not AI_PROVIDER:
+            st.caption("AI 취재 포인트를 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude) 또는 GEMINI_API_KEY(Gemini)를 추가해주세요.")
+            return
+        prompt = brief_ai_prompt(b)
+        sig = hashlib.sha1(prompt.encode("utf-8")).hexdigest()
+        if st.button("위 자료로 취재 포인트 뽑기", key="brief_ai_go", type="primary"):
+            with st.spinner("자료를 종합하는 중입니다... (10~30초)"):
+                try:
+                    (text, used) = ai_cached(("brief", sig), lambda: ai_generate(prompt, system=AI_BRIEF_SYSTEM))
+                except AiError as e:
+                    st.error(str(e))
+                else:
+                    st.session_state["brief_ai"] = {"sig": sig, "text": text, "model": used}
+        saved = st.session_state.get("brief_ai")
+        if saved and saved["sig"] == sig:
+            st.markdown(saved["text"])
+            st.caption(f"AI 분석({saved['model']}) · 위 실적·공시 자료만 근거로 한 해석이에요. 공시는 제목만 보고 판단한 것이라 원문 확인이 필요해요")
+        else:
+            st.caption("누르면 위 실적·공시 자료를 종합해 취재 포인트와 확인할 질문을 정리해 줘요. (뉴스는 포함하지 않아요)")
 
 def render_brief():
     """탭: 기업 브리핑 - 회사 하나의 실적·공시·뉴스를 한 화면에."""
@@ -8260,7 +8291,8 @@ def render_brief():
 
     b = st.session_state.get("brief")
     if b:
-        render_brief_result(b)
+        with st.container(key="brief_wrap"):
+            render_brief_result(b)
 
 
 
