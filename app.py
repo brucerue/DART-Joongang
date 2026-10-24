@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 19:13"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 19:25"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9348,7 +9348,7 @@ def trade_ai_prompt(text, ctx, cands, articles):
         ' "notes": "코드가 정확하지 않은 이유나 확인할 점(예: 전용 코드가 없어 여러 코드의 합으로 근사)"}',
         "",
         "규칙: ① 입력이 20대 품목 중 하나와 같은 뜻이면 kind=group을 쓴다. ② 그 밖의 품목은 HS를 가능한 한 구체적으로(6자리, 용도로 가려지면 한국 HSK 8·10자리까지) 제안하고, 4자리 호만 쓰는 것은 6자리를 모를 때뿐이다. "
-        "후보 목록에 있는 것을 우선하고, 한 품목에 코드가 여러 개 필요하면 모두 items에 넣는다(최대 6개). "
+        "후보 목록에 있는 것을 우선하고, 한 품목에 코드가 여러 개 필요하면 모두 items에 넣는다(최대 6개). '관세청 등으로 확인된 코드 설명'에 있는 코드가 입력에 맞으면 notes에만 적지 말고 items에 그 코드(10자리)를 넣는다. "
         "③ '2025년'처럼 연도만 있으면 그 해 1월~12월. ④ 수출액·수출금액은 수출금액, 수입액은 수입금액, 수출량·물량은 수출 중량. ⑤ 지역이 없으면 regions는 빈 배열. "
         "⑥ 입력이 수출입 통계와 무관하면 items·regions를 비우고 summary에 이유를 쓴다.",
     ]
@@ -9462,7 +9462,8 @@ def render_trade_ai(data):
         for i, it in enumerate(spec["items"]):
             checked = it["checked"]
             tag = {"높음": "🟢 높음", "중간": "🟡 중간", "낮음": "🔴 낮음"}[it["confidence"]]
-            if st.checkbox(f"{it['label']}  ·  확신 {tag}", value=it["confidence"] != "낮음", key=f"tr_ai_item_{st.session_state.get('tr_ai_n', 0)}_{i}"):
+            noted = [n["code"] for ch in it.get("children", []) for n in [ch] + ch["sub"] if n["code"] in HS_NOTES]  # 관세청이 확인해 준 하위 코드가 있으면 그걸 기본으로 고른다
+            if st.checkbox(f"{it['label']}  ·  확신 {tag}", value=it["confidence"] != "낮음" and not noted, key=f"tr_ai_item_{st.session_state.get('tr_ai_n', 0)}_{i}"):
                 picked.append(it["key"])
             bits = [it["reason"]] if it["reason"] else []
             if checked:
@@ -9481,7 +9482,7 @@ def render_trade_ai(data):
                 for ch in it["children"]:
                     for node, depth in [(ch, 1)] + [(sb, 2) for sb in ch["sub"]]:
                         mark = "↳ " if depth == 1 else "　　↳ "
-                        if st.checkbox(f"{mark}{node['code']} {node['name'][:26]} · {trade_usd(node['exp'])}", value=False,
+                        if st.checkbox(f"{mark}{node['code']} {node['name'][:26]} · {trade_usd(node['exp'])}", value=node["code"] in HS_NOTES,
                                        key=f"tr_ai_ch_{st.session_state.get('tr_ai_n', 0)}_{i}_{node['code']}"):
                             picked.append(("hs", node["code"]))
     else:
