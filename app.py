@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 18:07"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 18:33"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8968,7 +8968,7 @@ TRADE_BRANCH = "trade"
 TRADE_VIEWS = ["검색", "월간 현황", "10일 단위 속보", "국가·경제권"]
 CUSTOMS_KEY = load_secret("CUSTOMS_API_KEY")  # 공공데이터포털 일반 인증키 (검색 화면이 품목별 국가별 수출입실적 API를 직접 부른다)
 TRADE_ITEM_URL = "https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH
-TRADE_KINDS = ["품목·지역", "시도", "세관"]
+TRADE_KINDS = ["품목·지역", "AI 검색"]
 TRADE_ITEM_MODES = ["전체", "20대 품목", "HS 코드", "MTI 코드"]
 TRADE_REGION_MODES = ["전체", "국가", "경제권", "대륙"]
 MTI_FILE = "mti_map.json"  # mti_build.py가 무역협회 HSK-MTI 연계표(엑셀)로 만든 파일 (앱과 같은 폴더)
@@ -9119,7 +9119,7 @@ def trade_shift_year(by_month):
 
 def trade_series(data, q):
     """검색 조건 q -> [{name, month(월별 지표), prev(전년 동기 월별 또는 None), rows(품목 행 또는 None)}]. API 오류는 TradeApiError.
-    q: kind('품목·지역'/'시도'/'세관'), items([('hs'|'mti', 코드)], 비면 전체), regions([(종류, 이름, 국가코드들)], 비면 전체), names(시도·세관 이름)"""
+    q: kind('품목·지역'), items([('hs'|'mti', 코드)], 비면 전체), regions([(종류, 이름, 국가코드들)], 비면 전체)"""
     months, kind = data["months"], q["kind"]
     q = dict(q, end=min(q["end"], months[-1]), end_sel=q["end"])  # 잠정 달은 관세청 자료에 없으니 확정된 마지막 달까지만 조회하고, 잠정치는 보도자료에서 붙인다
     s_ym, e_ym = q["start"].replace("-", ""), q["end"].replace("-", "")
@@ -9132,13 +9132,6 @@ def trade_series(data, q):
         prev = tc.stored_metrics(arrays, months, f"{p_s[:4]}-{p_s[4:]}", f"{p_e[:4]}-{p_e[4:]}")
         out.append({"name": name, "month": cur, "prev": trade_shift_year(prev) if len(prev) == expected else None, "rows": None, "flash_key": flash_key})
 
-    if kind in ("시도", "세관"):
-        group = {"시도": "sido", "세관": "port"}[kind]
-        for name in q["names"]:
-            hit = data[group].get(name)
-            if hit is not None:
-                stored(name, (hit[0], hit[1]), None)
-        return trade_attach_flash(out, q)
     regions, items = q["regions"], q["items"]
     if not items:  # 품목 전체: 모아 둔 월별 자료(국가별 합산)로 보여준다
         if not regions:
@@ -9289,11 +9282,195 @@ def render_trade_search_result(data, q, series):
     st.download_button("월별 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="수출입검색_월별.csv", mime="text/csv", key="tr_s_dl_m")
 
 
+TRADE_AI_SYSTEM = (
+    "너는 한국 수출입 무역통계(관세청·산업통상부)에서 품목 코드와 검색 조건을 찾아 주는 도우미다. "
+    "코드는 사용자가 준 후보 목록과 네가 확실히 아는 것만 쓰고, 모르면 만들지 말고 confidence를 '낮음'으로 한다. "
+    "지역(국가·경제권·대륙)과 산업부 20대 품목은 반드시 주어진 목록의 이름을 그대로 쓴다. "
+    "참고 기사는 제목만 있으니 코드의 근거로 인용할 때는 번호(refs)만 적고, 기사에 없는 내용을 지어내지 않는다. "
+    "설명 없이 JSON 하나만 출력한다."
+)
+TRADE_AI_LINKS = [
+    ("관세법령정보포털 (HS 품목분류·관세율표 검색)", "https://unipass.customs.go.kr/clip/index.do"),
+    ("관세청 무역통계", "https://tradedata.go.kr"),
+    ("한국무역협회 무역통계 K-stat", "https://stat.kita.net"),
+    ("산업통상부 보도자료 (월간 수출입 동향)", "https://www.motie.go.kr/kor/article/ATCL3f49a5a8c"),
+]
+
+
+def trade_ai_context(data, mti):
+    """AI 답을 검증할 때 쓰는 목록 (국가 이름 -> 코드, 경제권, 대륙, 20대 품목, MTI·HS 이름)"""
+    return {"groups": list(tc.MTI_GROUPS), "mti_names": mti["names"], "hs_names": data.get("hs") or {},
+            "countries": {v[0]: k for k, v in data["country"].items()}, "zones": list(tc.ZONES), "continents": list(tc.CONTINENTS),
+            "months": data["months"], "flash_ym": (trade_flash(data) or {}).get("month")}
+
+
+def trade_ai_prompt(text, ctx, cands, articles):
+    mti_c, hs_c = cands
+    lines = [
+        f"오늘: {TODAY.isoformat()} / 모아 둔 월별 자료: {ctx['months'][0]} ~ {ctx['months'][-1]}" + (f" (잠정 {ctx['flash_ym']} 포함 가능)" if ctx["flash_ym"] else ""),
+        f"사용자 입력: {text}",
+        "",
+        "[산업부 20대 주력 수출품목 이름 — kind=group에 이 이름 그대로] " + ", ".join(ctx["groups"]),
+        "[경제권 이름] " + ", ".join(ctx["zones"]),
+        "[대륙 이름] " + ", ".join(ctx["continents"]),
+        "[국가 이름(관세청 표기) — kind=국가에 이 이름 그대로] " + ", ".join(sorted(ctx["countries"])),
+        "[입력과 이름이 겹치는 MTI(산업부 품목분류) 후보 — 코드: 이름] " + ("; ".join(f"{c}: {n}" for c, n in mti_c) or "없음"),
+        "[입력과 이름이 겹치는 HS 4자리 후보] " + ("; ".join(f"{c}: {n}" for c, n in hs_c) or "없음"),
+        "[참고 기사(번호. 제목 - 언론사)] " + (" | ".join(f"{i}. {a['title']} - {a['publisher']}" for i, a in enumerate(articles, 1)) or "없음"),
+        "",
+        "아래 JSON 형식으로만 답해라.",
+        '{"summary": "입력을 한 문장으로 해석", ',
+        ' "items": [{"kind": "group|mti|hs", "code": "group은 20대 품목 이름, mti는 MTI 코드(1~6자리 숫자), hs는 HS 코드(2·4·6자리 숫자)", '
+        '"reason": "이 코드를 고른 이유와 한계를 한두 문장으로", "confidence": "높음|중간|낮음", "refs": [참고 기사 번호들, 없으면 빈 배열]}], ',
+        ' "regions": [{"kind": "국가|경제권|대륙", "name": "목록의 이름 그대로"}], ',
+        ' "period": {"start": "YYYY-MM", "end": "YYYY-MM"} 또는 입력에 기간이 없으면 null, ',
+        ' "metrics": ["수출금액", "수입금액", "무역수지", "수출 중량", "수입 중량" 중 입력이 원하는 것] 또는 입력에 없으면 null, ',
+        ' "notes": "코드가 정확하지 않은 이유나 확인할 점(예: 전용 코드가 없어 여러 코드의 합으로 근사)"}',
+        "",
+        "규칙: ① 입력이 20대 품목 중 하나와 같은 뜻이면 kind=group을 쓴다. ② 그 밖의 품목은 HS 6자리(또는 MTI)를 제안하되 후보 목록에 있는 것을 우선하고, 한 품목에 코드가 여러 개 필요하면 모두 items에 넣는다(최대 6개). "
+        "③ '2025년'처럼 연도만 있으면 그 해 1월~12월. ④ 수출액·수출금액은 수출금액, 수입액은 수입금액, 수출량·물량은 수출 중량. ⑤ 지역이 없으면 regions는 빈 배열. "
+        "⑥ 입력이 수출입 통계와 무관하면 items·regions를 비우고 summary에 이유를 쓴다.",
+    ]
+    return "\n".join(lines)
+
+
+def trade_ai_news(text):
+    """입력 낱말로 최근 기사를 찾는다(근거 참고용). 네이버 키가 없거나 실패하면 []"""
+    if not (NAVER_ID and NAVER_SECRET):
+        return []
+    try:
+        items, _, _ = search_news([text.strip()[:60]], 60, keyword="")
+    except Exception:
+        return []
+    return sorted(items, key=lambda i: i["dt"], reverse=True)[:6]
+
+
+def trade_hs_check(code, ym):
+    """AI가 낸 HS 코드를 관세청 자료에서 확인 -> 관세청 품목명(찾음) / ''(그 코드는 안 보임) / None(확인 못 함)"""
+    if len(code) < 4 or not CUSTOMS_KEY:
+        return None
+    ym = ym.replace("-", "")
+    try:
+        rows = trade_query(code[:4], None, ym, ym)
+    except Exception:
+        return None
+    if len(code) == 4:
+        return next((r["name"] for r in rows), "") if rows else ""
+    return next((r["name"] for r in rows if r["hs"] == code), "")
+
+
+def trade_ai_ask(text, data):
+    """입력 한 줄 -> 검증된 AI 검색 조건 (같은 입력은 일주일 동안 다시 묻지 않는다)"""
+    mti = get_mti()
+    if mti is None:
+        raise AiError("산업부 품목(MTI) 연계표를 불러오지 못했어요.")
+    ctx = trade_ai_context(data, mti)
+
+    def make():
+        cands = tc.ai_local_candidates(text, mti["names"], ctx["hs_names"])
+        articles = trade_ai_news(text)
+        raw, _ = ai_generate(trade_ai_prompt(text, ctx, cands, articles), system=TRADE_AI_SYSTEM, json_mode=True)
+        out = tc.ai_validate(parse_json(raw), ctx)
+        out["articles"] = [{"title": a["title"], "url": a["url"], "publisher": a["publisher"], "date": a["dt"].strftime("%Y.%m.%d")} for a in articles]
+        out["refs"] = [r for it in out["items"] for r in it["refs"]]
+        return out
+
+    out = ai_cached(("trade_ai", text.strip(), ctx["months"][-1]), make)
+    for it in out["items"]:  # 코드 확인은 저장하지 않고 그때그때(관세청 자료로)
+        it["checked"] = trade_hs_check(it["code"], ctx["months"][-1]) if it["kind"] == "hs" else None
+    return out
+
+
+def render_trade_ai(data):
+    """AI 검색: 품목 설명이나 질문을 입력하면 코드 조합·근거·링크를 보여주고, 골라서 일반 검색과 같은 결과를 낸다"""
+    if not AI_PROVIDER:
+        st.info("AI 검색을 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude) 또는 GEMINI_API_KEY(Gemini)를 추가해주세요.")
+        return
+    st.caption("품목을 말로 설명하거나(예: 전기차) 질문하듯 쓰면(예: 2025년 미국으로 수출된 자동차 수출액) AI가 코드와 검색 조건을 제안해요. 확인하고 '조회'를 누르면 일반 검색과 같은 결과가 나와요.")
+    text = st.text_area("찾고 싶은 것", key="tr_ai_text", height=80, placeholder="예: 전기차  /  2025년 미국으로 수출된 자동차 수출액  /  올해 EU 반도체 수입")
+    if st.button("AI에게 물어보기", type="primary", key="tr_ai_go"):
+        st.session_state.pop("tr_ai_query", None)
+        st.session_state["tr_ai_n"] = st.session_state.get("tr_ai_n", 0) + 1  # 새로 물을 때마다 체크 상태를 새로 시작
+        if not text.strip():
+            st.warning("찾고 싶은 것을 입력해 주세요.")
+            st.session_state.pop("tr_ai_spec", None)
+        else:
+            try:
+                with st.spinner("AI가 코드와 조건을 찾는 중입니다... (몇 초~수십 초)"):
+                    st.session_state["tr_ai_spec"] = trade_ai_ask(text, data)
+            except AiError as e:
+                st.session_state.pop("tr_ai_spec", None)
+                st.error(str(e))
+                return
+    spec = st.session_state.get("tr_ai_spec")
+    if not spec:
+        return
+    st.warning("AI가 제안한 코드와 조건이에요. 틀릴 수 있으니 아래 근거·관세청 품목명을 확인하고, 중요한 숫자는 관세청·산업부 자료로 다시 확인하세요.", icon="⚠️")
+    if spec["summary"]:
+        st.markdown(f"**AI가 이해한 내용** · {spec['summary']}")
+    arts = spec.get("articles") or []
+    picked = []
+    if spec["items"]:
+        st.markdown("**품목 코드 제안** (체크한 코드로 조회해요)")
+        for i, it in enumerate(spec["items"]):
+            checked = it["checked"]
+            tag = {"높음": "🟢 높음", "중간": "🟡 중간", "낮음": "🔴 낮음"}[it["confidence"]]
+            if st.checkbox(f"{it['label']}  ·  확신 {tag}", value=it["confidence"] != "낮음", key=f"tr_ai_item_{st.session_state.get('tr_ai_n', 0)}_{i}"):
+                picked.append(it["key"])
+            bits = [it["reason"]] if it["reason"] else []
+            if checked:
+                bits.append(f"관세청 품목명: {checked}")
+            elif checked == "":
+                bits.append("⚠️ 관세청 자료에서 이 코드가 확인되지 않았어요")
+            ref_links = [f"[기사{r}]({arts[r - 1]['url']})" for r in it["refs"] if 1 <= r <= len(arts)]
+            if ref_links:
+                bits.append("근거 기사 " + " ".join(ref_links))
+            if bits:
+                st.caption(" · ".join(bits))
+    else:
+        st.caption("품목은 지정하지 않았어요 (전체).")
+    reg = " · ".join(f"{n}" for _, n, _ in spec["regions"]) or "전체"
+    st.caption(f"지역: {reg}  |  기간: {spec['start'].replace('-', '.')} ~ {spec['end'].replace('-', '.')}  |  지표: {', '.join(spec['metrics'])}")
+    if spec["notes"]:
+        st.caption("메모: " + spec["notes"])
+    for w in spec["warnings"]:
+        st.caption("• " + w)
+    with st.expander("참고 기사·사이트"):
+        if arts:
+            st.markdown("\n".join(f"{i}. [{a['title']}]({a['url']}) · {a['publisher']} · {a['date']}" for i, a in enumerate(arts, 1)))
+        else:
+            st.caption("관련 기사를 찾지 못했어요(네이버 뉴스 키가 없거나 결과가 없음).")
+        st.markdown("\n".join(f"- [{t}]({u})" for t, u in TRADE_AI_LINKS))
+    if st.button("조회", type="primary", key="tr_ai_run"):
+        if spec["items"] and not picked:
+            st.warning("조회할 품목 코드를 하나 이상 체크해 주세요.")
+            st.session_state.pop("tr_ai_query", None)
+        elif (spec["items"] or any("중량" in m for m in spec["metrics"])) and not CUSTOMS_KEY:
+            st.info("품목 조회에는 Streamlit Secrets에 CUSTOMS_API_KEY가 필요해요.")
+        else:
+            st.session_state["tr_ai_query"] = {"kind": "품목·지역", "items": picked, "regions": spec["regions"], "metrics": spec["metrics"], "compare": True,
+                                               "start": spec["start"], "end": spec["end"], "flash": trade_flash(data)}
+    sq = st.session_state.get("tr_ai_query")
+    if not sq:
+        st.caption("코드를 확인하고 '조회'를 누르면 일반 검색과 같은 결과가 나와요.")
+        return
+    try:
+        with st.spinner("관세청 자료를 불러오는 중입니다..."):
+            series = trade_series(data, sq)
+    except tc.TradeApiError as e:
+        st.error(str(e))
+        return
+    render_trade_search_result(data, sq, series)
+
+
 def render_trade_search(data):
     """검색: 무엇을(품목: 전체·HS·산업부 MTI) × 어디서(지역: 전체·국가·경제권) -> 기간 -> 지표를 고르면 바로 보여준다. 시도·세관은 따로."""
     months = data["months"]
     kind = st.radio("종류", TRADE_KINDS, horizontal=True, key="tr_s_kind")
-    q = {"kind": kind, "items": [], "regions": [], "names": []}
+    if kind == "AI 검색":
+        render_trade_ai(data)
+        return
+    q = {"kind": kind, "items": [], "regions": []}
     live = False
     mti = None
     if kind == "품목·지역":
@@ -9342,9 +9519,6 @@ def render_trade_search(data):
             sel = st.multiselect("대륙", list(tc.CONTINENTS), key="tr_s_cont", max_selections=8,
                                  help="관세청 대륙별 월별 합계와 구성국 합계가 최근 24개월 수출·수입 모두 같도록 맞춘 분류예요. 관세청 분류는 지리와 달라서, 북아프리카(이집트·알제리 등)는 '중동', 튀르키예·조지아는 '유럽', 괌은 '오세아니아'에 들어가요.")
             q["regions"] = [("대륙", c, tuple(tc.continent_codes(c))) for c in sel]
-    else:
-        src = sorted(data.get("sido", {})) if kind == "시도" else [n for n, _ in sorted(data.get("port", {}).items(), key=lambda kv: -(sum(x or 0 for x in kv[1][0][-12:])))]
-        q["names"] = st.multiselect(kind, src, key=f"tr_s_names_{kind}", max_selections=10)
     c1, c2 = st.columns(2)
     fm = trade_flash(data)  # 산업부 보도자료 잠정치가 관세청 확정 자료보다 새로우면 종료월에 '잠정' 달이 더 생긴다
     default_start = next((m for m in months if m.startswith(months[-1][:4])), months[0])  # 기본: 올해 1월부터
@@ -9360,16 +9534,11 @@ def render_trade_search(data):
         problems = []
         if start > end:
             problems.append("시작월이 종료월보다 늦어요.")
-        if kind == "품목·지역":
-            if live and not q["items"]:
-                problems.append("품목을 하나 이상 골라 주세요.")
-            if reg_mode != "전체" and not q["regions"]:
-                problems.append(f"{reg_mode}을(를) 하나 이상 골라 주세요.")
-            n = max(1, len(q["items"])) * max(1, len(q["regions"]))
-        else:
-            if not q["names"]:
-                problems.append(f"{kind}을(를) 하나 이상 골라 주세요.")
-            n = len(q["names"])
+        if live and not q["items"]:
+            problems.append("품목을 하나 이상 골라 주세요.")
+        if reg_mode != "전체" and not q["regions"]:
+            problems.append(f"{reg_mode}을(를) 하나 이상 골라 주세요.")
+        n = max(1, len(q["items"])) * max(1, len(q["regions"]))
         if n > TRADE_MAX_SERIES:
             problems.append(f"한 번에 {TRADE_MAX_SERIES}개 항목까지만 볼 수 있어요 (지금 {n}개).")
         mti_items = [c for k, c in q["items"] if k == "mti"]
@@ -9397,7 +9566,7 @@ def render_trade_search(data):
     render_trade_search_result(data, sq, series)
     st.caption("검색 안내", help="품목은 관세청 '품목별 국가별 수출입실적'(통관 기준, 달러)을 바로 불러와요. HS 코드 2·4·6자리로 조회하고, 하위 품목·국가별 내역이 함께 나와요. 품목에 지역(국가·경제권·대륙)을 고르면 받은 자료에서 그 국가들만 합산해요.  \n"
                "20대 품목과 MTI 코드는 무역협회 HSK-MTI 연계표로 HS 10자리를 MTI에 묶어 합친 값이에요. 연계표는 기준년도(2021년 이전·2022~2024·2025~2026)별로 달라서 조회월의 해에 맞는 표를 써요. 산업부·관세청 발표와 1~5% 정도 차이가 날 수 있어요(잠정치·분류 시점 차이).  \n"
-               "품목을 '전체'로 두면 모아 둔 월별 자료(최근 2년)를 써서 호출 없이 바로 나와요. 시도·세관도 마찬가지예요.  \n"
+               "품목을 '전체'로 두면 모아 둔 월별 자료(최근 2년)를 써서 호출 없이 바로 나와요.  \n"
                "증감은 전년 같은 기간 대비이고, 같은 조건을 6시간 안에 다시 보면 저장한 결과를 써요.")
 
 
