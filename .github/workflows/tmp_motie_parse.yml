@@ -1,0 +1,54 @@
+name: 산업부 파서 시험
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 7·8·9월 PDF 읽기
+        run: |
+          cat > p.py <<'PY'
+          import re, time, subprocess, requests
+          import motie_flash as mf
+          H = {"User-Agent": "Mozilla/5.0"}
+          base = "https://www.motie.go.kr"
+          L = base + "/kor/article/ATCL3f49a5a8c"
+          def get(u):
+              for k in range(5):
+                  try:
+                      return requests.get(u, headers=H, timeout=60)
+                  except Exception:
+                      time.sleep(3 * (k + 1))
+          notes = []
+          arts = []
+          for pg in (7, 16, 21, 29):
+              r = get(f"{L}?pageIndex={pg}"); time.sleep(1)
+              if r is None: continue
+              for tr in re.findall(r"<tr>.*?</tr>", r.text, re.S):
+                  m = re.search(r'class="ta-l".*?</td>', tr, re.S)
+                  t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", m.group(0))).strip() if m else ""
+                  if "수출입" in t and "동향" in t and "ICT" not in t and "정보통신" not in t:
+                      lk = re.search(r'href="(/kor/article/ATCL3f49a5a8c/\d+/view[^"]*)"', tr)
+                      if lk: arts.append((t, lk.group(1).replace("&amp;", "&")))
+          notes.append("글: " + str([a[0][-22:] for a in arts]))
+          for t, link in arts:
+              r = get(base + link); time.sleep(1)
+              if r is None: notes.append(t[-20:] + " 상세 실패"); continue
+              pdfs = [h for h, n in re.findall(r'href="(/attach/down/[^"]+)"[^>]*>(.*?)</a>', r.text, re.S) if ".pdf" in n.lower()]
+              if not pdfs: notes.append(t[-20:] + " PDF 첨부 없음"); continue
+              d = get(base + pdfs[0])
+              open("x.pdf", "wb").write(d.content)
+              try:
+                  o = mf.parse_flash(mf.pdf_text("x.pdf"))
+                  notes.append(f"{t[-22:]} 통과: {o['month']} 총괄 {o['monthly'][o['month']]} 반도체 {o['items']['반도체'][-1]} 중국 {o['exp_region']['중국'][-1]}")
+              except Exception as e:
+                  notes.append(f"{t[-22:]} 실패: {str(e)[:350]}")
+          for i, n in enumerate(notes[:9]):
+              print("::notice title=파서시험%d::%s" % (i, re.sub(r"\s+", " ", n).replace("%", "%25")))
+          PY
+          python p.py
