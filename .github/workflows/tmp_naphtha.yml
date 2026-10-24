@@ -1,0 +1,39 @@
+name: 나프타 시험
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 나프타 월별 수출
+        env:
+          CUSTOMS_API_KEY: ${{ secrets.CUSTOMS_API_KEY }}
+        run: |
+          cat > p.py <<'PY'
+          import os, urllib.parse, requests, collections
+          import trade_calc as tc
+          key = os.environ["CUSTOMS_API_KEY"].strip()
+          key = urllib.parse.unquote(key) if "%" in key else key
+          URL = "https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList"
+          def fetch(p):
+              for k in range(4):
+                  try: return requests.get(URL, params={"serviceKey": key, **p}, timeout=120).text
+                  except Exception: pass
+              raise RuntimeError("x")
+          mti = tc.load_mti("mti_map.json"); t = tc.mti_table_for_year(mti, 2026)
+          hs10 = tc.mti_hsk(t, ("1334",))
+          hs6 = sorted({h[:6] for h in hs10})
+          acc = collections.defaultdict(float)
+          for h6 in hs6:
+              for r in tc.query_items(fetch, h6, None, "202509", "202609"):
+                  if r["hs"] in hs10:
+                      acc[r["ym"]] += r["exp"]
+          msg = " ".join(f"{m}:{v/1e6:,.0f}" for m, v in sorted(acc.items()))
+          print("::notice title=나프타::" + msg)
+          PY
+          python p.py
