@@ -1,0 +1,49 @@
+name: 품목 단계 시험
+on: workflow_dispatch
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 단계별 응답
+        env:
+          CUSTOMS_API_KEY: ${{ secrets.CUSTOMS_API_KEY }}
+        run: |
+          cat > p.py <<'PY'
+          import os, time, urllib.parse, requests, collections
+          import trade_calc as tc
+          key = os.environ["CUSTOMS_API_KEY"].strip()
+          key = urllib.parse.unquote(key) if "%" in key else key
+          URL = "https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList"
+          def fetch(params):
+              for k in range(4):
+                  try:
+                      return requests.get(URL, params={"serviceKey": key, **params}, timeout=120).text
+                  except Exception:
+                      time.sleep(2)
+              raise RuntimeError("fail")
+          notes = []
+          def probe(label, **kw):
+              t0 = time.time()
+              try:
+                  rows = tc.query_items(fetch, kw.get("hs"), kw.get("cnty"), kw["s"], kw["e"])
+              except Exception as e:
+                  notes.append(f"{label}: 실패 {str(e)[:100]}"); return
+              lens = collections.Counter(len(r["hs"]) for r in rows)
+              tot = sum(r["exp"] for r in rows)
+              notes.append(f"{label}: 행 {len(rows)}, hs자릿수 {dict(lens)}, {time.time()-t0:.1f}초, 수출합 {tot/1e6:,.0f}M$, 국가수 {len({r['cnty'] for r in rows})}, hs수 {len({r['hs'] for r in rows})}")
+          probe("A 미국만 1개월", cnty="US", s="202509", e="202509")
+          probe("B 미국만 12개월", cnty="US", s="202410", e="202509")
+          probe("C 85류+미국 12개월", hs="85", cnty="US", s="202410", e="202509")
+          probe("D 8542+미국 12개월", hs="8542", cnty="US", s="202410", e="202509")
+          probe("E 85류 전체국가 1개월", hs="85", s="202509", e="202509")
+          probe("F 85류 전체국가 12개월", hs="85", s="202410", e="202509")
+          for i, n in enumerate(notes):
+              print("::notice title=단계%d::%s" % (i, n.replace("%", "%25")))
+          PY
+          python p.py
