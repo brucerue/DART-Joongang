@@ -743,3 +743,112 @@ def ai_clear_groups(text, groups, other_names=()):
         return []
     left = re.sub(r"[^가-힣A-Za-z]", "", rest)
     return found if len(left) == 0 else []
+
+
+# ---- 국가별 순위 ----
+RANK_METRICS = {"수출금액": "exp", "수입금액": "imp", "무역수지": "bal", "수출 중량": "exp_wgt", "수입 중량": "imp_wgt"}
+
+
+def _zero_metrics():
+    return {"exp": 0, "imp": 0, "bal": 0, "exp_wgt": 0, "imp_wgt": 0}
+
+
+def stored_period(exp, imp, months, start, end):
+    """trade.json 월별 배열의 [start, end](포함) 합 -> 지표 dict, 그 기간에 값이 하나도 없으면 None"""
+    e = m = 0
+    seen = False
+    for i, ym in enumerate(months):
+        if start <= ym <= end and (exp[i] is not None or imp[i] is not None):
+            seen = True
+            e += exp[i] or 0
+            m += imp[i] or 0
+    return {"exp": e, "imp": m, "bal": e - m, "exp_wgt": 0, "imp_wgt": 0} if seen else None
+
+
+def prev_period_bounds(start, end):
+    """[start, end]의 1년 전 같은 기간 -> ('YYYY-MM', 'YYYY-MM')"""
+    s, e = month_add(start.replace("-", ""), -12), month_add(end.replace("-", ""), -12)
+    return f"{s[:4]}-{s[4:]}", f"{e[:4]}-{e[4:]}"
+
+
+def rank_entries_stored(data, level, start, end, compare=True):
+    """모아 둔 월별 자료로 만든 순위 후보 -> [{code, name, cur, prev}]. level: '국가' / '경제권' / '대륙' (경제권·대륙은 관세청이 준 합계를 그대로 쓴다)"""
+    months = data["months"]
+    pstart, pend = prev_period_bounds(start, end)
+    full_prev = compare and pstart >= months[0]
+    out = []
+    if level == "국가":
+        src = {c: (v[0], v[1], v[2]) for c, v in data["country"].items()}
+    else:
+        src = {c: (v[0], v[1], v[2]) for c, v in (data.get("region" if level == "경제권" else "continent") or {}).items()}
+    for code, (name, exp, imp) in src.items():
+        cur = stored_period(exp, imp, months, start, end)
+        if cur is None:
+            continue
+        prev = stored_period(exp, imp, months, pstart, pend) if full_prev else None
+        out.append({"code": code, "name": name, "cur": cur, "prev": prev})
+    return out
+
+
+def rank_entries_rows(rows, prev_rows, level):
+    """품목 조회 행(국가 코드 포함)으로 만든 순위 후보 -> [{code, name, cur, prev}] (prev_rows가 None이면 prev는 None).
+    level: '국가' / '경제권' / '대륙' (경제권·대륙은 소속 국가 행을 합산, 경제권끼리는 겹칠 수 있다)"""
+    def group(rs):
+        acc = {}
+        for r in rs:
+            a = acc.setdefault(r["cnty"], {"name": r["cnty_name"], "m": _zero_metrics()})
+            for k in ("exp", "imp", "exp_wgt", "imp_wgt"):
+                a["m"][k] += r[k]
+        for a in acc.values():
+            a["m"]["bal"] = a["m"]["exp"] - a["m"]["imp"]
+        return acc
+
+    cur_c = group(rows)
+    prev_c = group(prev_rows) if prev_rows is not None else None
+    if level == "국가":
+        return [{"code": c, "name": a["name"], "cur": a["m"], "prev": (prev_c.get(c, {"m": _zero_metrics()})["m"] if prev_c is not None else None)} for c, a in cur_c.items()]
+    table = ZONES if level == "경제권" else {n: v for n, v in CONTINENTS.items()}
+    out = []
+    for name, codes in table.items():
+        members = codes.split() if isinstance(codes, str) else codes
+        since = ZONE_SINCE.get(name) if level == "경제권" else None
+
+        def total(rs):
+            m = _zero_metrics()
+            for r in rs:
+                if r["cnty"] in members and not (since and r["cnty"] in since and r["ym"] < since[r["cnty"]]):
+                    for k in ("exp", "imp", "exp_wgt", "imp_wgt"):
+                        m[k] += r[k]
+            m["bal"] = m["exp"] - m["imp"]
+            return m
+
+        cur = total(rows)
+        if cur["exp"] or cur["imp"]:
+            out.append({"code": name, "name": name, "cur": cur, "prev": total(prev_rows) if prev_rows is not None else None})
+    return out
+
+
+def rank_table(entries, metric_key, top_n, denom=None, with_other=True):
+    """순위 후보 -> (표 줄들, 합계 줄). 무역수지는 큰 순(흑자 큰 나라 먼저), 나머지는 값이 큰 순.
+    줄: {rank, name, value, share(%, 합계/denom 대비·무역수지는 None), prev, chg(%, 전년 같은 기간 대비)}
+    top_n이 None이면 전부. with_other면 상위 밖을 '기타' 한 줄로 합친다. denom: 점유율의 분모(없으면 후보 값의 합)"""
+    ents = sorted(entries, key=lambda e: -(e["cur"][metric_key] or 0))
+    total = sum(e["cur"][metric_key] or 0 for e in ents)
+    prev_total = sum((e["prev"][metric_key] or 0) for e in ents) if ents and all(e["prev"] is not None for e in ents) else None
+    base = denom if denom else total
+    share_ok = metric_key != "bal" and base
+
+    def line(rank, name, value, prev):
+        return {"rank": rank, "name": name, "value": value, "prev": prev,
+                "share": (value / base * 100) if share_ok and value is not None else None,
+                "chg": (pct(value, prev) if metric_key != "bal" and prev is not None else None)}
+
+    top = ents if top_n is None else ents[:top_n]
+    rows = [line(i, e["name"], e["cur"][metric_key], (e["prev"][metric_key] if e["prev"] is not None else None)) for i, e in enumerate(top, 1)]
+    rest = ents[len(top):]
+    if rest and with_other:
+        v = sum(e["cur"][metric_key] or 0 for e in rest)
+        pv = sum((e["prev"][metric_key] or 0) for e in rest) if all(e["prev"] is not None for e in rest) else None
+        rows.append(line(None, f"기타 ({len(rest)}곳)", v, pv))
+    totrow = {"value": total, "prev": prev_total, "chg": (pct(total, prev_total) if metric_key != "bal" else None)}
+    return rows, totrow
