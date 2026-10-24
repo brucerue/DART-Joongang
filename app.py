@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.24 19:25"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.24 19:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9204,7 +9204,7 @@ def render_trade_search_result(data, q, series):
     if not months_all:
         st.info("이 조건으로 조회된 자료가 없어요. 기간이나 품목을 바꿔 보세요.")
         return
-    st.markdown(f"##### 월별 추이 · {q['start'].replace('-', '.')} ~ {q['end'].replace('-', '.')}")
+    st.markdown(f"##### 월별 추이 · {q['start'].replace('-', '.')} ~ {q['end'].replace('-', '.')} · {' · '.join(wanted)}")
     base_label = st.radio("증감 기준", ["전년 동월", "전월"], horizontal=True, key="tr_s_base")
     base = "yoy" if base_label == "전년 동월" else "mom"
     short = {"수출금액": "수출", "수입금액": "수입", "무역수지": "무역수지", "수출 중량": "수출 중량", "수입 중량": "수입 중량"}
@@ -9349,7 +9349,7 @@ def trade_ai_prompt(text, ctx, cands, articles):
         "",
         "규칙: ① 입력이 20대 품목 중 하나와 같은 뜻이면 kind=group을 쓴다. ② 그 밖의 품목은 HS를 가능한 한 구체적으로(6자리, 용도로 가려지면 한국 HSK 8·10자리까지) 제안하고, 4자리 호만 쓰는 것은 6자리를 모를 때뿐이다. "
         "후보 목록에 있는 것을 우선하고, 한 품목에 코드가 여러 개 필요하면 모두 items에 넣는다(최대 6개). '관세청 등으로 확인된 코드 설명'에 있는 코드가 입력에 맞으면 notes에만 적지 말고 items에 그 코드(10자리)를 넣는다. "
-        "③ '2025년'처럼 연도만 있으면 그 해 1월~12월. ④ 수출액·수출금액은 수출금액, 수입액은 수입금액, 수출량·물량은 수출 중량. ⑤ 지역이 없으면 regions는 빈 배열. "
+        "③ '2025년'처럼 연도만 있으면 그 해 1월~12월. ④ metrics는 입력이 말한 것만: '수출된·수출액'이면 [수출금액]만, '수입된·수입액'이면 [수입금액]만, 수출량·물량이면 [수출 중량], 수입량이면 [수입 중량], 수지면 [무역수지], 수출입 모두나 언급이 없으면 null. ⑤ 입력에 나온 지역만 regions에 넣고, 없으면 빈 배열. "
         "⑥ 입력이 수출입 통계와 무관하면 items·regions를 비우고 summary에 이유를 쓴다.",
     ]
     return "\n".join(lines)
@@ -9416,7 +9416,10 @@ def trade_ai_ask(text, data):
         cands = tc.ai_local_candidates(text, mti["names"], ctx["hs_names"])
         articles = trade_ai_news(text)
         raw, _ = ai_generate(trade_ai_prompt(text, ctx, cands, articles), system=TRADE_AI_SYSTEM, json_mode=True)
-        out = tc.ai_validate(parse_json(raw), ctx)
+        spec = parse_json(raw)
+        if isinstance(spec, dict) and not spec.get("metrics"):
+            spec["metrics"] = tc.ai_infer_metrics(text)  # AI가 지표를 비웠으면 질문 글에서 읽는다('수입된' -> 수입금액만)
+        out = tc.ai_validate(spec, ctx)
         out["articles"] = [{"title": a["title"], "url": a["url"], "publisher": a["publisher"], "date": a["dt"].strftime("%Y.%m.%d")} for a in articles]
         out["refs"] = [r for it in out["items"] for r in it["refs"]]
         return out

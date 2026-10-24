@@ -702,3 +702,21 @@ def ai_validate(spec, ctx):
                 items = items[:-1]
     return {"summary": str(spec.get("summary", "")).strip(), "notes": str(spec.get("notes", "")).strip(), "items": items, "regions": regions,
             "start": start, "end": end, "metrics": metrics, "warnings": warns}
+
+
+def ai_infer_metrics(text):
+    """질문 글에서 원하는 지표를 읽는다(AI가 지표를 비워 뒀을 때 보완). 수출·수입 중 한쪽만 말했으면 그쪽만, 물량·중량·톤이면 중량, 수지면 무역수지. 모르면 None"""
+    t = text or ""
+    ex, im = "수출" in t, "수입" in t
+    wgt = any(w in t for w in ("물량", "중량", "톤"))
+    amt = "액" in t or not wgt  # '수출액'처럼 금액을 말했거나, 물량 얘기가 없으면 금액
+    out = []
+    for flag, name in ((ex and not im, "수출"), (im and not ex, "수입")):
+        if flag:
+            if amt:
+                out.append(f"{name}금액")
+            if wgt:
+                out.append(f"{name} 중량")
+    if "수지" in t:
+        out.append("무역수지")
+    return out or None
