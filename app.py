@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 05:05"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 05:25"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5250,7 +5250,13 @@ def team_sector_options(team, options):
 
 
 def apply_team(team, options, target, after=None):
-    st.session_state[target] = team_sector_options(team, options)
+    """팀 칩을 누르면 그 팀의 섹터를 선택하고, 이미 다 선택돼 있으면 (다시 누르면) 그 팀의 섹터를 해제한다."""
+    team_secs = team_sector_options(team, options)
+    current = list(st.session_state.get(target) or [])
+    if team_secs and all(x in current for x in team_secs):
+        st.session_state[target] = [x for x in current if x not in team_secs]
+    else:
+        st.session_state[target] = team_secs
     if after:
         after()
 
@@ -5262,7 +5268,7 @@ def team_buttons(prefix, options, target, after=None, label="섹터 (여러 개 
         cols[0].markdown(f'<span class="sec-lbl">{label}</span>', unsafe_allow_html=True)
         for col, team in zip(cols[1:], TEAM_PRESETS):
             col.button(team, key=f"{prefix}_team_{team}", on_click=apply_team, args=(team, list(options), target, after),
-                       help="이 팀의 섹터를 한꺼번에 선택해요: " + ", ".join(team_sector_options(team, list(options))))
+                       help="이 팀의 섹터를 한꺼번에 선택해요(다시 누르면 해제): " + ", ".join(team_sector_options(team, list(options))))
 
 
 # ------------------------------------------------------------
