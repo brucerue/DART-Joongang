@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 03:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 03:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7348,10 +7348,10 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 :is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > label * { white-space: nowrap; flex-wrap: nowrap !important; }
 :is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level) [data-testid="stRadio"] > div[role="radiogroup"] { flex: 1 1 auto; min-width: 0; }
 .st-key-tr_r_level [data-testid="stRadio"] > label { width: 5.2rem; min-width: 5.2rem; }
-.cb-hero { position: relative; overflow: hidden; background: linear-gradient(135deg, #0b2545 0%, #163f7a 60%, #1c6fc4 100%); border: 0; border-radius: 18px; padding: 1.2rem 1.3rem; margin: 0.2rem 0 0.8rem; box-shadow: 0 6px 18px rgba(11, 37, 69, 0.28); }
+.cb-hero { position: relative; overflow: hidden; background: linear-gradient(135deg, #3d86dc 0%, #5ea6ee 100%); border: 0; border-radius: 18px; padding: 1.2rem 1.3rem; margin: 0.2rem 0 0.8rem; box-shadow: 0 6px 16px rgba(61, 134, 220, 0.25); }
 .cb-hero::after { content: ""; position: absolute; right: -2.2rem; top: -2.2rem; width: 9rem; height: 9rem; border-radius: 50%; background: radial-gradient(circle, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 70%); pointer-events: none; }
 .cb-hero .t { position: relative; font-size: 1.7rem; font-weight: 800; color: #ffffff; letter-spacing: -0.03em; line-height: 1.25; }
-.cb-hero .s { position: relative; color: #b9cdea; font-size: 0.85rem; margin-top: 0.3rem; }
+.cb-hero .s { position: relative; color: #e6f1ff; font-size: 0.85rem; margin-top: 0.3rem; }
 .st-key-trade_wrap { gap: 1.35rem !important; }  /* 수출입 분석: 칸 사이를 넓게 */
 .st-key-trade_wrap [data-testid="stRadio"], .st-key-trade_wrap [data-testid="stMultiSelect"] { margin-bottom: 0.2rem; }
 .st-key-trade_hero { background: linear-gradient(135deg, #eaf3ff 0%, #ffffff 70%); border: 1px solid #d6e6fb; border-radius: 18px; padding: 1.2rem 1.3rem 2rem; margin: 0.2rem 0 0.3rem; box-shadow: 0 2px 12px rgba(28, 126, 214, 0.08); }
