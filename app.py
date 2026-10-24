@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 04:05"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 04:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3812,21 +3812,6 @@ def fin_ai_analysis(corp, records, period):
     return ai_cached(("fin", sig), lambda: ai_generate(prompt, system=AI_FIN_SYSTEM)), sig
 
 
-def fin_summary_cards(records):
-    """재무 조회 결과 맨 위 카드: 가장 최근 기간의 매출액·영업이익·순이익 (전년비)"""
-    recs = sorted_records(records)
-    if not recs:
-        return []
-    r = recs[-1]
-    cards = []
-    for name, k in (("매출액", "rev"), ("영업이익", "op"), ("순이익", "net")):
-        if r.get(k) is None:
-            continue
-        yoy = fmt_change(r.get(f"{k}_yoy")) if r.get(f"{k}_yoy") is not None else None
-        cards.append((f"{r['label']} {name}", won_text(r[k]), f"전년比 {yoy}" if yoy else None, None if yoy and yoy[:1] in "+-" else "flat"))
-    return cards
-
-
 def render_fin_ai(result):
     """재무 조회 결과 아래 'AI 분석' 상자."""
     st.markdown("##### AI 분석")
@@ -3916,9 +3901,6 @@ def render_financials():
         st.warning("조회된 데이터가 없습니다. 기업명(종목코드)과 연도를 확인해주세요.")
         return
 
-    cards = fin_summary_cards(result["records"])
-    if cards:
-        st.markdown(cb_cards(cards), unsafe_allow_html=True)
     with st.container(border=True):
         st.markdown(f"##### {result['corp']} 실적")  # 아래 '재무상태'와 같은 크기의 소제목
         unit = st.radio("단위", list(UNITS), horizontal=True, key="fin_unit", label_visibility="collapsed")  # 기본 억원, 조원으로 바꿀 수 있음
