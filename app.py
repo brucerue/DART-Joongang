@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 06:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 06:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9732,7 +9732,13 @@ def trade_rank_metrics(live):
 
 
 def render_trade_rank_table(title, entries, metric, top_n, denom, level, compare, key, with_other=None):
-    """순위 표·막대 그래프 하나 (entries: tc.rank_entries_* 결과)"""
+    """순위 표·막대 그래프 하나 (entries: tc.rank_entries_* 결과). metric: 지표 이름 하나 또는 목록(여러 개면 한 표에 지표별 칸, denom은 {지표키: 값})"""
+    if isinstance(metric, (list, tuple)):
+        if len(metric) > 1:
+            return render_trade_multi_table(title, entries, list(metric), top_n, compare, key, level=level, denom=denom,
+                                            with_other=(level == "국가") if with_other is None else with_other)
+        metric = metric[0]
+        denom = (denom or {}).get(tc.RANK_METRICS[metric]) if isinstance(denom, dict) else denom
     mk = tc.RANK_METRICS[metric]
     rows, tot = tc.rank_table(entries, mk, top_n, denom=denom, with_other=(level == "국가") if with_other is None else with_other)
     if not rows:
@@ -9773,8 +9779,9 @@ def render_trade_rank_table(title, entries, metric, top_n, denom, level, compare
     st.download_button("순위 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name="수출입_순위.csv", mime="text/csv", key=f"{key}_dl")
 
 
-def render_trade_multi_table(title, entries, metrics, top_n, compare, key, level="품목"):
-    """지표 여러 개를 한 표에: 첫 지표 큰 순으로 줄을 세우고 지표마다 값(·증감) 칸. 그래프는 첫 지표. entries: tc.hs_entries 결과"""
+def render_trade_multi_table(title, entries, metrics, top_n, compare, key, level="품목", denom=None, with_other=True):
+    """지표 여러 개를 한 표에: 첫 지표 큰 순으로 줄을 세우고 지표마다 값(·증감) 칸. 그래프는 첫 지표. entries: tc.hs_entries·tc.rank_entries_* 결과.
+    denom: {지표키: 점유율·합계 줄의 기준값}(국가·품목 단위가 아닌 경제권·대륙은 겹치는 묶음이라 전체 값을 합계로 씀). with_other: 상위 밖을 '기타'로 묶을지"""
     mks = [tc.RANK_METRICS[m] for m in metrics]
     short = {"수출금액": "수출", "수입금액": "수입", "무역수지": "무역수지", "수출 중량": "수출 중량", "수입 중량": "수입 중량"}
     first = mks[0]
@@ -9806,19 +9813,24 @@ def render_trade_multi_table(title, entries, metrics, top_n, compare, key, level
                     row[f"{short[m]} 증감"] = px_pct(tc.pct(cur_v, prev_v))
         return row
 
-    total_first = sum(e["cur"][first] or 0 for e in ents)
+    denom = denom or {}
+    total_first = denom.get(first) or sum(e["cur"][first] or 0 for e in ents)
     rows = []
     for i, e in enumerate(top, 1):
         row = fill({"순위": i, level: e["name"]}, [e])
         if first != "bal" and total_first:
             row["점유율"] = f"{(e['cur'][first] or 0) / total_first * 100:.1f}%"
         rows.append(row)
-    if rest:
+    if rest and with_other:
         row = fill({"순위": "", level: f"기타 ({len(rest)}곳)"}, rest)
         if first != "bal" and total_first:
             row["점유율"] = f"{sum(e['cur'][first] or 0 for e in rest) / total_first * 100:.1f}%"
         rows.append(row)
-    total = fill({"순위": "", level: "합계"}, ents)
+    total = fill({"순위": "", level: "합계" if level in ("국가", "품목") else "(전체)"}, ents)
+    if level not in ("국가", "품목"):
+        for m, mk in zip(metrics, mks):
+            if denom.get(mk) is not None:
+                total[short[m]] = fmt_val(mk, denom[mk])
     if first != "bal" and total_first:
         total["점유율"] = "100.0%"
     rows.append(total)
@@ -9989,7 +10001,7 @@ def render_trade_rank_country(data):
     level = st.radio("순위 단위", ["국가", "경제권", "대륙"], horizontal=True, key="tr_r_level")
     start, end = trade_period_pick(data, "tr_r_")
     c3, c4 = st.columns([3, 2])
-    metric = c3.radio("지표", trade_rank_metrics(live), horizontal=True, key=f"tr_r_metric_{'live' if live else 'stored'}")
+    metrics = c3.multiselect("지표", trade_rank_metrics(live), default=["수출금액", "수입금액", "무역수지"], key=f"tr_r_metrics_{'live' if live else 'stored'}")
     top_label = c4.selectbox("상위", ["5", "10", "20", "50", "전체"], index=1, key="tr_r_top")
     compare = st.toggle("전년 같은 기간과 비교", value=True, key="tr_r_compare")
     if st.button("조회", type="primary", key="tr_r_go"):
@@ -10000,6 +10012,8 @@ def render_trade_rank_country(data):
             problems.append("품목을 하나 이상 골라 주세요.")
         if len(items) > 6:
             problems.append("품목은 6개까지 볼 수 있어요.")
+        if not metrics:
+            problems.append("지표를 하나 이상 골라 주세요.")
         mti_items = [c for k, c in items if k == "mti"]
         if mti_items and mti is not None and not problems:
             calls = sum(trade_mti_calls(mti, c, start, end) for c in mti_items) * (2 if compare else 1)
@@ -10011,7 +10025,7 @@ def render_trade_rank_country(data):
             st.warning(" ".join(problems))
             st.session_state.pop("tr_r_query", None)
         else:
-            st.session_state["tr_r_query"] = {"items": items, "level": level, "start": start, "end": end, "metric": metric, "top": top_label, "compare": compare}
+            st.session_state["tr_r_query"] = {"items": items, "level": level, "start": start, "end": end, "metrics": metrics, "top": top_label, "compare": compare}
     rq = st.session_state.get("tr_r_query")
     if not rq:
         st.caption("조건을 고르고 '조회'를 누르면 순위가 나와요.")
@@ -10025,15 +10039,16 @@ def render_trade_rank_result(data, rq):
     months = data["months"]
     top_n = None if rq["top"] == "전체" else int(rq["top"])
     period = f"{rq['start'].replace('-', '.')} ~ {rq['end'].replace('-', '.')}"
-    mk = tc.RANK_METRICS[rq["metric"]]
-    st.markdown(f"##### {rq['level']}별 순위 · {period} · {rq['metric']}")
+    metrics = rq.get("metrics") or [rq["metric"]]
+    mks = [tc.RANK_METRICS[m] for m in metrics]
+    st.markdown(f"##### {rq['level']}별 순위 · {period} · {' · '.join(metrics)}")
     try:
         if not rq["items"]:  # 품목 전체: 모아 둔 월별 자료
             entries = tc.rank_entries_stored(data, rq["level"], rq["start"], rq["end"], rq["compare"])
             tot = tc.stored_period(data["total"]["exp"], data["total"]["imp"], months, rq["start"], rq["end"])
             ptot = tc.stored_period(data["total"]["exp"], data["total"]["imp"], months, *tc.prev_period_bounds(rq["start"], rq["end"]))
-            denom = (tot or {}).get(mk)
-            render_trade_rank_table("전체 품목", entries, rq["metric"], top_n, denom, rq["level"], rq["compare"], "tr_r_all")
+            denoms = {mk: (tot or {}).get(mk) for mk in mks}
+            render_trade_rank_table("전체 품목", entries, metrics, top_n, denoms, rq["level"], rq["compare"], "tr_r_all")
             return
         s_ym, e_ym = rq["start"].replace("-", ""), rq["end"].replace("-", "")
         p_s, p_e = tc.month_add(s_ym, -12), tc.month_add(e_ym, -12)
@@ -10048,9 +10063,9 @@ def render_trade_rank_result(data, rq):
                     rows = trade_hs_rows(code, s_ym, e_ym)
                     prev_rows = trade_hs_rows(code, p_s, p_e) if rq["compare"] else None
                 entries = tc.rank_entries_rows(rows, prev_rows, rq["level"])
-                total_all = sum(r[mk] for r in rows) if mk in ("exp", "imp", "exp_wgt", "imp_wgt") else sum(r["exp"] - r["imp"] for r in rows)
+                total_all = {mk: (sum(r[mk] for r in rows) if mk in ("exp", "imp", "exp_wgt", "imp_wgt") else sum(r["exp"] - r["imp"] for r in rows)) for mk in mks}
                 with tab:
-                    render_trade_rank_table(trade_item_label(data, ikind, code, mti_tab), entries, rq["metric"], top_n, total_all, rq["level"], rq["compare"], f"tr_r_{ikind}_{code}")
+                    render_trade_rank_table(trade_item_label(data, ikind, code, mti_tab), entries, metrics, top_n, total_all, rq["level"], rq["compare"], f"tr_r_{ikind}_{code}")
     except tc.TradeApiError as e:
         st.error(str(e))
 
