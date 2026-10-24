@@ -43,11 +43,13 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(date -u +%d%H)" = "0109" ] || [ "$(date -u +%d)" = "02" ]; then FINAL="--final"; fi
           FORCE=""
           if [ "${{ inputs.force }}" = "true" ]; then FORCE="--force"; fi
-          python motie_data.py --prev prev_flash.json --out flash.json --month "${{ inputs.month }}" $FINAL $FORCE 2>&1 | tee summary.txt
-          rc=${PIPESTATUS[0]}
-          echo "::notice title=산업부 잠정치::$(head -c 600 summary.txt | tr '\n' ' ')"
-          exit $rc
+          python motie_data.py --prev prev_flash.json --out flash.json --month "${{ inputs.month }}" $FINAL $FORCE > summary.txt 2>&1 || RC=$?
+          cat summary.txt
+          exit ${RC:-0}
         shell: bash
+      - name: 결과 요약(화면 맨 위 주석)
+        if: always()
+        run: echo "::notice title=산업부 잠정치::$(head -c 800 summary.txt 2>/dev/null | tr '\n' ' ' | sed 's/%/%25/g')"
       - name: flash 브랜치에 올리기 (기록을 남기지 않고 한 커밋으로 덮어씀)
         run: |
           if [ ! -f flash.json ]; then echo "새로 저장할 것이 없어요."; exit 0; fi
