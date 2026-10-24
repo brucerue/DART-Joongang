@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 08:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 09:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9650,9 +9650,16 @@ def render_trade_ai(data):
             problems.append("국가별 순위는 품목을 6개까지 볼 수 있어요.")
         if view == "품목별 구성" and not spec["regions"]:
             problems.append("품목별 구성은 지역(국가·경제권·대륙)이 필요해요. 질문에 지역을 넣어 다시 물어봐 주세요(예: 미국으로 수출된 품목).")
-        if (picked or any("중량" in m for m in spec["metrics"])) and view != "품목별 구성" and not CUSTOMS_KEY:
+        group_items = [it for it in picked if it[0] == "mti" and str(it[1]).startswith(tc.GROUP_PREFIX)]
+        # 20대 품목만 고르고 금액 지표면 미리 모아 둔 자료로 바로 보여줘서(관세청 호출 없음) 인증키가 없어도 된다
+        from_groups = bool(picked) and len(group_items) == len(picked) and get_groups_country(data, spec["metrics"] if view != "국가별 순위" else [metric]) is not None
+        comp_20 = view == "품목별 구성" and (bool(group_items) or any(w in text for w in ("20대", "주력")))
+        if comp_20 and any("중량" in m for m in spec["metrics"]):
+            comp_20 = False  # 중량은 모아 둔 자료에 없어 HS 기준으로
+        comp_20 = comp_20 and get_groups_country(data) is not None
+        if (picked or any("중량" in m for m in spec["metrics"])) and view != "품목별 구성" and not CUSTOMS_KEY and not from_groups:
             problems.append("품목 조회에는 Streamlit Secrets에 CUSTOMS_API_KEY가 필요해요.")
-        if view == "품목별 구성" and not CUSTOMS_KEY:
+        if view == "품목별 구성" and not CUSTOMS_KEY and not comp_20:
             problems.append("품목별 구성에는 Streamlit Secrets에 CUSTOMS_API_KEY가 필요해요.")
         if problems:
             st.warning(" ".join(problems))
@@ -9667,7 +9674,7 @@ def render_trade_ai(data):
                                                "metric": metric, "top": str(spec.get("top", 10)), "compare": True}
         else:
             start, end = spec["start"], min(spec["end"], data["months"][-1])
-            if tc.month_span(start.replace("-", ""), end.replace("-", "")) > 36:
+            if not comp_20 and tc.month_span(start.replace("-", ""), end.replace("-", "")) > 36:
                 t = tc.month_add(end.replace("-", ""), -35)
                 start = f"{t[:4]}-{t[4:]}"  # 품목별 구성은 최대 3년
                 st.info("품목별 구성은 최대 3년까지라 기간을 최근 3년으로 줄였어요.")
@@ -9676,13 +9683,13 @@ def render_trade_ai(data):
                 win = tc.ZONE_WINDOW.get(name) if _kind == "경제권" else None
                 codes += [(c, (win or {}).get(c, (None, None))[0] or "", (win or {}).get(c, (None, None))[1] or "") for c in cc]
             codes = tuple(dict.fromkeys(codes))
-            calls = trade_hs_calls(codes, start, end) * 2
+            calls = 0 if comp_20 else trade_hs_calls(codes, start, end) * 2
             if calls > 150:
                 st.warning(f"조회할 범위가 너무 커요(관세청 호출 약 {calls}번). 지역을 줄여 다시 물어봐 주세요.")
                 st.session_state.pop("tr_ai_query", None)
             else:
                 st.session_state["tr_ai_query"] = {"view": view, "parts": codes, "label": " + ".join(n for _, n, _ in spec["regions"]), "start": start, "end": end,
-                                                   "metric": metric, "top": str(spec.get("top", 10)), "compare": True}
+                                                   "metric": metric, "top": str(spec.get("top", 10)), "compare": True, "basis": "20대" if comp_20 else "HS"}
                 st.session_state["tr_ai_path"] = ""
     sq = st.session_state.get("tr_ai_query")
     if not sq:
