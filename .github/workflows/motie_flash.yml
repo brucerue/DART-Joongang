@@ -1,0 +1,70 @@
+name: 산업부 수출입 잠정치 모으기
+
+# 매월 1일 산업통상부가 '○월 수출입 동향' 보도자료를 내면(오전 11시), 그 PDF의 숫자를 읽어 'flash' 브랜치(flash.json)에 잠정치로 저장합니다.
+# 한국 시간 1일 12:10·15:10·18:10, 2일 09:10에 확인하고, 이미 받은 달은 건너뜁니다. 마지막 회차까지 글이 없거나 읽기·검산이 실패하면 텔레그램 알림이 갑니다.
+# 수동 실행: month에 '2026-09' 처럼 적으면 그 달을 받습니다(이미 있으면 force를 켜세요).
+on:
+  schedule:
+    - cron: "10 3,6,9 1 * *" # 한국 시간 1일 12:10, 15:10, 18:10
+    - cron: "10 0 2 * *"     # 한국 시간 2일 09:10 (마지막 시도)
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "받을 달(예: 2026-09, 비우면 지난달)"
+        default: ""
+      force:
+        description: "이미 받은 달도 다시 받기(true/false)"
+        default: "false"
+
+permissions:
+  contents: write # flash 브랜치에 올리기 위해 필요
+
+concurrency:
+  group: motie-flash
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: sudo apt-get update -q && sudo apt-get install -y -q poppler-utils && pip install requests
+      - name: 지금까지 모은 자료 가져오기
+        run: |
+          git fetch origin flash --depth=1 || true
+          git show origin/flash:flash.json > prev_flash.json 2>/dev/null || rm -f prev_flash.json
+      - name: 보도자료 받아 읽기
+        run: |
+          FINAL=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(date -u +%d%H)" = "0109" ] || [ "$(date -u +%d)" = "02" ]; then FINAL="--final"; fi
+          FORCE=""
+          if [ "${{ inputs.force }}" = "true" ]; then FORCE="--force"; fi
+          python motie_data.py --prev prev_flash.json --out flash.json --month "${{ inputs.month }}" $FINAL $FORCE 2>&1 | tee summary.txt
+          rc=${PIPESTATUS[0]}
+          echo "::notice title=산업부 잠정치::$(head -c 600 summary.txt | tr '\n' ' ')"
+          exit $rc
+        shell: bash
+      - name: flash 브랜치에 올리기 (기록을 남기지 않고 한 커밋으로 덮어씀)
+        run: |
+          if [ ! -f flash.json ]; then echo "새로 저장할 것이 없어요."; exit 0; fi
+          mkdir -p out && cp flash.json out/
+          cd out
+          git init -q -b flash
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add flash.json
+          git commit -q -m "flash $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" flash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 실패 알림
+        if: failure()
+        run: python news_digest.py --alert flash
+        env:
+          PREFS_URL: ${{ secrets.PREFS_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
