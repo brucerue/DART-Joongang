@@ -10,33 +10,33 @@ jobs:
       - name: probe
         run: |
           cat > p.py <<'PYEOF'
-          import requests, re, html, traceback
+          import requests, re, html, os, traceback
           H={"User-Agent":"Mozilla/5.0"}
-          def lst(kw, pages=3):
+          os.makedirs("out", exist_ok=True)
+          def find2025():
               out={}
-              for pg in range(1,pages+1):
-                  r=requests.get("https://www.ftc.go.kr/www/selectBbsNttList.do",params={"key":"12","bordCd":"3","pageIndex":str(pg),"searchCnd":"all","searchKrwd":kw},headers=H,timeout=40)
-                  for h,tx in re.findall(r'<a href="(\./selectBbsNttView\.do[^"]*)"[^>]*>(.*?)</a>',r.text,re.S):
-                      n=re.search(r"nttSn=(\d+)",h).group(1); out[n]=html.unescape(re.sub(r"<[^>]+>","",tx)).strip()
+              for kw in ("25년 공시대상기업집단","2025년 공시대상기업집단","공시대상기업집단 지정 결과 발표","대기업집단 지정"):
+                  for pg in range(1,4):
+                      r=requests.get("https://www.ftc.go.kr/www/selectBbsNttList.do",params={"key":"12","bordCd":"3","pageIndex":str(pg),"searchCnd":"all","searchKrwd":kw},headers=H,timeout=40)
+                      for h,tx in re.findall(r'<a href="(\./selectBbsNttView\.do[^"]*)"[^>]*>(.*?)</a>',r.text,re.S):
+                          n=re.search(r"nttSn=(\d+)",h).group(1); out[n]=html.unescape(re.sub(r"<[^>]+>","",tx)).strip()
               return out
-          def main():
-              allf={}
-              for kw in ("대기업집단 지정","상호출자제한기업집단 지정","기업집단 지정 현황","기업집단 지정결과"):
-                  allf.update(lst(kw))
-              sel={n:t for n,t in allf.items() if re.search(r"지정",t) and not re.search(r"제외|설명|제재|행정예고|개정|해명|연기|동일인|고시",t)}
-              msg=" ;; ".join(f"{n}:{t[:34]}" for n,t in sorted(sel.items()))
-              print("::notice::후보 "+msg[:3000])
-              for n in ("43406","42836","41476"):
-                  v=requests.get("https://www.ftc.go.kr/www/selectBbsNttView.do",params={"key":"12","bordCd":"3","nttSn":n},headers=H,timeout=40).text
-                  files=re.findall(r'href="([^"]*(?:downloadBbsFile|previewBbsAtchmnfl)[^"]*)"',v)
-                  names=re.findall(r'<span[^>]*class="[^"]*file[^"]*"[^>]*>(.*?)</span>|<a[^>]*download[^>]*>(.*?)</a>',v,re.S)
-                  print(f"::notice::{n} links={files[:8]}")
-                  i=v.find("첨부")
-                  print(f"::notice::{n} ctx={re.sub(chr(10)+'|'+chr(13)+'|'+chr(9),' ',v[i:i+1200])[:900]}")
           try:
-              main()
+              c=find2025()
+              cand={n:t for n,t in c.items() if re.search(r"(25년|2025)",t) and "지정" in t}
+              print("::notice::2025후보 "+str(cand)[:600])
+              ids=["39722","40410","40748","41119","41476","41915","42416","42836","43406"]+[n for n in cand if n not in ("42836","43406")][:3]
+              for n in ids:
+                  r=requests.get("https://www.ftc.go.kr/www/downloadBbsFileAll.do",params={"atchmnflNo":n},headers=H,timeout=120)
+                  ok=r.status_code==200 and len(r.content)>2000
+                  print(f"::notice::{n} status={r.status_code} bytes={len(r.content)} type={r.headers.get('content-type')} cd={r.headers.get('content-disposition')}")
+                  if ok: open(f"out/ftc_{n}.zip","wb").write(r.content)
           except Exception:
-              print("::notice::ERR "+traceback.format_exc()[-700:].replace(chr(10)," | "))
+              print("::notice::ERR "+traceback.format_exc()[-600:].replace(chr(10)," | "))
           
           PYEOF
           python p.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ftc
+          path: out/
