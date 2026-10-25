@@ -98,7 +98,7 @@ HEAVY_PARTS = ("조선·해운", "방산", "철강")
 CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("정유·석화", "에너지·소재", "반도체", "IT·통신", "전자", "항공")}
 CAL_GROUPS["자동차·배터리"] = INDUSTRY_GROUPS["자동차"] + INDUSTRY_GROUPS["배터리"]
 CAL_GROUPS[HEAVY_NAME] = [n for part in HEAVY_PARTS for n in INDUSTRY_GROUPS[part]]
-CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("자동차·배터리", HEAVY_NAME, "정유·석화", "에너지·소재", "반도체", "IT·통신", "전자", "항공")}
+CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("자동차·배터리", HEAVY_NAME, "정유·석화", "에너지·소재", "반도체", "전자", "항공", "IT·통신")}
 INDUSTRY_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
 
 # 주요사항보고서: 보고서명(공백·괄호 무시)에 들어 있는 말 -> (DART 주요정보 API, 칸 목록).
@@ -374,7 +374,7 @@ NEWS_SECTORS = {
         "키워드": ["원전", "전력망", "핵심광물", "태양광", "최윤범"],
     },
 }
-NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("자동차", "배터리", HEAVY_NAME, "정유·석화", "에너지·소재", "반도체", "IT·통신", "전자", "항공", "재계")}  # 화면에 나오는 순서
+NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("자동차", "배터리", HEAVY_NAME, "정유·석화", "에너지·소재", "반도체", "전자", "항공", "재계", "IT·통신")}  # 화면에 나오는 순서
 PUBLISHERS = {
     # 종합일간지
     "joongang.co.kr": ("중앙일보", "종합일간지"), "chosun.com": ("조선일보", "종합일간지"),
@@ -414,7 +414,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 12:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 13:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
