@@ -432,7 +432,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 16:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 17:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -11396,6 +11396,7 @@ def render_calculator():
         with tabs[4]:
             text = st.text_area("한 줄에 하나씩 (이름 값 또는 값만)", key="calc_share", height=120,
                                 placeholder="반도체 1,200\n자동차 600\n기타 200")
+            st.button("비중 계산", key="calc_share_go", use_container_width=True)  # 폰은 Ctrl+Enter가 없어, 누르면 입력이 반영돼 계산된다
             items, total = ct.shares(text)
             if items:
                 df = pd.DataFrame([{"항목": n, "값": ct.num_text(v, 2), "비중": f"{p:,.1f}%" if p is not None else "-"} for n, v, p in items]
@@ -11403,6 +11404,7 @@ def render_calculator():
                 st.dataframe(df, hide_index=True, height=(len(df) + 1) * 35 + 3)
         with tabs[5]:
             text = st.text_area("원고 붙여넣기", key="calc_text", height=160)
+            st.button("글자 수 세기", key="calc_text_go", use_container_width=True)  # 폰은 Ctrl+Enter가 없어, 누르면 입력이 반영돼 계산된다
             if text.strip():
                 t = ct.text_stats(text)
                 calc_result([("공백 포함", f"{t['with_space']:,}자"), ("공백 제외", f"{t['no_space']:,}자"),
