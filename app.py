@@ -39,7 +39,7 @@ import stock_calc as sc
 sc = importlib.reload(sc)  # 배포로 stock_calc.py가 바뀌었는데 서버 메모리에 옛 모듈이 남아 있으면 새 함수를 못 찾으므로, 실행할 때마다 다시 읽는다
 import importlib
 import today_calc as tdc
-if not hasattr(tdc, "MISS_PERIODS"):  # 앱이 켜진 채로 배포되면 서버가 옛 모듈을 기억할 수 있어, 새 항목이 없으면 다시 읽는다
+if not hasattr(tdc, "PERIODS"):  # 앱이 켜진 채로 배포되면 서버가 옛 모듈을 기억할 수 있어, 새 항목이 없으면 다시 읽는다
     tdc = importlib.reload(tdc)
 import trade_calc as tc
 tc = importlib.reload(tc)  # (위와 같은 이유)
@@ -428,7 +428,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 21:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 22:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5678,59 +5678,14 @@ def render_news_search(kind):
     st.caption("지금 주소를 북마크(또는 홈 화면에 추가)하면 다음에 열 때 같은 검색어로 바로 조회돼요.")
 
 
-def render_miss():
-    """산업 뉴스 > 물먹음 점검: 모아 둔 타사 단독 기사(최근 7일) 중 중앙일보가 단독으로 쓰지 않은 것을 섹터별로 모은다."""
-    rec = get_stored("recent.json")
-    if rec is None:
-        st.info("모아 둔 기사 자료를 아직 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.")
-        return
-    if "ms_groups" not in st.session_state:
-        st.session_state["ms_groups"] = team_sector_options(TODAY_TEAM, list(NEWS_SECTORS))
-    team_buttons("ms", NEWS_SECTORS, "ms_groups")
-    st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key="ms_groups", label_visibility="collapsed")
-    period = st.radio("기간", tdc.MISS_PERIODS, horizontal=True, key="ms_period")
-    groups = [g for g in (st.session_state.get("ms_groups") or []) if g in NEWS_SECTORS]
-    now = datetime.now(KST)
-    since = tdc.window_start(now, period)
-    st.caption(f"{since:%m.%d %H:%M} 이후 · 제목에 [단독]이 붙은 기사만 모아 둔 자료라, 중앙일보가 단독 표기 없이 쓴 기사는 알 수 없어요(그래서 '물먹음 후보'예요)")
-    if not groups:
-        st.info("섹터를 하나 이상 골라 주세요.")
-        return
-    rows = rec["items"]
-    all_theirs = []
-    for sec in groups:
-        items = tdc.sector_items(rows, sec, "단독", since)
-        clusters = cluster_news(items)
-        ours, theirs = tdc.split_miss(clusters)
-        all_theirs += [it for c in theirs for it in [c["rep"]] + c["others"]]
-        with st.container(border=True):
-            st.markdown(f"##### {sec}")
-            st.caption(f"단독 {len(items)}건 → 묶음 {len(clusters)}건 · 중앙일보도 쓴 것 {len(ours)}건 · **물먹음 후보 {len(theirs)}건**")
-            if theirs:
-                st.markdown(news_html(theirs, now), unsafe_allow_html=True)
-            else:
-                st.caption("이 기간에 타사 단독만 있는 사건이 없어요.")
-            if ours:
-                with st.expander(f"중앙일보도 쓴 사건 {len(ours)}건"):
-                    st.markdown(news_html(ours, now), unsafe_allow_html=True)
-    oc = tdc.outlet_counts(all_theirs)
-    if oc:
-        with st.container(border=True):
-            st.markdown("##### 어느 매체가 단독을 많이 냈나 (물먹음 후보 기준)")
-            st.dataframe(pd.DataFrame([{"매체": p, "건수": n} for p, n in oc[:12]]), hide_index=True, height=min(len(oc), 12) * 35 + 38)
-
-
 def render_news():
     """탭: 산업 뉴스 - 통신(연합뉴스·뉴시스·뉴스1) / 단독 / 외신"""
     with st.container(key="news_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에 (재무 조회와 같은 모양)
         c1, c2 = st.columns([1, 4], vertical_alignment="center")
         c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["통신", "단독", "외신", "물먹음"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
+        mode = c2.radio("조회 방식", ["통신", "단독", "외신"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     if mode == "외신":
         render_global_news()
-        return
-    if mode == "물먹음":
-        render_miss()
         return
     render_news_search(mode)
 
@@ -10727,6 +10682,41 @@ def today_price_codes(data):
     return out
 
 
+TODAY_EARN_DAYS = 7  # 오늘의 현황: 실적·IR 일정을 미리 보여 주는 기간(일)
+
+
+def earnings_names(sector):
+    """오늘의 현황 섹터 -> 실적 캘린더에서 쓰는 기업 이름들 (재계처럼 상장사 목록이 없는 섹터는 빈 목록)"""
+    return list(CAL_GROUPS.get(sector) or INDUSTRY_GROUPS.get(sector) or [])
+
+
+@st.cache_data(ttl=3 * 3600, show_spinner=False)
+def today_earnings(sector, day_str):
+    """섹터 기업의 오늘부터 7일 안 실적·IR 일정 [{'date','corp','kind','text','purpose','no'}]. DART를 못 쓰면 None"""
+    names = earnings_names(sector)
+    if not names:
+        return []
+    try:
+        corps = [(n, resolve_corp_code(n)) for n in names]
+        corps = [(n, c) for n, c in corps if c]
+        day = date.fromisoformat(day_str)
+        data = collect_calendar(corps, day, day + timedelta(days=TODAY_EARN_DAYS))
+    except Exception:
+        return None
+    return data["events"]
+
+
+def earnings_lines(events):
+    """일정 -> 한 줄씩 마크다운. 전년 기준 예상은 기업명 뒤에 *"""
+    out = []
+    for e in events:
+        est = e["kind"] == "전년 기준 예상"
+        why = f" · {e['purpose']}" if e.get("purpose") else ""
+        link = f" ([원문]({DART_VIEW_URL.format(e['no'])}))" if e.get("no") else ""
+        out.append(f"- {cal_day(e['date'])} **{e['corp']}{'*' if est else ''}** · {'실적 발표 예상(' + e['text'] + ')' if est else e['text']}{why}{link}")
+    return out
+
+
 def render_today():
     """탭: 오늘의 현황 - 고른 섹터마다 단독·통신 기사, 공시, 특징주를 모아 보여준다(매시간 모아 둔 자료라 새로 검색하지 않아요)."""
     rec = get_stored("recent.json")
@@ -10765,6 +10755,12 @@ def render_today():
                 if up or down:
                     st.markdown(f"**특징주** ({when})  \n" + "  \n".join(
                         [f"{'▲' if r['rate'] > 0 else '▼'} {r['name']} {r['rate']:+.2f}% ({r['close']:,.0f}원)" for r in up + down]))
+            if earnings_names(sec):
+                events = today_earnings(sec, str(now.date()))
+                if events:
+                    st.markdown(f"**실적·IR 일정** (앞으로 {TODAY_EARN_DAYS}일)  \n" + "\n".join(earnings_lines(events)))
+                    if any(e["kind"] == "전년 기준 예상" for e in events):
+                        st.caption("*는 작년 같은 시기 잠정실적 공시일을 옮긴 예상이에요(확정 아님).")
             for kind in ("단독", "통신"):
                 items = tdc.sector_items(rows, sec, kind, since)
                 if not items:
