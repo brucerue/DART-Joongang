@@ -414,7 +414,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 14:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 15:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -923,6 +923,55 @@ def make_record(label, sort_key, cur, yoy=None, qoq=None):
         "bs": cur.get("bs") or {},
         "link": cur["link"],
     }
+
+
+# --- DART '공시 보기' 링크를 보고서의 연결재무제표 쪽으로 (실패하면 보고서 첫 화면 링크 그대로) ---
+DART_VIEWER_URL = "https://dart.fss.or.kr/report/viewer.do"
+RCP_IN_LINK = re.compile(r"rcpNo=(\d{14})")
+
+
+def parse_dart_consol_node(page):
+    """DART 보고서 첫 화면(main.do)의 문서목차 -> 연결재무제표 항목의 {rcpNo, dcmNo, eleId, offset, length, dtd} 또는 None.
+    '주석' 항목(연결재무제표 주석)은 건너뛴다."""
+    marks = list(re.finditer(r"\['text'\]\s*=\s*\"([^\"]*)\"", page))
+    for n, m in enumerate(marks):
+        text = m.group(1)
+        if "연결재무제표" not in text.replace(" ", "") or "주석" in text:
+            continue
+        block = page[m.end(): marks[n + 1].start() if n + 1 < len(marks) else m.end() + 1500]
+        vals = dict(re.findall(r"\['(\w+)'\]\s*=\s*\"([^\"]*)\"", block))
+        if all(vals.get(k) for k in ("rcpNo", "dcmNo", "eleId", "offset", "length", "dtd")):
+            return {k: vals[k] for k in ("rcpNo", "dcmNo", "eleId", "offset", "length", "dtd")}
+    return None
+
+
+@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False, max_entries=800)
+def _dart_consol_url(rcp):
+    res = requests.get(DART_VIEW_URL.format(rcp), headers={"User-Agent": "Mozilla/5.0"}, timeout=(5, 15))
+    res.raise_for_status()
+    node = parse_dart_consol_node(res.text)
+    if not node:
+        return ""  # 연결재무제표가 없는 문서(잠정실적 등): 빈 값을 저장해 다시 묻지 않는다
+    return f"{DART_VIEWER_URL}?" + "&".join(f"{k}={v}" for k, v in node.items())
+
+
+def consol_link(link):
+    """보고서 링크 -> 그 보고서의 연결재무제표가 바로 열리는 링크. 못 찾거나 접속이 안 되면 받은 링크 그대로."""
+    m = RCP_IN_LINK.search(link or "") if isinstance(link, str) and "dart.fss.or.kr/dsaf001" in link else None
+    if not m:
+        return link
+    try:
+        return _dart_consol_url(m.group(1)) or link
+    except Exception:
+        return link
+
+
+def prefetch_consol(links):
+    """표에 넣을 링크들의 연결재무제표 위치를 한꺼번에(병렬로) 미리 찾아 둔다 (같은 보고서는 일주일 동안 저장)"""
+    todo = list(dict.fromkeys(m.group(1) for l in links if isinstance(l, str) and "dart.fss.or.kr/dsaf001" in l for m in [RCP_IN_LINK.search(l)] if m))
+    if len(todo) > 1:
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            list(pool.map(lambda r: consol_link(DART_VIEW_URL.format(r)), todo))
 
 
 # ------------------------------------------------------------
@@ -1436,6 +1485,7 @@ def sorted_records(records):
 
 
 def build_table(records, period, for_export=False, unit=DEFAULT_UNIT):
+    prefetch_consol([r.get("link") for r in records])
     quarterly = period == "분기별"
     yoy = "전년동기比" if quarterly else "전년比"
 
@@ -1458,7 +1508,7 @@ def build_table(records, period, for_export=False, unit=DEFAULT_UNIT):
         row[f"순이익 {yoy}"] = fmt_change(r.get("net_yoy"))
         if quarterly:
             row["순이익 전분기比"] = fmt_change(r.get("net_qoq"))
-        row["원문"] = r["link"]
+        row["원문"] = consol_link(r["link"])
         rows.append(row)
 
     df = pd.DataFrame(rows)
