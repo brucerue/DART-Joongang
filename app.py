@@ -11313,7 +11313,7 @@ def alarm_link(sectors, modes):
 
 def render_alarm_signup():
     with st.popover("🔔 뉴스·공시 알람 받기"):
-        st.caption("원하는 섹터를 고르고 신청하면 텔레그램이 열려요. 아래 '시작(Start)'을 누르면 신청이 접수되고, 확인 후 알람이 시작돼요.")
+        st.caption("원하는 섹터를 고르고 신청하면 텔레그램이 열려요. 아래 '시작(Start)'을 누르면 신청이 접수되고, 확인 후 알람이 시작돼요. 알람 받을 섹터, 종류는 추후 변경 가능해요.")
         team_buttons("alarm", ALARM_SECTORS, "alarm_sectors", label="받을 섹터")
         secs = st.multiselect("받을 섹터", list(ALARM_SECTORS), key="alarm_sectors", label_visibility="collapsed")
         modes = st.multiselect("받을 종류", list(ALARM_MODES), default=list(ALARM_MODES), key="alarm_modes")
