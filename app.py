@@ -421,7 +421,7 @@ PUBLISHERS = {
 }
 
 # 언론사 도메인 아래에 있어도 기사가 아닌 곳(커뮤니티·게시판 등)은 뺀다. 필요하면 여기에 추가하세요.
-# 텔레그램 알람 신청: 앱 맨 아래 '알람 받기'. 고른 섹터·종류를 t.me 링크의 start 값에 0/1로 담는다(순서를 바꾸면 news_digest.py의 해석도 달라지므로 끝에만 추가할 것)
+# 텔레그램 알람 신청: 앱 맨 아래 '뉴스·공시 알람 받기'. 고른 섹터·종류를 t.me 링크의 start 값에 0/1로 담는다(순서를 바꾸면 news_digest.py의 해석도 달라지므로 끝에만 추가할 것)
 ALARM_BOT = "joongangbiz_bot"
 ALARM_SECTORS = ("자동차", "배터리", "중후장대", "정유·석화", "에너지·소재", "반도체", "IT·통신", "전자", "항공", "재계")
 ALARM_MODES = ("통신", "단독", "공시")
@@ -11312,7 +11312,7 @@ def alarm_link(sectors, modes):
 
 
 def render_alarm_signup():
-    with st.popover("🔔 알람 받기"):
+    with st.popover("🔔 뉴스·공시 알람 받기"):
         st.caption("원하는 섹터를 고르고 신청하면 텔레그램이 열려요. 아래 '시작(Start)'을 누르면 신청이 접수되고, 확인 후 알람이 시작돼요.")
         team_buttons("alarm", ALARM_SECTORS, "alarm_sectors", label="받을 섹터")
         secs = st.multiselect("받을 섹터", list(ALARM_SECTORS), key="alarm_sectors", label_visibility="collapsed")
