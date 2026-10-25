@@ -95,9 +95,9 @@ INDUSTRY_GROUPS = {
     "정유·석화": ["SK이노베이션", "S-Oil", "GS칼텍스", "에이치디현대오일뱅크", "롯데케미칼", "LG화학", "한화솔루션", "금호석유화학"],
     "에너지": ["효성", "HS효성", "대한전선", "엘에스일렉트릭", "LS", "LS전선", "고려아연", "OCI", "OCI홀딩스", "HD현대일렉트릭"],
     "반도체": ["삼성전자", "SK하이닉스", "한미반도체"],
-    "IT·통신": ["SK텔레콤", "KT", "LG유플러스", "NAVER", "카카오"],
     "전자": ["LG전자", "삼성전기", "LG이노텍", "삼성에스디에스", "LG디스플레이"],  # 삼성전자는 반도체에 있어 뺌(뉴스 섹터 '전자'에는 들어 있음)
     "항공": ["대한항공", "한진칼", "아시아나항공", "진에어", "제주항공", "에어부산", "트리니티항공"],  # 트리니티항공 = 옛 티웨이항공
+    "IT·통신": ["SK텔레콤", "KT", "LG유플러스", "NAVER", "카카오"],
 }
 # 실적 캘린더의 섹터: 자동차와 배터리는 한 섹터로 묶는다
 # 산업 뉴스·공시 분석·실적 캘린더·텔레그램 알람의 섹터에서는 조선·해운 / 방산 / 철강을 '중후장대' 하나로 묶는다 (재무 조회·주가는 위 INDUSTRY_GROUPS 그대로)
@@ -433,7 +433,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 23:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 01:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7616,7 +7616,8 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 }
 @media (max-width: 370px) { [data-testid="stButtonGroup"] button[data-variant="pills"] p { font-size: 0.82rem !important; letter-spacing: -0.02em; } }  /* 아주 좁은 폰에서만 살짝 줄임 */
 /* 오늘의 현황: 섹터 카드 */
-.st-key-today_wrap [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); }
+.st-key-today_wrap [data-testid="stVerticalBlockBorderWrapper"], .st-key-today_wrap [data-testid="stVerticalBlock"][class*="st-emotion"]:has(> [data-testid="stElementContainer"] .td-head) { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); }
+.st-key-today_wrap [data-testid="stVerticalBlock"]:has(> [data-testid="stElementContainer"] .td-head) [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }  /* 마지막 칩·글이 카드 테두리 선에 닿지 않게 (마크다운 상자의 -16px 끝 여백 제거) */
 .td-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem 0.8rem; padding: 0.2rem 0 0.5rem; border-bottom: 1px solid #eef2f7; margin-bottom: 0.4rem; }
 .td-head .n { display: flex; align-items: center; gap: 0.5rem; font-size: 1.25rem; font-weight: 800; color: #0b2545; letter-spacing: -0.03em; }
 .td-head .n::before { content: ""; width: 4px; height: 1.1em; border-radius: 2px; background: #1c7ed6; }
