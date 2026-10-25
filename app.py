@@ -432,7 +432,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 21:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 21:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -10707,7 +10707,6 @@ def render_trade():
 # ------------------------------------------------------------
 # 오늘의 현황 (담당 섹터의 통신·단독·공시·특징주를 한 화면에)
 # ------------------------------------------------------------
-TODAY_TEAM = "차팀"  # 처음 열 때 선택돼 있는 섹터 묶음
 TODAY_TOP = {"단독": 5, "통신": 3}  # 섹터마다 먼저 보여주는 묶음 수 (나머지는 '더 보기'에)
 
 
@@ -10772,8 +10771,6 @@ def render_today():
     if rec is None:
         st.info("모아 둔 기사 자료를 아직 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.")
         return
-    if "td_groups" not in st.session_state:
-        st.session_state["td_groups"] = team_sector_options(TODAY_TEAM, list(NEWS_SECTORS))
     with st.container(key="today_wrap"):
         _render_today_body(rec)
 
@@ -11236,7 +11233,7 @@ def render_disc_ai_search():
                "'확인 필요'는 원문에서 같은 표기를 찾지 못한 것이니 원문으로 확인하세요. 합계는 원문 확인된 원화 금액만 더했어요.")
 
 
-TAB_NAMES = ["기업 브리핑", "오늘의 현황", "재무 분석", "주가 분석", "산업 뉴스", "실적 캘린더", "공시 분석", "정기보고서", "무역 통계", "재계 순위"]
+TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 분석", "주가 분석", "산업 뉴스", "실적 캘린더", "공시 분석", "정기보고서", "무역 통계", "재계 순위"]
 SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 숨겨 둔 탭(이슈 타임라인)이 보임
 if SHOW_LAB:
     TAB_NAMES += ["이슈 타임라인"]  # 관리자용 탭은 맨 끝
