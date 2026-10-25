@@ -10,37 +10,30 @@ jobs:
       - name: p
         run: |
           cat > p.py <<'PYEOF'
-          import requests, re, html, os, io, zipfile, sys, traceback
+          import requests, re, io, zipfile, sys, traceback
           H={"User-Agent":"Mozilla/5.0"}
-          IDS=["39722","40410","40748","41119","41476","41915","42416","42836","43406","46053"]
+          IDS=["41119","41476","41915","42416","42836","43406","46053"]
           def fname(n):
               try: return n.encode("cp437").decode("euc-kr")
               except Exception:
                   try: return n.encode("cp437").decode("utf-8")
                   except Exception: return n
+          def lst(z, depth=0):
+              out=[]
+              for i in z.infolist():
+                  nm=fname(i.filename)
+                  out.append(("  "*depth)+nm+f"({i.file_size//1000}k)")
+                  if nm.lower().endswith(".zip") and depth<2:
+                      try: out+=lst(zipfile.ZipFile(io.BytesIO(z.read(i))),depth+1)
+                      except Exception: out.append("  "*(depth+1)+"(열기 실패)")
+              return out
           step=sys.argv[1]
-          ids=IDS[:5] if step=="a" else IDS[5:]
-          for n in ids:
+          for n in (IDS[:4] if step=="a" else IDS[4:]):
               try:
                   r=requests.get("https://www.ftc.go.kr/www/downloadBbsFileAll.do",params={"atchmnflNo":n},headers=H,timeout=120)
                   z=zipfile.ZipFile(io.BytesIO(r.content))
-                  names=[fname(i.filename)+f"({i.file_size//1000}k)" for i in z.infolist()]
-                  msg=f"{n}: "+" | ".join(names)
-                  # 엑셀 파일 첫 시트 요약
-                  import openpyxl
-                  for i in z.infolist():
-                      nm=fname(i.filename)
-                      if nm.lower().endswith(".xlsx") and i.file_size<4_000_000:
-                          wb=openpyxl.load_workbook(io.BytesIO(z.read(i)),read_only=True,data_only=True)
-                          msg+=f" || [{nm[:30]}] sheets={wb.sheetnames[:6]}"
-                          ws=wb[wb.sheetnames[0]]
-                          rows=[]
-                          for k,row in enumerate(ws.iter_rows(values_only=True)):
-                              if k>=7: break
-                              rows.append([str(c)[:14] for c in row[:9] if c is not None])
-                          msg+=" rows="+str(rows)[:500]
-                          break
-                  print("::notice::"+msg[:2400].replace(chr(10)," "))
+                  items=[x for x in lst(z) if not re.search(r"\.(hwpx|pdf)\(",x)]
+                  print("::notice::"+n+": "+" | ".join(items)[:2300])
               except Exception:
                   print("::notice::ERR "+n+" "+traceback.format_exc()[-300:].replace(chr(10)," | "))
           
