@@ -140,6 +140,9 @@ def collect(year, ntt):
             if got is not None:
                 chg = got
                 seen.append(f"변동:{name[-22:]}")
+                if len(got) < 5:  # 거의 못 읽었으면 표 모양을 남긴다
+                    h = header_index(rows, "구분", "사유", "회사명")
+                    seen.append("변동 표 모양 " + str([[txt(c)[:7] for c in r[:12]] for r in rows[h:h + 4]])[:600])
     return des, chg, seen
 
 
