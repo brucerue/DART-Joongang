@@ -9,22 +9,29 @@ jobs:
       - run: pip install requests
       - name: probe
         run: |
-          python - <<'PY'
-          import requests, re, html
+          cat > p.py <<'PYEOF'
+          import requests, re, html, traceback
           H={"User-Agent":"Mozilla/5.0"}
-          found={}
-          for kw in ("공시대상기업집단 지정","대규모기업집단 지정","기업집단 지정 결과"):
-              for pg in range(1,6):
-                  r=requests.get("https://www.ftc.go.kr/www/selectBbsNttList.do",params={"key":"12","bordCd":"3","pageIndex":str(pg),"searchCnd":"all","searchKrwd":kw},headers=H,timeout=40)
-                  for h,tx in re.findall(r'<a href="(\./selectBbsNttView\.do[^"]*)"[^>]*>(.*?)</a>',r.text,re.S):
-                      n=re.search(r"nttSn=(\d+)",h).group(1); t=html.unescape(re.sub(r"<[^>]+>","",tx)).strip()
-                      found[n]=t
-          sel={n:t for n,t in found.items() if re.search(r"(지정|발표)",t) and re.search(r"(공시대상|대규모)기업집단|기업집단 지정",t) and ("제외" not in t) and ("설명" not in t) and ("제재" not in t)}
-          for n,t in sorted(sel.items()):
-              print(f"::notice::{n} | {t[:90]}")
-          for n in sorted(sel)[:12]:
-              v=requests.get("https://www.ftc.go.kr/www/selectBbsNttView.do",params={"key":"12","bordCd":"3","nttSn":n},headers=H,timeout=40).text
-              d=re.search(r"(20\d\d)[-.]\s?(\d\d)[-.]\s?(\d\d)",v)
-              files=re.findall(r'<a[^>]*href="([^"]*downloadBbsFile\.do[^"]*)"[^>]*>(.*?)</a>',v,re.S)
-              print(f"::notice::{n} files={len(files)} "+" || ".join(html.unescape(re.sub(r'<[^>]+>','',tx)).strip()[:40] for h,tx in files)[:600])
-          PY
+          def main():
+              found={}
+              for kw in ("공시대상기업집단 지정","대규모기업집단 지정"):
+                  for pg in range(1,5):
+                      r=requests.get("https://www.ftc.go.kr/www/selectBbsNttList.do",params={"key":"12","bordCd":"3","pageIndex":str(pg),"searchCnd":"all","searchKrwd":kw},headers=H,timeout=40)
+                      for h,tx in re.findall(r'<a href="(\./selectBbsNttView\.do[^"]*)"[^>]*>(.*?)</a>',r.text,re.S):
+                          n=re.search(r"nttSn=(\d+)",h).group(1); t=html.unescape(re.sub(r"<[^>]+>","",tx)).strip()
+                          found[n]=t
+              print("::notice::전체 "+str(len(found)))
+              sel={n:t for n,t in found.items() if re.search(r"지정",t) and re.search(r"기업집단",t) and not re.search(r"제외|설명|제재|행정예고|개정",t)}
+              for n,t in sorted(sel.items()):
+                  print(f"::notice::{n} | {t[:90]}")
+              for n in sorted(sel)[:10]:
+                  v=requests.get("https://www.ftc.go.kr/www/selectBbsNttView.do",params={"key":"12","bordCd":"3","nttSn":n},headers=H,timeout=40).text
+                  files=re.findall(r'<a[^>]*href="([^"]*downloadBbsFile[^"]*)"[^>]*>(.*?)</a>',v,re.S)
+                  print(f"::notice::{n} files={len(files)} "+" || ".join(html.unescape(re.sub(r"<[^>]+>","",tx)).strip()[:36] for h,tx in files)[:700])
+          try:
+              main()
+          except Exception:
+              print("::notice::ERR "+traceback.format_exc()[-700:].replace(chr(10)," | "))
+          
+          PYEOF
+          python p.py
