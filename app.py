@@ -432,7 +432,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 20:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 21:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7472,34 +7472,35 @@ h1 { font-size: 2.15rem !important; font-weight: 800 !important; letter-spacing:
 .calc-out .l { display: block; font-size: 0.72rem; color: #7a8699; }
 .calc-out .v { display: block; font-size: 0.98rem; font-weight: 700; color: #0b2545; word-break: break-all; }
 .st-key-alarm_top > div { width: auto !important; flex: 0 0 auto !important; }
-.st-key-alarm_top button { min-height: 0 !important; width: 7.2rem !important; justify-content: center !important; white-space: nowrap !important; padding: 0.2rem 0.5rem !important; font-size: 0.78rem !important; border-radius: 999px !important; border: 1px solid #d5deea !important; background: #ffffff !important; color: #33415c !important; box-shadow: 0 1px 4px rgba(16, 42, 84, 0.06); }
-.st-key-alarm_top button [data-testid="stIconMaterial"] { display: none !important; }  /* 펼침 화살표 숨김 */
+.st-key-alarm_top button { min-height: 0 !important; width: auto !important; justify-content: center !important; white-space: nowrap !important; padding: 0.2rem 0.8rem !important; font-size: 0.78rem !important; border-radius: 999px !important; border: 1px solid #d5deea !important; background: #ffffff !important; color: #33415c !important; box-shadow: 0 1px 4px rgba(16, 42, 84, 0.06); }
+.st-key-alarm_top button [aria-hidden="true"]:has([data-testid="stIconMaterial"]) { display: none !important; }
+.st-key-alarm_top button > div, .st-key-alarm_top button > div > div { margin: 0 !important; padding: 0 !important; gap: 0 !important; width: auto !important; justify-content: center !important; }  /* 펼침 화살표 숨김 (자리까지 없애 글자가 가운데 오게) */
 .st-key-alarm_top button * { overflow: visible !important; text-overflow: clip !important; max-width: none !important; }
-.st-key-alarm_top > div, .st-key-alarm_top [data-testid="stPopover"] { width: 7.2rem !important; min-width: 0 !important; }
+.st-key-alarm_top > div, .st-key-alarm_top [data-testid="stPopover"] { width: auto !important; min-width: 0 !important; }
 .st-key-alarm_top button:hover { border-color: #1c7ed6 !important; color: #1c7ed6 !important; }
 h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 [data-testid="stElementContainer"]:has(h1) + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"] { font-size: 0.78rem; letter-spacing: 0.06em; color: #7a8699; margin-top: 0.1rem; }
 [data-testid="stElementContainer"]:has(h1) + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"] p::before { content: ""; display: inline-block; width: 1.6rem; height: 3px; border-radius: 2px; background: #1c7ed6; vertical-align: middle; margin-right: 0.5rem; }
 [data-testid="stCaptionContainer"] { color: #7a8699; }
 
-/* 탭: 모바일은 한 줄에 4개씩 2줄 바둑판으로 (옆으로 밀지 않아도 모두 보이게) */
+/* 탭: 모바일은 한 줄에 5개씩 2줄 바둑판으로 (옆으로 밀지 않아도 모두 보이게) */
 [data-testid="stTabs"] [role="tablist"] {
-    display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.35rem;
+    display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.3rem;
     overflow: visible !important; width: 100% !important; border-bottom: none !important; margin-bottom: 0.6rem;
 }
 [data-testid="stTab"] {
     display: flex; align-items: center; justify-content: center; min-width: 0; margin: 0 !important;
     padding: 0.55rem 0.2rem !important; border: 1px solid #dde3ec; border-radius: 10px; background: #ffffff; cursor: pointer;
 }
-[data-testid="stTab"] p { font-size: 0.88rem; font-weight: 600; white-space: nowrap; margin: 0; color: #334155; }
+[data-testid="stTab"] p { font-size: 0.8rem; font-weight: 600; white-space: nowrap; margin: 0; color: #334155; letter-spacing: -0.02em; }
 [data-testid="stTab"]:hover { border-color: #1c7ed6; }
 [data-testid="stTab"][aria-selected="true"] { background: #1c7ed6; border-color: #1c7ed6; }
 [data-testid="stTab"][aria-selected="true"] p { color: #ffffff !important; }
 [data-testid="stTab"] > div:not([data-testid]) { display: none; }  /* 기본 밑줄 표시는 숨김 */
 [data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after { display: none !important; }
 [data-testid="stTabs"] [role="tablist"] { box-shadow: none !important; background: none !important; }
-@media (min-width: 900px) { [data-testid="stTabs"] [role="tablist"] { display: flex !important; flex-wrap: nowrap; } [data-testid="stTab"] { flex: 1 1 0; } [data-testid="stTab"] p { font-size: 0.84rem; } }  /* PC: 탭이 몇 개든 한 줄에 (모바일은 4개씩 바둑판) */
-@media (max-width: 400px) { [data-testid="stTab"] p { font-size: 0.8rem; } }  /* 작은 휴대폰에서도 글자가 칸 안에 */
+@media (min-width: 900px) { [data-testid="stTabs"] [role="tablist"] { display: flex !important; flex-wrap: nowrap; } [data-testid="stTab"] { flex: 1 1 0; } [data-testid="stTab"] p { font-size: 0.84rem; } }  /* PC: 탭이 몇 개든 한 줄에 (모바일은 5개씩 바둑판) */
+@media (max-width: 400px) { [data-testid="stTab"] p { font-size: 0.72rem; } [data-testid="stTab"] { padding: 0.5rem 0.1rem !important; } }  /* 작은 휴대폰에서도 글자가 칸 안에 */
 [data-testid="stTabs"] [role="tablist"] ~ button, [data-testid="stTabs"] button[aria-label*="croll"] { display: none !important; }
 
 /* 입력 카드 */
