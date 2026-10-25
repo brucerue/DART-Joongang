@@ -147,3 +147,26 @@ def pick_report(rows, kind, year, period_of):
         if ok(r):
             return r, True
     return (rows[0], False) if rows else (None, False)
+
+
+def quote_context(quote, text, before=12, after=4, cap=40):
+    """AI가 고른 발췌의 앞뒤 원문 줄 -> [(원문 줄, AI가 고른 줄인지)]. 표가 칸마다 한 줄로 풀려 있어도 머리글·행 이름이 함께 보이게.
+    원문에서 위치를 못 찾으면 빈 목록"""
+    lines = str(text or "").split("\n")
+    keys = [squash(l) for l in lines]
+    want = [squash(q) for q in str(quote or "").split("\n")]
+    want = [w for w in want if w]
+    hit, pos = [], 0
+    for w in want:
+        for i in range(pos, len(lines)):
+            if keys[i] and (w in keys[i] or (len(keys[i]) >= 2 and keys[i] in w)):
+                hit.append(i)
+                pos = i + 1
+                break
+    if not hit:
+        return []
+    lo, hi = max(0, hit[0] - before), min(len(lines), hit[-1] + after + 1)
+    if hi - lo > cap:  # 너무 길면 고른 줄 주변만
+        lo, hi = max(0, hit[0] - before), min(len(lines), max(hit[0] - before, 0) + cap)
+    marked = set(hit)
+    return [(lines[i].rstrip(), i in marked) for i in range(lo, hi) if lines[i].strip()]

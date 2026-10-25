@@ -430,7 +430,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 13:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 14:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -11293,7 +11293,9 @@ def pfind_quotes(row, spec):
         key, quote = str(f.get("block", "")).strip(), str(f.get("quote", "")).strip()
         src = blocks.get(key) or "\n".join(blocks.get(k, "") for k in read)
         if quote and ais.quote_in(quote, src):
-            found.append({"block": REPORT_BLOCK_LABELS.get(key, key), "quote": quote, "why": str(f.get("why", "")).strip()})
+            ctx = ais.quote_context(quote, src)  # 원문 앞뒤 줄을 함께 (표 머리글·행 이름이 보이게)
+            shown = "\n".join(("▶ " if m else "   ") + l for l, m in ctx) if ctx else quote
+            found.append({"block": REPORT_BLOCK_LABELS.get(key, key), "quote": shown, "why": str(f.get("why", "")).strip()})
         elif quote:
             dropped += 1
     return {"found": found, "dropped": dropped, "read": [REPORT_BLOCK_LABELS[k] for k in read], "missing": missing,
@@ -11359,7 +11361,7 @@ def render_report_find():
         with st.container(border=True):
             st.markdown(f"**{f['block']}**" + (f" · {f['why']}" if f["why"] else ""))
             st.code(f["quote"], language=None, wrap_lines=True)
-    notes = ["원문 그대로 발췌(앱이 원문과 대조해 확인한 것만 보여줘요)"]
+    notes = ["원문 그대로 발췌(앱이 원문과 대조해 확인한 것만 보여줘요) · ▶는 AI가 찾은 줄, 나머지는 그 앞뒤 원문"]
     if res["dropped"]:
         notes.append(f"원문과 글자가 달라 뺀 발췌 {res['dropped']}개")
     if res["read"]:
