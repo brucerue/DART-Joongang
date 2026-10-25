@@ -226,7 +226,7 @@ MAX_NEWS_PAGES = 3  # 검색어 하나당 최신 300건까지만 확인 (네이�
 NEWS_TTL = 10 * 60  # 같은 검색은 10분 동안 저장해 둔 결과를 재사용 (호출 절약). 길게 두면 방금 나온 기사가 저장분 때문에 안 보임
 NEWS_TTL_TODAY = 5 * 60  # 기간이 '오늘'인 검색은 새 기사가 계속 올라오므로 더 짧게
 SIMILAR_TITLE = 0.8  # 제목이 이 정도(0~1) 이상 비슷하면 같은 기사로 묶는다
-NEWS_PERIODS = {"오늘": 1, "3일": 3, "일주일": 7}
+NEWS_PERIODS = {"오늘": 1, "24시간": 1, "3일": 3, "일주일": 7}  # 오늘=오늘 0시부터(한국시간), 24시간=지금부터 24시간 전까지
 
 # 뉴스에 보여줄 언론사. 기사 주소(도메인) -> (언론사 이름, 구분). 여기 없는 매체의 기사는 보이지 않는다.
 NEWS_CATEGORIES = ["종합일간지", "경제지", "방송사", "통신사"]
@@ -414,7 +414,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 13:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 14:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5452,7 +5452,7 @@ def render_news_search(kind):
             "검색어 (쉼표로 구분)", key=f"{k}_terms", placeholder="예: 삼성전자, SK하이닉스, HBM",
             help=f"고른 섹터의 대표 기업·키워드가 채워져요. 직접 빼거나 더해서 최대 {MAX_NEWS_TERMS[kind]}개까지 검색할 수 있어요. 많으면 조회가 오래 걸려요.",
         )
-        period = st.radio("기간", list(NEWS_PERIODS), index=list(NEWS_PERIODS).index("3일"), horizontal=True, key=f"{k}_period")
+        period = st.radio("기간", list(NEWS_PERIODS), index=0, horizontal=True, key=f"{k}_period")
         if kind == "통신":
             with st.container(key="news_opts_bar"):  # 모바일에서도 두 체크박스를 한 줄에
                 cc1, cc2 = st.columns(2)
@@ -5520,6 +5520,9 @@ def render_news_search(kind):
                     total = len(items)
                     want = "통신사" if kind == "통신" else None  # 통신: 연합뉴스·뉴시스·뉴스1만 / 단독: 목록에 있는 언론사 모두
                     items = [i for i in items if (i["category"] == want if want else i["category"])]
+                    if period == "오늘":  # 구글·네이버는 '24시간' 단위로 찾으니, 오늘 0시(한국시간) 이후 기사만 남긴다
+                        today0 = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
+                        items = [i for i in items if i["dt"] >= today0]
                     if kind == "통신":  # 통신: 스포츠 기사는 기업명이 들어 있어도 뺀다 (낱말 + 연합뉴스 스포츠 제목 목록)
                         sports_keys = load_sports_keys()
                         items = [i for i in items if not is_sports(i["title"], sports_keys)]
