@@ -131,6 +131,9 @@ def collect(year, ntt):
                 des = got
                 seen.append(f"지정현황:{name[-22:]}")
                 continue
+            h = header_index(rows, "기업집단명", "동일인")
+            if h is not None:  # 지정 현황 표 같은데 한 줄도 못 읽었으면 어디가 다른지 남긴다
+                seen.append(f"지정현황 후보 0행: 제목줄 {h} " + str([[txt(c)[:8] for c in r[:11]] for r in rows[h:h + 3]])[:420])
         if chg is None:
             got = parse_changes(rows)
             if got is not None:
