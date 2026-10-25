@@ -10624,7 +10624,6 @@ def render_today():
         return
     if "td_groups" not in st.session_state:
         st.session_state["td_groups"] = team_sector_options(TODAY_TEAM, list(NEWS_SECTORS))
-    st.markdown('<span class="sec-lbl">섹터 (여러 개 선택 가능)</span>', unsafe_allow_html=True)
     team_buttons("td", NEWS_SECTORS, "td_groups")
     st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key="td_groups", label_visibility="collapsed")
     period = st.radio("기간", tdc.PERIODS, horizontal=True, key="td_period")
