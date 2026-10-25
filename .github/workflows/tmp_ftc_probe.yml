@@ -12,7 +12,7 @@ jobs:
           cat > p.py <<'PYEOF'
           import requests, re, io, zipfile, sys, traceback, openpyxl
           H={"User-Agent":"Mozilla/5.0"}
-          IDS=["41119","41476","41915","42416","42836","43406","46053"]
+          IDS=["41915","43406"]
           def fname(n):
               try: return n.encode("cp437").decode("euc-kr")
               except Exception:
@@ -35,7 +35,7 @@ jobs:
                   rr.append([str(c).replace(chr(10),' ')[:12] for c in row[:11] if c is not None])
               return out+str(rr)[:520]
           step=sys.argv[1]
-          for n in (IDS[:4] if step=="a" else IDS[4:]):
+          for n in (IDS if step=="a" else []):
               try:
                   r=requests.get("https://www.ftc.go.kr/www/downloadBbsFileAll.do",params={"atchmnflNo":n},headers=H,timeout=120)
                   z=zipfile.ZipFile(io.BytesIO(r.content))
