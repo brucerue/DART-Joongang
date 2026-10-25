@@ -2,7 +2,8 @@ name: 자동차부품사 전수 자료 모으기
 
 # 상장 자동차부품사(DART 업종코드 303·304 + 직접 추가한 곳)의 10년치 직원 수·평균 근속·급여·매출·영업이익과
 # 사업보고서 '주요 제품' 글을 모아 'parts' 브랜치(parts.json, parts.csv, 한 커밋 덮어쓰기)에 저장합니다.
-# 기획 취재용으로 손으로 실행합니다. DART 하루 한도에 걸리면 받은 데까지 저장되고, 다시 실행하면 이어받습니다.
+# 기획 취재용으로 손으로 실행합니다. DART 하루 한도에 걸리거나 100분이 지나면 받은 데까지 저장되고, 다시 실행하면 이어받습니다.
+# (전체 호출이 8,000번 안팎이라 2~3번 나눠 실행해야 다 받습니다.)
 on:
   workflow_dispatch:
     inputs:
@@ -48,13 +49,15 @@ jobs:
       - name: DART에서 모으기
         run: |
           python parts_data.py --corp-csv corp_codes.csv --out parts.json --csv parts.csv \
-            --prev prev.json --years "$IN_YEARS" --doc-years "$IN_DOC_YEARS" --extra "$IN_EXTRA"
+            --prev prev.json --years "$IN_YEARS" --doc-years "$IN_DOC_YEARS" --extra "$IN_EXTRA" \
+            --max-minutes 100
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           IN_YEARS: ${{ inputs.years }}
           IN_DOC_YEARS: ${{ inputs.doc_years }}
           IN_EXTRA: ${{ inputs.extra }}
-      - name: parts 브랜치에 올리기 (기록은 한 커밋으로 덮어씀)
+      - name: parts 브랜치에 올리기 (기록은 한 커밋으로 덮어씀, 중간에 멈춰도 받은 데까지)
+        if: always() && hashFiles('parts.json') != ''
         run: |
           mkdir -p out && cp parts.json parts.csv out/
           cd out

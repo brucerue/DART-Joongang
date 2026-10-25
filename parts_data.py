@@ -47,13 +47,16 @@ class QuotaError(Exception):
 
 
 class Dart:
-    def __init__(self, key, session=None, max_calls=15000, sleep=SLEEP):
+    def __init__(self, key, session=None, max_calls=15000, sleep=SLEEP, max_minutes=0):
         self.key, self.s = key, session or requests.Session()
         self.calls, self.max_calls, self.sleep = 0, max_calls, sleep
+        self.deadline = time.monotonic() + max_minutes * 60 if max_minutes else None
 
     def _get(self, path, params):
         if self.calls >= self.max_calls:
             raise QuotaError(f"이번 실행 호출 한도 {self.max_calls}번")
+        if self.deadline and time.monotonic() > self.deadline:
+            raise QuotaError("이번 실행 시간 한도 — 받은 데까지 저장")
         self.calls += 1
         if self.sleep:
             time.sleep(self.sleep)
@@ -244,12 +247,20 @@ def screen(dart, listed, prev_screen, prefixes, extra_names, log):
     info = dict(prev_screen or {})
     todo = [r for r in listed if r["corp_code"] not in info]
     log(f"업종 확인: 지난 결과 {len(info)}곳, 새로 확인 {len(todo)}곳")
+    partial = None
     for i, r in enumerate(todo, 1):
-        jo = dart.json("company.json", {"corp_code": r["corp_code"]})
+        try:
+            jo = dart.json("company.json", {"corp_code": r["corp_code"]})
+        except QuotaError as e:  # 확인한 데까지 돌려주고, 대상 고르기는 다음 실행으로 미룬다
+            partial = str(e)
+            log(f"업종 확인 중 멈춤: {e} ({i - 1}/{len(todo)}곳 확인)")
+            break
         info[r["corp_code"]] = {"induty": (jo or {}).get("induty_code", ""), "cls": (jo or {}).get("corp_cls", ""),
                                 "est": (jo or {}).get("est_dt", "")}
         if i % 300 == 0:
             log(f"  {i}/{len(todo)}")
+    if partial:
+        return info, [], [], partial
     extra = set(n.strip() for n in extra_names if n.strip())
     picked = []
     for r in listed:
@@ -261,7 +272,7 @@ def screen(dart, listed, prev_screen, prefixes, extra_names, log):
                            "induty": meta.get("induty", ""), "market": {"Y": "코스피", "K": "코스닥"}.get(meta.get("cls"), ""),
                            "picked_by": "업종코드" if by_code else "직접 추가"})
     missing = sorted(extra - {p["name"] for p in picked})
-    return info, picked, missing
+    return info, picked, missing, None
 
 
 # ---------- 모으기 ----------
@@ -350,6 +361,7 @@ def main(argv=None, session=None):
     ap.add_argument("--extra", default="")
     ap.add_argument("--max-calls", type=int, default=15000)
     ap.add_argument("--sleep", type=float, default=SLEEP)
+    ap.add_argument("--max-minutes", type=float, default=0, help="이 시간이 지나면 받은 데까지 저장하고 끝냄(0=제한 없음)")
     args = ap.parse_args(argv)
     key = os.environ.get("DART_API_KEY", "").strip()
     if not key:
@@ -358,19 +370,18 @@ def main(argv=None, session=None):
     if args.prev and os.path.exists(args.prev):
         with open(args.prev, encoding="utf-8") as f:
             prev = json.load(f)
-    dart = Dart(key, session=session, max_calls=args.max_calls, sleep=args.sleep)
+    dart = Dart(key, session=session, max_calls=args.max_calls, sleep=args.sleep, max_minutes=args.max_minutes)
     years, doc_years = parse_years(args.years), parse_years(args.doc_years)
     listed = load_listed(args.corp_csv)
     if len(listed) < 1500:
         raise SystemExit(f"상장사 목록이 {len(listed)}곳뿐이라 멈춥니다(정상 2,500곳 이상).")
-    stopped = None
-    try:
-        info, corps, missing = screen(dart, listed, prev.get("screen"), KSIC_PREFIXES, args.extra.split(","), print)
-    except QuotaError as e:  # 업종 확인 중 한도 -> 확인한 데까지만 저장
-        raise SystemExit(f"업종 확인 중 멈춤: {e}. 내일 다시 실행하세요.")
-    print(f"대상 {len(corps)}곳 (업종코드 {sum(c['picked_by'] == '업종코드' for c in corps)}곳)"
-          + (f", 못 찾은 추가 기업: {', '.join(missing)}" if missing else ""))
-    data, stopped = collect(dart, corps, years, doc_years, prev.get("corps"), print)
+    info, corps, missing, stopped = screen(dart, listed, prev.get("screen"), KSIC_PREFIXES, args.extra.split(","), print)
+    if stopped:  # 업종 확인이 덜 끝남 -> 확인 결과만 저장하고, 기업 자료는 지난 것을 그대로 둔다
+        data = prev.get("corps", [])
+    else:
+        print(f"대상 {len(corps)}곳 (업종코드 {sum(c['picked_by'] == '업종코드' for c in corps)}곳)"
+              + (f", 못 찾은 추가 기업: {', '.join(missing)}" if missing else ""))
+        data, stopped = collect(dart, corps, years, doc_years, prev.get("corps"), print)
     done = sum(1 for c in data for y in years if c["years"].get(str(y), {}).get("done"))
     need = len(data) * len(years)
     result = {
