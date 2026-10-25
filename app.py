@@ -432,7 +432,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 19:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 20:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7471,13 +7471,11 @@ h1 { font-size: 2.15rem !important; font-weight: 800 !important; letter-spacing:
 .calc-out .cc { background: #f4f7fb; border-radius: 10px; padding: 0.35rem 0.6rem; }
 .calc-out .l { display: block; font-size: 0.72rem; color: #7a8699; }
 .calc-out .v { display: block; font-size: 0.98rem; font-weight: 700; color: #0b2545; word-break: break-all; }
-.st-key-alarm_top { flex-wrap: nowrap !important; gap: 0.4rem !important; }
 .st-key-alarm_top > div { width: auto !important; flex: 0 0 auto !important; }
-@media (max-width: 640px) { .st-key-alarm_top { flex-direction: column !important; align-items: flex-end !important; gap: 0.3rem !important; top: 3.3rem; } .st-key-alarm_top button, .st-key-alarm_top > div, .st-key-alarm_top [data-testid="stPopover"] { width: 6.6rem !important; } }  /* 폰: 계산기·알람 버튼을 위아래로 (제목을 가리지 않게) */
 .st-key-alarm_top button { min-height: 0 !important; width: 7.2rem !important; justify-content: center !important; white-space: nowrap !important; padding: 0.2rem 0.5rem !important; font-size: 0.78rem !important; border-radius: 999px !important; border: 1px solid #d5deea !important; background: #ffffff !important; color: #33415c !important; box-shadow: 0 1px 4px rgba(16, 42, 84, 0.06); }
-.st-key-alarm_top button [data-testid="stIconMaterial"] { display: none !important; }
+.st-key-alarm_top button [data-testid="stIconMaterial"] { display: none !important; }  /* 펼침 화살표 숨김 */
 .st-key-alarm_top button * { overflow: visible !important; text-overflow: clip !important; max-width: none !important; }
-.st-key-alarm_top > div, .st-key-alarm_top [data-testid="stPopover"] { width: 7.2rem !important; min-width: 0 !important; }  /* 펼침 화살표를 숨겨 두 버튼 모양을 똑같이 */
+.st-key-alarm_top > div, .st-key-alarm_top [data-testid="stPopover"] { width: 7.2rem !important; min-width: 0 !important; }
 .st-key-alarm_top button:hover { border-color: #1c7ed6 !important; color: #1c7ed6 !important; }
 h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 [data-testid="stElementContainer"]:has(h1) + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"] { font-size: 0.78rem; letter-spacing: 0.06em; color: #7a8699; margin-top: 0.1rem; }
@@ -11237,7 +11235,7 @@ def render_disc_ai_search():
                "'확인 필요'는 원문에서 같은 표기를 찾지 못한 것이니 원문으로 확인하세요. 합계는 원문 확인된 원화 금액만 더했어요.")
 
 
-TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 분석", "주가 분석", "산업 뉴스", "실적 캘린더", "공시 분석", "정기보고서", "무역 통계", "재계 순위"]
+TAB_NAMES = ["기업 브리핑", "오늘의 현황", "재무 분석", "주가 분석", "산업 뉴스", "실적 캘린더", "공시 분석", "정기보고서", "무역 통계", "재계 순위"]
 SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 숨겨 둔 탭(이슈 타임라인)이 보임
 if SHOW_LAB:
     TAB_NAMES += ["이슈 타임라인"]  # 관리자용 탭은 맨 끝
@@ -11441,7 +11439,7 @@ def render_calculator():
             st.caption("영업일은 토·일만 빼요 (공휴일은 빼지 않아요).")
 
 
-with st.container(key="alarm_top", horizontal=True, gap="small"):  # 코드는 맨 아래지만 CSS로 제목 오른쪽 위에 작게 띄움
+with st.container(key="alarm_top"):  # 코드는 맨 아래지만 CSS로 제목 오른쪽 위에 작게 띄움
     render_calculator()
-    render_alarm_signup()
+render_alarm_signup()  # 맨 아래
 st.caption(f"updated {LAST_UPDATED}")  # 맨 아래
