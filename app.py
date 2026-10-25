@@ -88,15 +88,17 @@ INDUSTRY_GROUPS = {
     "에너지·소재": ["효성", "HS효성", "대한전선", "엘에스일렉트릭", "LS", "LS전선", "고려아연", "OCI", "OCI홀딩스", "HD현대일렉트릭"],
     "반도체": ["삼성전자", "SK하이닉스", "한미반도체"],
     "IT·통신": ["SK텔레콤", "KT", "LG유플러스", "NAVER", "카카오"],
+    "전자": ["LG전자", "삼성전기", "LG이노텍", "삼성에스디에스", "LG디스플레이"],  # 삼성전자는 반도체에 있어 뺌(뉴스 섹터 '전자'에는 들어 있음)
+    "항공": ["대한항공", "한진칼", "아시아나항공", "진에어", "제주항공", "에어부산", "트리니티항공"],  # 트리니티항공 = 옛 티웨이항공
 }
 # 실적 캘린더의 섹터: 자동차와 배터리는 한 섹터로 묶는다
 # 산업 뉴스·공시 분석·실적 캘린더·텔레그램 알람의 섹터에서는 조선·해운 / 방산 / 철강을 '중후장대' 하나로 묶는다 (재무 조회·주가는 위 INDUSTRY_GROUPS 그대로)
 HEAVY_NAME = "중후장대"
 HEAVY_PARTS = ("조선·해운", "방산", "철강")
-CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("정유·석화", "에너지·소재", "반도체", "IT·통신")}
+CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("정유·석화", "에너지·소재", "반도체", "IT·통신", "전자", "항공")}
 CAL_GROUPS["자동차·배터리"] = INDUSTRY_GROUPS["자동차"] + INDUSTRY_GROUPS["배터리"]
 CAL_GROUPS[HEAVY_NAME] = [n for part in HEAVY_PARTS for n in INDUSTRY_GROUPS[part]]
-CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("자동차·배터리", HEAVY_NAME, "정유·석화", "에너지·소재", "반도체", "IT·통신")}
+CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("자동차·배터리", HEAVY_NAME, "정유·석화", "에너지·소재", "반도체", "IT·통신", "전자", "항공")}
 INDUSTRY_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
 
 # 주요사항보고서: 보고서명(공백·괄호 무시)에 들어 있는 말 -> (DART 주요정보 API, 칸 목록).
@@ -408,10 +410,11 @@ ALARM_MODES = ("통신", "단독", "공시")
 # 팀 프리셋: 팀 버튼을 누르면 이 섹터들이 한꺼번에 선택된다(텔레그램 받는 사람 설정의 "teams"도 같은 목록을 쓴다). 팀을 늘리려면 여기에 한 줄 추가
 TEAM_PRESETS = {
     "차팀": ["자동차", "배터리", "중후장대", "정유·석화", "에너지·소재"],
+    "재계팀": ["반도체", "전자", "항공", "재계"],
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 11:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 12:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
