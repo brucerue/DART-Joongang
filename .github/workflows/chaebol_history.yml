@@ -1,0 +1,34 @@
+name: 재계 순위 연도별 이력 모으기
+
+# 공정위 '공시대상기업집단 지정결과' 보도자료 별첨(2019~2025년 엑셀)에서 집단별 순위·자산·계열회사 수와 계열회사 변동 내역을 모아
+# 'chaebol' 브랜치(chaebol_history.json, 한 커밋 덮어쓰기)에 저장합니다. 새 지정 결과가 나오는 5월 이후 손으로 실행합니다.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests openpyxl
+      - name: 공정위 자료 읽기
+        run: python chaebol_history.py --out chaebol_history.json
+      - name: chaebol 브랜치에 올리기 (기록은 한 커밋으로 덮어씀)
+        run: |
+          mkdir -p out && cp chaebol_history.json out/
+          cd out
+          git init -q -b chaebol
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add chaebol_history.json
+          git commit -q -m "chaebol history $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" chaebol
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
