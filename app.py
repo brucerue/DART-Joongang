@@ -7602,8 +7602,6 @@ st.set_page_config(page_title="산업 취재 도우미", layout="wide")
 st.markdown(STYLE, unsafe_allow_html=True)
 st.title("산업 취재 도우미")
 st.caption("credit.중앙일보 나상현")
-with st.container(key="alarm_top"):  # 제목 오른쪽 위에 작게 (CSS로 위치를 잡음)
-    render_alarm_signup()
 
 if not API_KEY:
     st.error(
@@ -10872,4 +10870,6 @@ def render_alarm_signup():
             st.button("신청하기 (텔레그램 열기)", disabled=True, help="섹터와 종류를 하나 이상 골라주세요.")
 
 
+with st.container(key="alarm_top"):  # 코드는 맨 아래지만 CSS로 제목 오른쪽 위에 작게 띄움
+    render_alarm_signup()
 st.caption(f"updated {LAST_UPDATED}")  # 맨 아래
