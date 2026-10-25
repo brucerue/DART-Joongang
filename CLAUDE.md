@@ -24,6 +24,7 @@
 - `motie_flash.py`: 산업통상부 매월 1일 '○월 수출입 동향' 보도자료(PDF, `pdftotext -layout`)의 '참고' 표(월별 총괄·20대 품목·주요 지역 수출입, 백만 달러)를 읽고 검산하는 파서(화면 없음). 검산이 틀리면 ValueError로 저장을 막음. 목록은 motie.go.kr 보도자료 게시판(`/kor/article/ATCL3f49a5a8c`, 글마다 pdf·hwp 첨부)에서 GitHub 서버로 받아짐(연결이 가끔 끊겨 재시도 필요).
 - `motie_data.py` + `.github/workflows/motie_flash.yml`: 매월 1일 12:10·15:10·18:10(2일 09:10 마지막) KST에 산업부 게시판에서 '○월 수출입 동향' PDF를 받아 `motie_flash.py`로 읽고 `flash` 브랜치(`flash.json`, 한 커밋 덮어쓰기, 최근 14개월)에 저장. 이미 받은 달은 건너뜀. 수동 실행 입력: month, force. 워크플로에서 `poppler-utils`를 설치함.
 - `chaebol_history.py` + `.github/workflows/chaebol_history.yml`: 손으로 한 번 돌리는 공정위 2019~2025년 공시대상기업집단 지정 현황·계열회사 변동 내역(엑셀 zip, `BOARD`에 연도별 글 번호)을 읽어 `chaebol` 브랜치(`chaebol_history.json`, 한 커밋 덮어쓰기)에 저장. 앱 '재계 순위'의 그룹 자세히 보기 '연도별 이력'이 읽음(올해 2026 자료는 `chaebol_2026.json`). 새 연도가 나오면 BOARD에 번호를 더하고 다시 실행.
+- `parts_data.py` + `.github/workflows/parts_data.yml`: 손으로 실행하는 기획 취재용 수집기. 상장 자동차부품사(DART 기업개황 업종코드 303·304로 시작 + 입력 `extra`) 전수의 연도별 직원 현황(empSttus)·주요계정(fnlttSinglAcnt, 연결 우선)과 고른 해 사업보고서 원문 '주요 제품' 글을 `parts` 브랜치(parts.json·parts.csv, 한 커밋 덮어쓰기)에 저장. 지난 parts.json을 읽어 이어받음(업종 확인 결과 `screen`도 재사용, `fresh=yes`면 처음부터). 지금 상장사만 대상이라 상장폐지 기업은 빠짐. 앱은 아직 안 읽음.
 - `mti_map.json` + `mti_build.py`: 무역협회 K-stat HSK-MTI 연계표(엑셀)를 앱이 읽는 파일로 바꾼 것(기준년도별 표 3개 + MTI 이름). '수출입 분석' 탭 검색의 '산업부 품목(MTI)'이 HS 10자리를 MTI로 묶는 데 씀. 연계표가 갱신되면 `mti_build.py`로 다시 만든다.
 - `.github/workflows/news_digest.yml`: Cloudflare Worker가 15분마다 호출(정각 전체, 15·30·45분 `단독`).
 - `.github/workflows/sync_config.yml`: app.py/news_digest.py 푸시 + 매시 17분에 구글 스크립트로 동기화.
