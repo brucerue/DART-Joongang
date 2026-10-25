@@ -428,7 +428,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 19:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 21:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5764,6 +5764,68 @@ def get_chaebol():
         return None
 
 
+CHAEBOL_HIST_BRANCH = "chaebol"  # chaebol_history.py가 공정위 2019~2025년 지정 자료를 모아 저장하는 브랜치
+CHAEBOL_HIST_ALIAS = {"호반": "호반건설", "BS": "BS(舊 보성)"}  # 공정위가 해마다 달리 적은 이름
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def get_chaebol_history():
+    """연도별 지정 자료(chaebol 브랜치). 못 읽으면 None."""
+    try:
+        res = requests.get(f"https://raw.githubusercontent.com/{DATA_REPO}/{CHAEBOL_HIST_BRANCH}/chaebol_history.json", timeout=(10, 30))
+        res.raise_for_status()
+        return res.json()
+    except Exception:
+        return None
+
+
+def cb_history_key(name, hist):
+    """올해 이름 -> 이력 자료의 이름 (표기 차이 보정). 없으면 None."""
+    groups = (hist or {}).get("groups", {})
+    for cand in (name, CHAEBOL_HIST_ALIAS.get(name), re.sub(r"\(.*", "", name).strip()):
+        if cand and cand in groups:
+            return cand
+    return None
+
+
+def cb_history_rows(g, hist, year):
+    """연도 오름차순 [{'연도','순위','동일인','계열회사','자산'(십억)}]. 올해(g)까지 이어 붙인다."""
+    key = cb_history_key(g["name"], hist)
+    rows = []
+    for y in sorted((hist or {}).get("groups", {}).get(key, {}) if key else {}):
+        v = hist["groups"][key][y]
+        if int(y) < year:
+            rows.append({"연도": int(y), "순위": v.get("rank"), "동일인": v.get("owner"), "계열회사": v.get("n"), "자산": v.get("asset")})
+    rows.append({"연도": year, "순위": int(g["rank"]), "동일인": g["owner"], "계열회사": g["n"], "자산": g["asset"]})
+    return rows
+
+
+def render_chaebol_history(g, unit, year):
+    hist = get_chaebol_history()
+    rows = cb_history_rows(g, hist, year)
+    if len(rows) < 2:
+        return
+    key = cb_history_key(g["name"], hist)
+    with st.expander(f"연도별 이력 · {rows[0]['연도']}~{year}년 지정 기준"):
+        df = pd.DataFrame(rows)
+        table = pd.DataFrame({"연도": df["연도"].astype(str), "순위": df["순위"].map(lambda v: "-" if v is None else f"{int(v)}위"),
+                              "동일인": df["동일인"], "계열회사": df["계열회사"].map(lambda v: "-" if v is None else f"{int(v)}곳"),
+                              f"공정자산({unit})": df["자산"].map(lambda v: cb_money(v, unit))})
+        st.dataframe(table, hide_index=True, height=(len(table) + 1) * 35 + 3)
+        chart = pd.DataFrame({"공정자산": [None if v is None else v * 1e9 / UNITS[unit][0] for v in df["자산"]]}, index=df["연도"].astype(str))
+        st.line_chart(chart, height=200)
+        st.caption(f"공정자산 추이({unit}) · 매년 5월 1일 지정 기준 · 공정위 각 연도 지정 자료")
+        changes = (hist or {}).get("changes", {}).get(key or "", {})
+        years = [y for y in sorted(changes, reverse=True)]
+        if years:
+            pick = st.selectbox("계열회사 변동 연도", years, key=f"cb_hist_year_{g['rank']}", format_func=lambda y: f"{y}년 지정 (전년 5월 → 그해 5월)")
+            items = changes[pick]
+            n_in = sum(1 for c in items if c["t"] == "편입")
+            st.caption(f"편입 {n_in}곳 · 제외 {len(items) - n_in}곳")
+            st.dataframe(pd.DataFrame(items).rename(columns={"t": "구분", "r": "사유", "c": "회사명"}), hide_index=True,
+                         height=min(len(items) + 1, 12) * 35 + 3)
+
+
 def cb_money(v, unit):
     """십억 원 -> 억원/조원 글자. 값이 없으면 '-'."""
     return "-" if v is None else fmt_amount(v * 1e9, unit)
@@ -5979,6 +6041,7 @@ def render_chaebol_detail(g, unit, data, caps=None):
         render_chaebol_caps(g, unit, caps)
 
     render_ownership(g, data)
+    render_chaebol_history(g, unit, CHAEBOL_YEAR)
 
     moves = g.get("moves") or []
     n_inc = sum(1 for m in moves if m["kind"] == "증가")
