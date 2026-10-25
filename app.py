@@ -93,7 +93,7 @@ INDUSTRY_GROUPS = {
     "방산": ["한화에어로스페이스", "한국항공우주", "LIG디펜스앤에어로스페이스", "현대로템"],
     "철강": ["POSCO홀딩스", "현대제철", "동국제강"],
     "정유·석화": ["SK이노베이션", "S-Oil", "GS칼텍스", "에이치디현대오일뱅크", "롯데케미칼", "LG화학", "한화솔루션", "금호석유화학"],
-    "에너지·소재": ["효성", "HS효성", "대한전선", "엘에스일렉트릭", "LS", "LS전선", "고려아연", "OCI", "OCI홀딩스", "HD현대일렉트릭"],
+    "에너지": ["효성", "HS효성", "대한전선", "엘에스일렉트릭", "LS", "LS전선", "고려아연", "OCI", "OCI홀딩스", "HD현대일렉트릭"],
     "반도체": ["삼성전자", "SK하이닉스", "한미반도체"],
     "IT·통신": ["SK텔레콤", "KT", "LG유플러스", "NAVER", "카카오"],
     "전자": ["LG전자", "삼성전기", "LG이노텍", "삼성에스디에스", "LG디스플레이"],  # 삼성전자는 반도체에 있어 뺌(뉴스 섹터 '전자'에는 들어 있음)
@@ -103,10 +103,11 @@ INDUSTRY_GROUPS = {
 # 산업 뉴스·공시 분석·실적 캘린더·텔레그램 알람의 섹터에서는 조선·해운 / 방산 / 철강을 '중후장대' 하나로 묶는다 (재무 조회·주가는 위 INDUSTRY_GROUPS 그대로)
 HEAVY_NAME = "중후장대"
 HEAVY_PARTS = ("조선·해운", "방산", "철강")
-CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("정유·석화", "에너지·소재", "반도체", "IT·통신", "전자", "항공")}
+SECTOR_RENAMES = {"에너지·소재": "에너지"}  # 이름을 바꾼 섹터: 옛 이름으로 저장된 자료·알람 설정은 읽을 때 새 이름으로 (news_digest.py·Code.gs도 같은 표)
+CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("정유·석화", "에너지", "반도체", "IT·통신", "전자", "항공")}
 CAL_GROUPS["자동차·배터리"] = INDUSTRY_GROUPS["자동차"] + INDUSTRY_GROUPS["배터리"]
 CAL_GROUPS[HEAVY_NAME] = [n for part in HEAVY_PARTS for n in INDUSTRY_GROUPS[part]]
-CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("자동차·배터리", HEAVY_NAME, "정유·석화", "에너지·소재", "반도체", "전자", "항공", "IT·통신")}
+CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("자동차·배터리", HEAVY_NAME, "정유·석화", "에너지", "반도체", "전자", "항공", "IT·통신")}
 INDUSTRY_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
 
 # 주요사항보고서: 보고서명(공백·괄호 무시)에 들어 있는 말 -> (DART 주요정보 API, 칸 목록).
@@ -387,12 +388,12 @@ NEWS_SECTORS = {
                "이재용", "최태원", "정의선", "구광모", "신동빈", "김승연", "김동관", "조원태", "박정원", "구자은", "장인화", "정용진"],
         "키워드": ["재계", "총수", "오너", "대기업집단", "동일인 지정", "상법 개정", "노란봉투법", "법인세"],
     },
-    "에너지·소재": {
+    "에너지": {
         "기업": ["효성", "HS효성", "대한전선", "LS일렉트릭", "LS", "LS전선", "고려아연", "OCI", "OCI홀딩스", "HD현대일렉트릭", "두산에너빌"],
         "키워드": ["원전", "전력망", "핵심광물", "태양광", "최윤범"],
     },
 }
-NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("자동차", "배터리", HEAVY_NAME, "정유·석화", "에너지·소재", "반도체", "전자", "항공", "재계", "IT·통신")}  # 화면에 나오는 순서
+NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("자동차", "배터리", HEAVY_NAME, "정유·석화", "에너지", "반도체", "전자", "항공", "재계", "IT·통신")}  # 화면에 나오는 순서
 PUBLISHERS = {
     # 종합일간지
     "joongang.co.kr": ("중앙일보", "종합일간지"), "chosun.com": ("조선일보", "종합일간지"),
@@ -423,16 +424,16 @@ PUBLISHERS = {
 # 언론사 도메인 아래에 있어도 기사가 아닌 곳(커뮤니티·게시판 등)은 뺀다. 필요하면 여기에 추가하세요.
 # 텔레그램 알람 신청: 앱 맨 아래 '뉴스·공시 알람 받기'. 고른 섹터·종류를 t.me 링크의 start 값에 0/1로 담는다(순서를 바꾸면 news_digest.py의 해석도 달라지므로 끝에만 추가할 것)
 ALARM_BOT = "joongangbiz_bot"
-ALARM_SECTORS = ("자동차", "배터리", "중후장대", "정유·석화", "에너지·소재", "반도체", "IT·통신", "전자", "항공", "재계")
+ALARM_SECTORS = ("자동차", "배터리", "중후장대", "정유·석화", "에너지", "반도체", "IT·통신", "전자", "항공", "재계")
 ALARM_MODES = ("통신", "단독", "공시")
 # 팀 프리셋: 팀 버튼을 누르면 이 섹터들이 한꺼번에 선택된다(텔레그램 받는 사람 설정의 "teams"도 같은 목록을 쓴다). 팀을 늘리려면 여기에 한 줄 추가
 TEAM_PRESETS = {
-    "차팀": ["자동차", "배터리", "중후장대", "정유·석화", "에너지·소재"],
+    "차팀": ["자동차", "배터리", "중후장대", "정유·석화", "에너지"],
     "재계팀": ["반도체", "전자", "항공", "재계"],
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 22:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 23:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5450,7 +5451,11 @@ STORED_KINDS = ["통신", "단독", "공시"]
 def _fetch_stored(name):
     res = requests.get(f"https://raw.githubusercontent.com/{DATA_REPO}/{DATA_BRANCH}/{name}", timeout=20)
     res.raise_for_status()
-    return res.json()  # 실패(예외)는 캐시에 남지 않아 다음 조회 때 다시 시도한다
+    data = res.json()  # 실패(예외)는 캐시에 남지 않아 다음 조회 때 다시 시도한다
+    for r in (data.get("items") or []) if isinstance(data, dict) else []:  # 옛 섹터 이름으로 저장된 줄은 새 이름으로
+        if isinstance(r, dict) and any(x in SECTOR_RENAMES for x in (r.get("s") or [])):
+            r["s"] = list(dict.fromkeys(SECTOR_RENAMES.get(x, x) for x in r["s"]))
+    return data
 
 
 def get_stored(name):
@@ -7601,12 +7606,15 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .st-key-trade_wrap [data-testid="stRadio"], .st-key-trade_wrap [data-testid="stMultiSelect"] { margin-bottom: 0.2rem; }
 /* 섹터 알약(st.pills): 폰에서는 5칸 격자로 줄 끝을 맞춘다 (PC는 한 줄에 다 들어가므로 그대로) */
 @media (max-width: 640px) {
-  [data-testid="stButtonGroup"] [role="toolbar"]:has(button[data-variant="pills"]) { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.35rem 0.3rem; }
+  [data-testid="stElementContainer"]:has(button[data-variant="pills"]), [data-testid="stButtonGroup"]:has(button[data-variant="pills"]) { width: 100% !important; max-width: none !important; }  /* 알약 상자가 내용 폭(오른쪽 빈 자리)이 아니라 화면 폭을 다 쓰게 */
+  [data-testid="stButtonGroup"] [role="toolbar"]:has(button[data-variant="pills"]) { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.35rem 0.3rem; width: 100% !important; max-width: none !important; }
+  [data-testid="stButtonGroup"] [role="toolbar"]:has(> :nth-child(8):last-child), [data-testid="stButtonGroup"] [role="toolbar"]:has(> :nth-child(4):last-child) { grid-template-columns: repeat(4, minmax(0, 1fr)); }  /* 8개·4개짜리는 4칸씩 (빈 칸 없이) */
+  [data-testid="stButtonGroup"] [role="toolbar"]:has(> :nth-child(6):last-child), [data-testid="stButtonGroup"] [role="toolbar"]:has(> :nth-child(3):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   [data-testid="stButtonGroup"] button[data-variant="pills"] { width: 100%; min-width: 0; margin: 0 !important; padding-left: 0.15rem !important; padding-right: 0.15rem !important; justify-content: center; }
   [data-testid="stButtonGroup"] button[data-variant="pills"] * { max-width: none !important; overflow: visible !important; text-overflow: clip !important; }  /* '에너지·소…'처럼 줄임표로 잘리지 않게 */
-  [data-testid="stButtonGroup"] button[data-variant="pills"] p { font-size: 0.74rem !important; white-space: nowrap !important; letter-spacing: -0.03em; }
+  [data-testid="stButtonGroup"] button[data-variant="pills"] p { white-space: nowrap !important; }
 }
-@media (max-width: 400px) { [data-testid="stButtonGroup"] button[data-variant="pills"] p { font-size: 0.68rem !important; } }
+@media (max-width: 370px) { [data-testid="stButtonGroup"] button[data-variant="pills"] p { font-size: 0.82rem !important; letter-spacing: -0.02em; } }  /* 아주 좁은 폰에서만 살짝 줄임 */
 /* 오늘의 현황: 섹터 카드 */
 .st-key-today_wrap [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); }
 .td-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem 0.8rem; padding: 0.2rem 0 0.5rem; border-bottom: 1px solid #eef2f7; margin-bottom: 0.4rem; }

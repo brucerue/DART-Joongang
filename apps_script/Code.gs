@@ -19,11 +19,12 @@
  */
 
 // ---- 기본값: 평소에는 GitHub가 동기화(sync)로 아래 값과 받는 사람 목록을 최신으로 덮어쓴다. 동기화가 한 번도 없었을 때만 쓰인다 ----
-var ALARM_SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지·소재", "반도체", "IT·통신", "전자", "항공", "재계"];
+var ALARM_SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지", "반도체", "IT·통신", "전자", "항공", "재계"];
 var ALARM_MODES = ["통신", "단독", "공시"];
-var TEAM_PRESETS = { "차팀": ["자동차", "배터리", "중후장대", "정유·석화", "에너지·소재"], "재계팀": ["반도체", "전자", "항공", "재계"] };
+var TEAM_PRESETS = { "차팀": ["자동차", "배터리", "중후장대", "정유·석화", "에너지"], "재계팀": ["반도체", "전자", "항공", "재계"] };
 var HEAVY_NAME = "중후장대", HEAVY_PARTS = ["조선·해운", "방산", "철강"];   // 옛 섹터 이름은 중후장대로 읽는다
-var DEFAULT_SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지·소재"]; // 목록에 섹터를 안 적은 사람의 기본값(news_digest.py의 SECTORS)
+var SECTOR_RENAMES = { "에너지·소재": "에너지" };   // 이름을 바꾼 섹터: 옛 이름으로 저장된 설정은 새 이름으로 읽는다 (app.py와 같은 표)
+var DEFAULT_SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지"]; // 목록에 섹터를 안 적은 사람의 기본값(news_digest.py의 SECTORS)
 
 // 현재 설정: 동기화로 받은 것(CONFIG)이 있으면 그것, 없으면 위의 기본값
 function cfg_() {
@@ -433,7 +434,7 @@ function handleSignup_(chat, cid, secBits, modeBits) {
 // 저장된 옛 섹터 이름(조선·해운·방산·철강)을 중후장대로 바꾼다 (순서 유지, 중복 제거). 알림은 보내지 않는다.
 function migrateSectors_(list) {
   var out = [];
-  (list || []).forEach(function (x) { var y = HEAVY_PARTS.indexOf(x) >= 0 ? HEAVY_NAME : x; if (out.indexOf(y) < 0) out.push(y); });
+  (list || []).forEach(function (x) { var y = HEAVY_PARTS.indexOf(x) >= 0 ? HEAVY_NAME : (SECTOR_RENAMES[x] || x); if (out.indexOf(y) < 0) out.push(y); });
   return out;
 }
 
@@ -483,6 +484,7 @@ function runCommand_(text, sub, prefs, cid) {
     Object.keys(C.teams).forEach(function (t) { aliases[t] = C.teams[t]; });
     aliases["전체"] = C.sectors;
     ["조선·해운", "조선해운", "조선", "해운", "방산", "철강"].forEach(function (o) { if (!(o in aliases)) aliases[o] = [HEAVY_NAME]; });   // 옛 이름은 중후장대로
+    ["에너지·소재", "에너지소재", "소재"].forEach(function (o) { if (!(o in aliases)) aliases[o] = ["에너지"]; });   // 옛 이름은 에너지로
     var r = parseChoice_(rest, C.sectors, aliases);
     if (r.bad.length || !r.chosen.length) {
       return (r.bad.length ? "알아듣지 못한 말: " + r.bad.join(", ") : "받을 섹터를 같이 보내주세요. 예: /섹터 자동차 배터리") +

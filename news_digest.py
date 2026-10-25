@@ -45,7 +45,7 @@ SEEN_FILE = os.path.join(HERE, "digest_seen.json")
 PREFS_FILE = os.path.join(HERE, "digest_prefs.json")  # 받는 사람이 봇 명령으로 바꾼 설정(회차 사이에 캐시로 이어짐)
 
 # ---------- 설정: 받고 싶은 섹터·조회 방식 ----------
-SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지·소재"]
+SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지"]
 MODES = ["통신", "단독", "공시"]
 LOOKBACK_HOURS = 12  # 발송 시각 기준 이 시간 안에 올라온 기사만 (쉬는 요일·시간 뒤에 다시 받을 때도 같은 기준. 이미 보낸 기사는 기록으로 걸러냄)
 MAX_PER_SECTOR = 100  # 섹터마다 메시지에 싣는 최대 묶음 수 (넘으면 '외 N건'). 길면 텔레그램 메시지가 여러 통으로 나뉨
@@ -70,7 +70,7 @@ def load_app_data():
     tree = ast.parse(src)
     consts, funcs = {}, {}
     want_consts = {"LETTER_NAMES", "WORD_READINGS", "PUBLISHERS", "SIMILAR_TITLE", "NEWS_ALIASES", "NAME_READINGS",
-                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "TEAM_PRESETS", "HEAVY_NAME", "HEAVY_PARTS",
+                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "TEAM_PRESETS", "HEAVY_NAME", "HEAVY_PARTS", "SECTOR_RENAMES",
                    "PROV_REV_LABELS", "PROV_OP_LABELS", "SPORTS_WORDS", "NEWS_BLOCK_TERMS"}
     want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "news_tokens", "same_news_event", "disclosure_key",
                   "parse_amount_cell", "parse_provisional", "doc_text_from_zip", "is_sports", "is_blocked", "key_in_title"}  # 뒤의 셋: 잠정실적 원문 읽기 (앱 '재무 조회'와 같은 규칙)
@@ -116,13 +116,13 @@ def aliases_of(term):
 
 
 def migrate_sectors(sectors):
-    """옛 섹터 이름(조선·해운, 방산, 철강)을 '중후장대'로 바꾼다 (순서 유지, 중복 제거).
+    """옛 섹터 이름(조선·해운, 방산, 철강)을 '중후장대'로, 이름이 바뀐 섹터(SECTOR_RENAMES)를 새 이름으로 바꾼다 (순서 유지, 중복 제거).
     -> (새 목록, 세 섹터 중 일부만 받던 사람인지). 일부만 받던 사람은 묶음으로 넓어지므로 첫 회차에 조용히 기록만 한다."""
-    parts, name = set(A["HEAVY_PARTS"]), A["HEAVY_NAME"]
+    parts, name, renames = set(A["HEAVY_PARTS"]), A["HEAVY_NAME"], A.get("SECTOR_RENAMES") or {}
     old = list(sectors or [])
     out = []
     for x in old:
-        y = name if x in parts else x
+        y = name if x in parts else renames.get(x, x)  # 이름이 바뀐 섹터(에너지·소재 -> 에너지)도 새 이름으로
         if y not in out:
             out.append(y)
     return out, bool(parts & set(old)) and not parts <= set(old)
