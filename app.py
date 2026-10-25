@@ -432,7 +432,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 17:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 18:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7466,6 +7466,7 @@ h1 { font-size: 2.15rem !important; font-weight: 800 !important; letter-spacing:
      background: linear-gradient(100deg, #0b2545 0%, #1c4f9c 55%, #1c7ed6 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 [data-testid="stMainBlockContainer"] { position: relative; }
 .st-key-alarm_top { position: absolute; top: 3.9rem; right: 1rem; width: auto !important; z-index: 5; }
+.st-key-calc_box { width: min(26rem, calc(100vw - 3rem)) !important; }  /* 계산기 창: 칸마다 같은 크기 (높이는 st.container(height)로 고정, 넘치면 안에서 스크롤) */
 .calc-out { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.4rem; margin: 0.4rem 0; }
 .calc-out .cc { background: #f4f7fb; border-radius: 10px; padding: 0.35rem 0.6rem; }
 .calc-out .l { display: block; font-size: 0.72rem; color: #7a8699; }
@@ -11343,7 +11344,7 @@ def calc_num(label, key, placeholder):
 
 def render_calculator():
     """제목 옆 '계산기': 숫자를 보면서 바로 쓰는 계산 도구 (앱 안에서 계산만, 외부 조회 없음)"""
-    with st.popover("🧮 계산기"):
+    with st.popover("🧮 계산기"), st.container(key="calc_box", height=460, border=False):  # 창 크기는 CSS로 고정 (칸마다 같은 크기, 넘치면 안에서 스크롤)
         tabs = st.tabs(CALC_TABS)
         with tabs[0]:
             st.caption("이전 값과 지금 값을 넣으면 증감률·증감액·배수가 나와요. 쉼표·조·억·△(마이너스)·%를 그대로 붙여넣어도 돼요.")
