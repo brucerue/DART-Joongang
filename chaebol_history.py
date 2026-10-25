@@ -81,6 +81,7 @@ def parse_designation(rows):
     if h is None:
         return None
     head = [txt(c) for c in rows[h]]
+    c_rank = next(i for i, c in enumerate(head) if c in ("순위", "연번", "순번"))  # 표 왼쪽에 빈 칸이 있어 0번째 칸이 아닐 수 있다
     c_name = head.index("기업집단명")
     c_owner = head.index("동일인")
     c_n = next(i for i, c in enumerate(head) if "계열회사" in c)
@@ -88,7 +89,7 @@ def parse_designation(rows):
     out = []
     for row in rows[h + 1:]:
         name = txt(row[c_name]) if c_name < len(row) else ""
-        rank, n, asset = num(row[0]), num(row[c_n]) if c_n < len(row) else None, num(row[c_asset]) if c_asset < len(row) else None
+        rank, n, asset = num(row[c_rank]), num(row[c_n]) if c_n < len(row) else None, num(row[c_asset]) if c_asset < len(row) else None
         if not name or rank is None or n is None or asset is None:
             continue
         out.append({"name": name, "owner": txt(row[c_owner]), "rank": int(rank), "n": int(n), "asset": asset})
