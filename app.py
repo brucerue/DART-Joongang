@@ -37,7 +37,10 @@ import pandas as pd
 import stock_calc as sc
 
 sc = importlib.reload(sc)  # 배포로 stock_calc.py가 바뀌었는데 서버 메모리에 옛 모듈이 남아 있으면 새 함수를 못 찾으므로, 실행할 때마다 다시 읽는다
+import importlib
 import today_calc as tdc
+if not hasattr(tdc, "MISS_PERIODS"):  # 앱이 켜진 채로 배포되면 서버가 옛 모듈을 기억할 수 있어, 새 항목이 없으면 다시 읽는다
+    tdc = importlib.reload(tdc)
 import trade_calc as tc
 tc = importlib.reload(tc)  # (위와 같은 이유)
 import requests
