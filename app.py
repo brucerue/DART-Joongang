@@ -4145,12 +4145,12 @@ def render_fin_hub():
         with st.container(key="fin_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
             c1, c2 = st.columns([1, 4], vertical_alignment="center")
             c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-            mode = c2.radio("조회 방식", ["기업", "국내 섹터", "해외 섹터", "AI 검색"], horizontal=True, key="fin_mode", label_visibility="collapsed")
+            mode = c2.radio("조회 방식", ["개별", "국내", "해외", "AI 검색"], horizontal=True, key="fin_mode", label_visibility="collapsed")
         if mode == "AI 검색":
             render_fin_ai_search()
-        elif mode == "기업":
+        elif mode == "개별":
             render_financials()
-        elif mode == "국내 섹터":
+        elif mode == "국내":
             render_industry()
         else:
             render_overseas()
@@ -5305,7 +5305,7 @@ def render_global_news():
     """뉴스 탭 > 외신: 영문 기업명으로 WSJ·Bloomberg 등의 최근 기사 제목과 링크를 보여준다."""
     st.markdown('<span class="sec-lbl">섹터 (여러 개 선택 가능)</span>', unsafe_allow_html=True)
     st.pills("섹터", list(GLOBAL_SECTORS), selection_mode="multi", key="gn_groups", on_change=fill_gn_terms, label_visibility="collapsed",
-             help="재무 분석 '해외 섹터'와 같은 기업이에요. 고르면 아래 기업명 칸에 영문 기업명이 채워져요.")
+             help="재무 분석 '해외'와 같은 기업이에요. 고르면 아래 기업명 칸에 영문 기업명이 채워져요.")
     with st.form("gn_search"):
         corp_text = st.text_input("기업명 (여러 곳은 쉼표로)", key="gn_corp", placeholder="예: Samsung, TSMC, Tesla",
                                   help=f"한글 이름은 알려진 기업이면 영문으로 바꿔 검색해요. 최대 {MAX_GNEWS_CORPS}곳까지 한 번에 검색해요(곳 수만큼 시간이 걸려요).")
