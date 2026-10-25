@@ -7500,7 +7500,7 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 [data-testid="stTab"] > div:not([data-testid]) { display: none; }  /* 기본 밑줄 표시는 숨김 */
 [data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after { display: none !important; }
 [data-testid="stTabs"] [role="tablist"] { box-shadow: none !important; background: none !important; }
-@media (min-width: 900px) { [data-testid="stTabs"] [role="tablist"] { grid-template-columns: repeat(9, minmax(0, 1fr)); } }  /* PC: 9개 한 줄 (모바일은 4x2) */
+@media (min-width: 900px) { [data-testid="stTabs"] [role="tablist"] { display: flex !important; flex-wrap: nowrap; } [data-testid="stTab"] { flex: 1 1 0; } [data-testid="stTab"] p { font-size: 0.84rem; } }  /* PC: 탭이 몇 개든 한 줄에 (모바일은 4개씩 바둑판) */
 @media (max-width: 400px) { [data-testid="stTab"] p { font-size: 0.8rem; } }  /* 작은 휴대폰에서도 글자가 칸 안에 */
 [data-testid="stTabs"] [role="tablist"] ~ button, [data-testid="stTabs"] button[aria-label*="croll"] { display: none !important; }
 
