@@ -428,7 +428,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 23:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 23:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7459,7 +7459,7 @@ footer { visibility: hidden; }
 h1 { font-size: 2.15rem !important; font-weight: 800 !important; letter-spacing: -0.045em; line-height: 1.2 !important; color: #0b2545 !important; padding: 0.2rem 0 0.1rem !important;
      background: linear-gradient(100deg, #0b2545 0%, #1c4f9c 55%, #1c7ed6 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 [data-testid="stMainBlockContainer"] { position: relative; }
-.st-key-alarm_top { position: absolute; top: 2.6rem; right: 1rem; width: auto !important; z-index: 5; }
+.st-key-alarm_top { position: absolute; top: 3.9rem; right: 1rem; width: auto !important; z-index: 5; }
 .st-key-alarm_top button { min-height: 0 !important; padding: 0.15rem 0.6rem !important; font-size: 0.78rem !important; border-radius: 999px !important; }
 h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 [data-testid="stElementContainer"]:has(h1) + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"] { font-size: 0.78rem; letter-spacing: 0.06em; color: #7a8699; margin-top: 0.1rem; }
