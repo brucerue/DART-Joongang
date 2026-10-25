@@ -432,7 +432,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 18:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 19:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -11325,7 +11325,7 @@ def render_alarm_signup():
             st.button("신청하기 (텔레그램 열기)", disabled=True, help="섹터와 종류를 하나 이상 골라주세요.")
 
 
-CALC_TABS = ["증감", "단위", "영어", "연평균", "비중", "글자 수", "날짜"]
+CALC_TABS = ["증감", "표 증감", "단위", "영어", "연평균", "비중", "글자 수", "날짜"]
 
 
 def calc_result(rows):
@@ -11362,6 +11362,21 @@ def render_calculator():
                 calc_result(rows)
                 st.caption("증감률 = (B − A) ÷ A × 100. 이전 값이 적자(0 이하)면 증감률 대신 흑자전환·적자확대·적자축소로 판정해요.")
         with tabs[1]:
+            st.caption("한 줄에 '항목 작년값 올해값'. 엑셀에서 이름·작년·올해 세 열을 복사해 붙여넣어도 돼요.")
+            text = st.text_area("항목 작년값 올해값", key="calc_tc", height=120, placeholder="반도체 1200 1500\n자동차 600 620\n석유제품 400 350", label_visibility="collapsed")
+            st.button("표 증감 계산", key="calc_tc_go", use_container_width=True)  # 폰은 Ctrl+Enter가 없어, 누르면 입력이 반영돼 계산된다
+            rows, total = ct.table_change(text)
+            if rows:
+                def pct(v, sign=False):
+                    return "-" if v is None else (f"{v:+.1f}%" if sign else f"{v:.1f}%")
+                df = pd.DataFrame([{"항목": r["name"], "작년": ct.num_text(r["a"], 2), "올해": ct.num_text(r["b"], 2), "증감률": pct(r["rate"], True),
+                                    "증감액": ct.num_text(r["diff"], 2), "비중": f"{pct(r['share_a'])}→{pct(r['share_b'])}",
+                                    "비중 변화": "-" if r["share_a"] is None or r["share_b"] is None else f"{r['share_b'] - r['share_a']:+.1f}%p",
+                                    "기여도": pct(r["contrib"]), "판정": r["status"]} for r in rows + [total]])
+                st.dataframe(df, hide_index=True, height=(len(df) + 1) * 35 + 3)
+                copy_table_box(df, "calc_tc_copy")
+                st.caption("기여도 = 그 항목 증감액 ÷ 전체 증감액 × 100 (전체가 늘 때 줄어든 항목은 마이너스). 비중은 합계 대비. 증감률은 작년값이 0 이하면 '-'.")
+        with tabs[2]:
             c1, c2 = st.columns([3, 2])
             with c1:
                 v, _ = calc_num("숫자", "calc_unit_v", "예: 1,234,567")
@@ -11373,7 +11388,7 @@ def render_calculator():
                 fx, _ = ct.parse_num(usd)
                 if fx:
                     calc_result([("달러", "$" + ct.en_number(won / fx)[0]), ("달러(숫자)", f"${won / fx:.0f}")])
-        with tabs[2]:
+        with tabs[3]:
             st.caption("한글 단위(조·억·만) ↔ 영어 단위(trillion·billion·million) 바꾸기")
             v, _ = calc_num("한글 → 영어", "calc_en_ko", "예: 3조5000억 / 1,234억")
             if v is not None:
@@ -11385,7 +11400,7 @@ def render_calculator():
                     st.caption(f"'{raw}'을(를) 읽지 못했어요. 예: 3.5 billion, 350m, 1.2tn")
                 else:
                     calc_result([("한글", ct.kor_number(n)), ("숫자", ct.num_text(n))])
-        with tabs[3]:
+        with tabs[4]:
             a, _ = calc_num("시작 값", "calc_g_a", "예: 100")
             b, _ = calc_num("끝 값", "calc_g_b", "예: 200")
             years = st.number_input("기간 (년)", min_value=0.0, value=5.0, step=1.0, key="calc_g_n",
@@ -11394,7 +11409,7 @@ def render_calculator():
             if a is not None and b is not None:
                 calc_result([("연평균 성장률", f"{g:+.1f}%" if g is not None else "계산 안 함 (시작·끝은 0보다 커야 해요)"),
                              ("전체 증감률", f"{(b - a) / a * 100:+.1f}%" if a > 0 else "-")])
-        with tabs[4]:
+        with tabs[5]:
             text = st.text_area("한 줄에 하나씩 (이름 값 또는 값만)", key="calc_share", height=120,
                                 placeholder="반도체 1,200\n자동차 600\n기타 200")
             st.button("비중 계산", key="calc_share_go", use_container_width=True)  # 폰은 Ctrl+Enter가 없어, 누르면 입력이 반영돼 계산된다
@@ -11403,14 +11418,14 @@ def render_calculator():
                 df = pd.DataFrame([{"항목": n, "값": ct.num_text(v, 2), "비중": f"{p:.1f}%" if p is not None else "-"} for n, v, p in items]
                                   + [{"항목": "합계", "값": ct.num_text(total, 2), "비중": "100%"}])
                 st.dataframe(df, hide_index=True, height=(len(df) + 1) * 35 + 3)
-        with tabs[5]:
+        with tabs[6]:
             text = st.text_area("원고 붙여넣기", key="calc_text", height=160)
             st.button("글자 수 세기", key="calc_text_go", use_container_width=True)  # 폰은 Ctrl+Enter가 없어, 누르면 입력이 반영돼 계산된다
             if text.strip():
                 t = ct.text_stats(text)
                 calc_result([("공백 포함", f"{t['with_space']:}자"), ("공백 제외", f"{t['no_space']:}자"),
                              ("200자 원고지", f"{t['sheets']}매"), ("문장", f"{t['sentences']}개"), ("문단", f"{t['paras']}개")])
-        with tabs[6]:
+        with tabs[7]:
             today = datetime.now(KST).date()
             d1 = st.date_input("기준 날짜", value=today, key="calc_d1", format="YYYY.MM.DD")
             n = st.number_input("며칠 뒤 (음수면 앞)", value=0, step=1, key="calc_dn")

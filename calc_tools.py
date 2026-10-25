@@ -202,3 +202,32 @@ def parse_en(text):
         return v
     mult = dict(EN_UNITS).get(word)
     return v * mult if mult else None
+
+
+def table_change(text):
+    """여러 줄 '항목 작년값 올해값' (탭·공백·쉼표 구분, 엑셀 두 열 붙여넣기도 됨) -> [{name, a, b, diff, rate, status, share_a, share_b, contrib}], 합계 dict.
+    contrib = 전체 증감액 가운데 그 항목 증감액의 몫(%). 전체 증감이 0이면 None"""
+    rows = []
+    for line in str(text or "").splitlines():
+        parts = [p for p in re.split(r"[\t,]+|\s{1,}", line.strip()) if p]
+        if len(parts) < 2:
+            continue
+        b, bp = parse_num(parts[-1])
+        a, ap = parse_num(parts[-2])
+        if a is None or b is None:
+            continue
+        name = " ".join(parts[:-2]) or f"{len(rows) + 1}번"
+        rows.append({"name": name, "a": a, "b": b})
+    if not rows:
+        return [], None
+    ta, tb = sum(r["a"] for r in rows), sum(r["b"] for r in rows)
+    tdiff = tb - ta
+    for r in rows:
+        c = change(r["a"], r["b"])
+        r.update(c)
+        r["share_a"] = r["a"] / ta * 100 if ta else None
+        r["share_b"] = r["b"] / tb * 100 if tb else None
+        r["contrib"] = r["diff"] / tdiff * 100 if tdiff else None
+    total = {"name": "합계", "a": ta, "b": tb, **change(ta, tb), "share_a": 100.0 if ta else None, "share_b": 100.0 if tb else None,
+             "contrib": 100.0 if tdiff else None}
+    return rows, total
