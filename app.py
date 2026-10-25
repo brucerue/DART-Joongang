@@ -428,7 +428,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 22:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 23:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7458,6 +7458,9 @@ footer { visibility: hidden; }
 
 h1 { font-size: 2.15rem !important; font-weight: 800 !important; letter-spacing: -0.045em; line-height: 1.2 !important; color: #0b2545 !important; padding: 0.2rem 0 0.1rem !important;
      background: linear-gradient(100deg, #0b2545 0%, #1c4f9c 55%, #1c7ed6 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+[data-testid="stMainBlockContainer"] { position: relative; }
+.st-key-alarm_top { position: absolute; top: 2.6rem; right: 1rem; width: auto !important; z-index: 5; }
+.st-key-alarm_top button { min-height: 0 !important; padding: 0.15rem 0.6rem !important; font-size: 0.78rem !important; border-radius: 999px !important; }
 h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 [data-testid="stElementContainer"]:has(h1) + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"] { font-size: 0.78rem; letter-spacing: 0.06em; color: #7a8699; margin-top: 0.1rem; }
 [data-testid="stElementContainer"]:has(h1) + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"] p::before { content: ""; display: inline-block; width: 1.6rem; height: 3px; border-radius: 2px; background: #1c7ed6; vertical-align: middle; margin-right: 0.5rem; }
@@ -7599,6 +7602,8 @@ st.set_page_config(page_title="산업 취재 도우미", layout="wide")
 st.markdown(STYLE, unsafe_allow_html=True)
 st.title("산업 취재 도우미")
 st.caption("credit.중앙일보 나상현")
+with st.container(key="alarm_top"):  # 제목 오른쪽 위에 작게 (CSS로 위치를 잡음)
+    render_alarm_signup()
 
 if not API_KEY:
     st.error(
@@ -10703,17 +10708,16 @@ def today_earnings(sector, day_str):
         data = collect_calendar(corps, day, day + timedelta(days=TODAY_EARN_DAYS))
     except Exception:
         return None
-    return data["events"]
+    return [e for e in data["events"] if e["kind"] != "전년 기준 예상"]  # 확정된 IR 일정만 (전년 기준 예상은 뺌)
 
 
 def earnings_lines(events):
-    """일정 -> 한 줄씩 마크다운. 전년 기준 예상은 기업명 뒤에 *"""
+    """일정 -> 한 줄씩 마크다운"""
     out = []
     for e in events:
-        est = e["kind"] == "전년 기준 예상"
         why = f" · {e['purpose']}" if e.get("purpose") else ""
         link = f" ([원문]({DART_VIEW_URL.format(e['no'])}))" if e.get("no") else ""
-        out.append(f"- {cal_day(e['date'])} **{e['corp']}{'*' if est else ''}** · {'실적 발표 예상(' + e['text'] + ')' if est else e['text']}{why}{link}")
+        out.append(f"- {cal_day(e['date'])} **{e['corp']}** · {e['text']}{why}{link}")
     return out
 
 
@@ -10741,7 +10745,10 @@ def render_today():
     snap, when, codes_by = None, "", {}
     if prices:
         try:
-            snap, when = brief_snap(prices, get_intraday())
+            intra = get_intraday()
+            snap, when = brief_snap(prices, intra)
+            if when.endswith("현재") and sc.intraday_ready(intra, prices):  # 장중이면 날짜도 붙인다 (예: 10.23 15:30 현재)
+                when = f"{intra['date'][4:6]}.{intra['date'][6:]} {when}"
             codes_by = today_price_codes(prices)
         except Exception:
             snap = None
@@ -10759,8 +10766,6 @@ def render_today():
                 events = today_earnings(sec, str(now.date()))
                 if events:
                     st.markdown(f"**실적·IR 일정** (앞으로 {TODAY_EARN_DAYS}일)  \n" + "\n".join(earnings_lines(events)))
-                    if any(e["kind"] == "전년 기준 예상" for e in events):
-                        st.caption("*는 작년 같은 시기 잠정실적 공시일을 옮긴 예상이에요(확정 아님).")
             for kind in ("단독", "통신"):
                 items = tdc.sector_items(rows, sec, kind, since)
                 if not items:
@@ -10779,10 +10784,10 @@ def render_today():
                 st.caption("이 기간에 모아 둔 기사·공시가 없어요.")
 
 
-TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 조회", "수출입 분석", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
-SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 숨겨 둔 탭(주가, 이슈 타임라인)이 보임
+TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 조회", "수출입 분석", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위", "주가"]
+SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 숨겨 둔 탭(이슈 타임라인)이 보임
 if SHOW_LAB:
-    TAB_NAMES += ["주가", "이슈 타임라인"]  # 관리자용 탭은 맨 끝
+    TAB_NAMES += ["이슈 타임라인"]  # 관리자용 탭은 맨 끝
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 산업 뉴스 탭을 먼저 연다
 first_tab = "산업 뉴스" if apply_watchlist() else None
 try:
@@ -10797,9 +10802,8 @@ with tab_brief:
     render_brief()
 with tab_fin:
     render_fin_hub()
-if SHOW_LAB:
-    with by_name["주가"]:
-        render_stock()
+with by_name["주가"]:
+    render_stock()
 with tab_trade:
     render_trade()
 with tab_news:
@@ -10868,5 +10872,4 @@ def render_alarm_signup():
             st.button("신청하기 (텔레그램 열기)", disabled=True, help="섹터와 종류를 하나 이상 골라주세요.")
 
 
-render_alarm_signup()
 st.caption(f"updated {LAST_UPDATED}")  # 맨 아래
