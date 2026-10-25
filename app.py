@@ -430,7 +430,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 14:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 15:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7586,15 +7586,6 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .cb-hero .s { position: relative; color: #e6f1ff; font-size: 0.85rem; margin-top: 0.3rem; }
 .st-key-trade_wrap { gap: 1.35rem !important; }  /* 수출입 분석: 칸 사이를 넓게 */
 .st-key-trade_wrap [data-testid="stRadio"], .st-key-trade_wrap [data-testid="stMultiSelect"] { margin-bottom: 0.2rem; }
-/* 정기보고서 AI 찾기: 원문 발췌 (표는 표로, 찾은 줄은 노란 바탕) */
-.pf-ctx p { margin: 0.15rem 0; font-size: 0.88rem; color: #33415c; line-height: 1.55; padding: 0.05rem 0.3rem; border-radius: 4px; }
-.pf-ctx p.hit { background: #fff3bf; color: #0b2545; font-weight: 600; }
-.pf-wrap { overflow-x: auto; margin: 0.35rem 0; }
-.pf-tbl { border-collapse: collapse; font-size: 0.82rem; min-width: 60%; }
-.pf-tbl td { border: 1px solid #e3e8ef; padding: 0.25rem 0.5rem; white-space: nowrap; color: #33415c; }
-.pf-tbl td.n { text-align: right; font-variant-numeric: tabular-nums; }
-.pf-tbl tr:first-child td { background: #f4f7fb; font-weight: 600; }
-.pf-tbl tr.hit td { background: #fff3bf; color: #0b2545; font-weight: 700; }
 /* 오늘의 현황: 섹터 카드 */
 .st-key-today_wrap [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); }
 .td-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem 0.8rem; padding: 0.2rem 0 0.5rem; border-bottom: 1px solid #eef2f7; margin-bottom: 0.4rem; }
@@ -7911,10 +7902,10 @@ def render_report_ai():
     st.markdown(f"[DART 원문 보기]({DART_VIEW_URL.format(rno)})")
 
 
-PERIODIC_VIEWS = ["AI 분석", "AI 찾기", "주주·지분", "임직원", "배당·자사주"]
+PERIODIC_VIEWS = ["AI 분석", "주주·지분", "임직원", "배당·자사주"]
 # 정기보고서 탭은 고른 화면의 입력칸만 그린다. 안 그린 화면의 입력값은 Streamlit이 지우므로, 화면을 오가도 남도록 미리 일반 값으로 옮겨 둔다.
 PERIODIC_KEEP = [f"rts_{k}" for k in ("corp", "year", "report", "mode")] + [
-    "rai_corp", "rai_pick", "rai_item", "pfind_text", "pay_exctv", "pay_exctv_basis", "pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report", "div_mode", "div_tsk_period"]
+    "rai_corp", "rai_pick", "rai_item", "pay_exctv", "pay_exctv_basis", "pay_corp", "pay_year", "pay_report", "pay_who", "div_corp", "div_year", "div_report", "div_mode", "div_tsk_period"]
 
 
 def render_periodic():
@@ -7929,8 +7920,6 @@ def render_periodic():
         render_pay()
     elif view == "AI 분석":
         render_report_ai()
-    elif view == "AI 찾기":
-        render_report_find()
     else:
         render_shareholders()
 
@@ -10832,7 +10821,7 @@ def _render_today_body(rec):
 
 
 # ------------------------------------------------------------
-# AI 검색 (재무 분석 · 공시 분석 · 정기보고서) — 무역 통계 AI 검색과 같은 방식:
+# AI 검색 (재무 분석 · 공시 분석) — 무역 통계 AI 검색과 같은 방식:
 #  AI는 질문을 '조회 조건'으로 바꾸거나 원문에서 그대로 옮긴 글을 고르기만 하고, 숫자는 DART 자료·원문에서 나온다.
 #  AI가 준 조건은 허용된 값으로 거르고(ai_search.py), 옮긴 글·숫자는 원문에 정말 있는지 확인해 표시한다.
 # ------------------------------------------------------------
@@ -11232,171 +11221,6 @@ def render_disc_ai_search():
     copy_table_box(ntab, "dai_nums_copy", drop=("원문",))
     st.caption("값은 AI가 원문 표기 그대로 옮긴 것이고, '원문 확인'은 그 값이 원문에 실제로 있는 것을 앱이 확인했다는 뜻이에요. "
                "'확인 필요'는 원문에서 같은 표기를 찾지 못한 것이니 원문으로 확인하세요. 합계는 원문 확인된 원화 금액만 더했어요.")
-
-
-# --- 5) 정기보고서 AI 찾기 ---
-PFIND_MAX_BLOCKS = 4
-PFIND_MAX_QUOTES = 6
-PFIND_DEFAULT_BLOCKS = ["biz_overview", "biz_products", "biz_sales", "biz_plant"]
-AI_PFIND_SYSTEM = (
-    "너는 정기보고서(사업·반기·분기보고서)에서 기자가 찾는 내용을 찾아 주는 도우미다. 요약하거나 계산하지 않는다. "
-    "[발췌]에서 질문과 관련된 문장·표 줄을 글자 하나 바꾸지 않고 그대로 복사해 온다. 발췌에 없으면 찾지 못했다고 한다."
-)
-
-
-def pfind_prompt_q(text):
-    blocks = "\n".join(f"- {k}: {v}" for k, v in REPORT_BLOCK_LABELS.items())
-    return (
-        f"오늘: {TODAY}.\n질문: {text}\n\n"
-        "아래 JSON 하나로만 답해라.\n"
-        '{"summary": "질문을 어떻게 이해했는지 한 문장", "corp": "회사 정식 이름", "kind": "사업보고서" 또는 "반기보고서" 또는 "분기보고서" 또는 "최신", '
-        '"year": 보고서 기간 연도(말하지 않았으면 null), "blocks": ["읽을 부분 이름", ...], "query": "보고서에서 찾을 내용"}\n'
-        f"- blocks는 아래 목록의 이름(키)에서 관련 높은 순으로 최대 {PFIND_MAX_BLOCKS}개.\n"
-        "- 보고서를 말하지 않으면 kind는 '최신'. '2024년 사업보고서'면 kind 사업보고서, year 2024.\n"
-        f"[보고서 부분 목록]\n{blocks}"
-    )
-
-
-def pfind_spec(text):
-    raw, model = ai_ask_json("pfindq", pfind_prompt_q(text))
-    kind = str(raw.get("kind") or "최신").strip()
-    kind = kind if kind in REPORT_KINDS else "최신"
-    try:
-        year = int(raw.get("year")) if raw.get("year") not in (None, "", "null") else None
-    except (TypeError, ValueError):
-        year = None
-    blocks = ais.pick_known(raw.get("blocks"), REPORT_BLOCK_LABELS, PFIND_MAX_BLOCKS) or list(PFIND_DEFAULT_BLOCKS)
-    return {"summary": str(raw.get("summary") or "").strip(), "note": "", "model": model,
-            "corp": ais.clean_names([raw.get("corp")], 1), "kind": kind, "year": year, "blocks": blocks,
-            "query": str(raw.get("query") or text).strip()}
-
-
-def pfind_quotes(row, spec):
-    """보고서에서 질문 관련 원문을 그대로 옮겨 오고, 원문에 정말 있는지 확인 -> {"found": [...], "dropped": n, "read": [...], "missing": [...]}"""
-    rno = str(row["rcept_no"]).strip()
-    blocks = periodic_blocks(rno)
-    read = [k for k in spec["blocks"] if blocks.get(k)]
-    missing = [REPORT_BLOCK_LABELS[k] for k in spec["blocks"] if not blocks.get(k)]
-    if not read:  # 고른 부분이 이 보고서에 없으면 사업의 내용 기본 부분을 읽는다
-        read = [k for k in PFIND_DEFAULT_BLOCKS if blocks.get(k)]
-    if not read:
-        return {"found": [], "dropped": 0, "read": [], "missing": missing, "answer": ""}
-    budget, parts = MAX_REPORT_CHARS, []
-    for k in read:
-        piece = blocks[k][:max(budget, 0)]
-        budget -= len(piece)
-        parts.append(f"[{k}] {REPORT_BLOCK_LABELS[k]}\n{piece}")
-    prompt = (
-        f"보고서: {str(row.get('report_nm', '')).strip()}\n찾을 내용: {spec['query']}\n\n"
-        "아래 JSON 하나로만 답해라.\n"
-        '{"answer": "찾은 원문으로 확인되는 것만 한두 문장(못 찾으면 \'보고서 발췌에서 찾지 못함\')", '
-        '"found": [{"block": "부분 키", "quote": "발췌의 문장이나 표 줄을 그대로 복사(1~8줄)", "why": "질문과의 관계 한 줄"}, ...]}\n'
-        f"- found는 관련 높은 순으로 최대 {PFIND_MAX_QUOTES}개. quote는 절대 고쳐 쓰지 말고 발췌에서 그대로 복사한다. 표는 ' | '로 나뉜 줄을 그대로.\n\n"
-        "[발췌]\n" + "\n\n".join(parts)
-    )
-    raw, model = ai_ask_json("pfindx", prompt, system=AI_PFIND_SYSTEM)
-    found, dropped = [], 0
-    for f in (raw.get("found") or [])[:PFIND_MAX_QUOTES]:
-        if not isinstance(f, dict):
-            continue
-        key, quote = str(f.get("block", "")).strip(), str(f.get("quote", "")).strip()
-        src = blocks.get(key) or "\n".join(blocks.get(k, "") for k in read)
-        if quote and ais.quote_in(quote, src):
-            ctx = ais.quote_context(quote, src)  # 원문 앞뒤 줄을 함께 (표 머리글·행 이름이 보이게)
-            found.append({"block": REPORT_BLOCK_LABELS.get(key, key), "quote": quote, "ctx": ctx, "why": str(f.get("why", "")).strip()})
-        elif quote:
-            dropped += 1
-    return {"found": found, "dropped": dropped, "read": [REPORT_BLOCK_LABELS[k] for k in read], "missing": missing,
-            "answer": str(raw.get("answer") or "").strip() if found else "", "model": model}
-
-
-def pfind_html(ctx):
-    """발췌(앞뒤 원문 포함) -> 표는 표로, 글은 문단으로. AI가 찾은 줄은 노란 바탕"""
-    out = []
-    for part in ais.context_parts(ctx):
-        if part[0] == "text":
-            out.append(f'<p class="{"hit" if part[2] else ""}">{html.escape(part[1])}</p>')
-            continue
-        width = max(len(c) for c, _ in part[1])
-        rows = []
-        for cells, marked in part[1]:
-            tds = "".join(f'<td class="{"n" if re.fullmatch(r"[\d,.()%△▲▼+-]+", c or "x") else ""}">{html.escape(c)}</td>'
-                          for c in cells + [""] * (width - len(cells)))
-            rows.append(f'<tr class="{"hit" if marked else ""}">{tds}</tr>')
-        out.append(f'<div class="pf-wrap"><table class="pf-tbl">{"".join(rows)}</table></div>')
-    return f'<div class="pf-ctx">{"".join(out)}</div>'
-
-
-def render_report_find():
-    """정기보고서 > AI 찾기: 질문 한 줄 -> 회사·보고서·읽을 부분을 정하고, 관련 원문을 그대로 발췌"""
-    if not AI_PROVIDER:
-        st.info(AI_NOKEY)
-        return
-    st.caption("회사와 찾고 싶은 내용을 말로 쓰면 AI가 보고서와 읽을 부분을 정하고, 관련 원문을 고쳐 쓰지 않고 그대로 보여줘요(앱이 원문과 한 글자씩 대조해 확인).")
-    text = st.text_area("찾고 싶은 것", key="pfind_text", height=80,
-                        placeholder="예: 한화오션 수주잔고  /  삼성전자 연구개발비 매출 대비 비율  /  SK하이닉스 주요 원재료 매입액")
-    if st.button("AI에게 물어보기", type="primary", key="pfind_go"):
-        st.session_state.pop("pfind_result", None)
-        if not text.strip():
-            st.warning("찾고 싶은 것을 입력해 주세요.")
-            st.session_state.pop("pfind_spec", None)
-            return
-        try:
-            with st.spinner("AI가 회사·보고서·읽을 부분을 정하는 중입니다... (몇 초)"):
-                spec = pfind_spec(text)
-        except AiError as e:
-            st.session_state.pop("pfind_spec", None)
-            st.error(str(e))
-            return
-        st.session_state["pfind_spec"] = spec
-        if not spec["corp"]:
-            st.info("질문에서 회사를 찾지 못했어요. 회사 이름을 넣어 다시 물어봐 주세요.")
-            return
-        found, missing = ai_resolve_corps(spec["corp"])
-        ai_missing_note(missing)
-        if not found:
-            return
-        corp, code = found[0]
-        try:
-            with st.spinner("보고서를 찾아 해당 부분을 읽는 중입니다... (처음 받는 보고서는 20~40초 걸려요)"):
-                rows = periodic_reports(code)
-                row, exact = ais.pick_report(rows, spec["kind"], spec["year"], report_period_of)
-                if row is None:
-                    st.warning("최근 4년 안의 사업·반기·분기보고서를 찾지 못했어요.")
-                    return
-                res = pfind_quotes(row, spec)
-        except (AiError, DartApiError) as e:
-            st.error(str(e))
-            return
-        st.session_state["pfind_result"] = {"spec": spec, "corp": corp, "row": row, "exact": exact, "res": res}
-    spec, saved = st.session_state.get("pfind_spec"), st.session_state.get("pfind_result")
-    if not spec or not saved or saved["spec"] != spec:
-        return
-    ai_understood(spec)
-    row, res = saved["row"], saved["res"]
-    rno = str(row["rcept_no"]).strip()
-    st.markdown(f"**{saved['corp']}** · {str(row.get('report_nm', '')).strip()} · [DART 원문 보기]({DART_VIEW_URL.format(rno)})")
-    if not saved["exact"]:
-        st.caption("말한 종류·연도의 보고서가 없어 가장 최근 보고서를 읽었어요.")
-    if res["answer"]:
-        st.markdown(f"**찾은 내용** · {res['answer']}")
-    if not res["found"]:
-        st.info("이 보고서의 읽은 부분에서 관련 원문을 찾지 못했어요. 질문을 바꾸거나 정기보고서 'AI 분석'·원문으로 확인해 주세요.")
-    for f in res["found"]:
-        with st.container(border=True):
-            st.markdown(f"**{f['block']}**" + (f" · {f['why']}" if f["why"] else ""))
-            if f.get("ctx"):
-                st.markdown(pfind_html(f["ctx"]), unsafe_allow_html=True)
-            else:
-                st.code(f["quote"], language=None, wrap_lines=True)
-    notes = ["원문 그대로 발췌(앱이 원문과 대조해 확인한 것만 보여줘요) · 노란 줄은 AI가 찾은 부분, 나머지는 그 앞뒤 원문"]
-    if res["dropped"]:
-        notes.append(f"원문과 글자가 달라 뺀 발췌 {res['dropped']}개")
-    if res["read"]:
-        notes.append("읽은 부분: " + ", ".join(res["read"]))
-    if res["missing"]:
-        notes.append("이 보고서에 없는 부분: " + ", ".join(res["missing"]))
-    st.caption(" · ".join(notes))
 
 
 TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 분석", "주가 분석", "산업 뉴스", "실적 캘린더", "공시 분석", "정기보고서", "무역 통계", "재계 순위"]
