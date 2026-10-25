@@ -428,7 +428,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 09:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 10:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7582,6 +7582,23 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .cb-hero .s { position: relative; color: #e6f1ff; font-size: 0.85rem; margin-top: 0.3rem; }
 .st-key-trade_wrap { gap: 1.35rem !important; }  /* 수출입 분석: 칸 사이를 넓게 */
 .st-key-trade_wrap [data-testid="stRadio"], .st-key-trade_wrap [data-testid="stMultiSelect"] { margin-bottom: 0.2rem; }
+/* 오늘의 현황: 섹터 카드 */
+.st-key-today_wrap [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); }
+.td-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem 0.8rem; padding: 0.2rem 0 0.5rem; border-bottom: 1px solid #eef2f7; margin-bottom: 0.4rem; }
+.td-head .n { display: flex; align-items: center; gap: 0.5rem; font-size: 1.25rem; font-weight: 800; color: #0b2545; letter-spacing: -0.03em; }
+.td-head .n::before { content: ""; width: 4px; height: 1.1em; border-radius: 2px; background: #1c7ed6; }
+.td-pill { display: inline-block; font-size: 0.76rem; border-radius: 999px; padding: 0.1rem 0.6rem; margin-left: 0.3rem; background: #eef2f7; color: #51607a; }
+.td-pill.k1 { background: #fff1e0; color: #b45f06; } .td-pill.k2 { background: #e7f1fd; color: #1864ab; } .td-pill.k3 { background: #e6f6ec; color: #2b8a3e; }
+.td-lbl { display: flex; align-items: baseline; gap: 0.45rem; font-size: 0.86rem; font-weight: 800; color: #0b2545; margin: 0.85rem 0 0.4rem; }
+.td-lbl small { font-size: 0.76rem; font-weight: 500; color: #7a8699; }
+.td-lbl.k1::before, .td-lbl.k2::before { content: ""; align-self: center; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: #f08c00; } .td-lbl.k2::before { background: #1c7ed6; }
+.td-movers { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.td-movers .mv { display: inline-flex; align-items: baseline; gap: 0.3rem; font-size: 0.84rem; border-radius: 10px; padding: 0.25rem 0.6rem; }
+.td-movers .mv small { color: #7a8699; font-size: 0.72rem; }
+.td-movers .mv.up { background: #fdecec; color: #c92a2a; } .td-movers .mv.down { background: #e7f1fd; color: #1864ab; }
+.td-ev { display: flex; gap: 0.6rem; align-items: baseline; padding: 0.3rem 0; font-size: 0.88rem; color: #0b2545; }
+.td-ev .dt { flex: 0 0 auto; font-size: 0.76rem; font-weight: 700; color: #1864ab; background: #e7f1fd; border-radius: 8px; padding: 0.1rem 0.5rem; }
+.td-ev .why, .td-ev .src { color: #7a8699; font-size: 0.8rem; }
 .cb-top { display: block; }
 @media (min-width: 900px) {
   .cb-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.1fr); gap: 0.8rem; align-items: stretch; margin: 0.2rem 0 0.8rem; }
@@ -10709,14 +10726,22 @@ def today_earnings(sector, day_str):
     return [e for e in data["events"] if e["kind"] != "전년 기준 예상"]  # 확정된 IR 일정만 (전년 기준 예상은 뺌)
 
 
-def earnings_lines(events):
-    """일정 -> 한 줄씩 마크다운"""
-    out = []
+def earnings_html(events):
+    """일정 -> 날짜 배지가 붙은 한 줄씩의 HTML"""
+    rows = []
     for e in events:
-        why = f" · {e['purpose']}" if e.get("purpose") else ""
-        link = f" ([원문]({DART_VIEW_URL.format(e['no'])}))" if e.get("no") else ""
-        out.append(f"- {cal_day(e['date'])} **{e['corp']}** · {e['text']}{why}{link}")
-    return out
+        why = f' <span class="why">{html.escape(e["purpose"])}</span>' if e.get("purpose") else ""
+        link = (f' <a class="src" href="{html.escape(DART_VIEW_URL.format(e["no"]), quote=True)}" target="_blank" rel="noopener noreferrer">원문</a>'
+                if e.get("no") else "")
+        rows.append(f'<div class="td-ev"><span class="dt">{cal_day(e["date"])}</span><span class="tx"><b>{html.escape(e["corp"])}</b> {html.escape(e["text"])}{why}{link}</span></div>')
+    return "".join(rows)
+
+
+def movers_html(up, down, when):
+    chips = "".join(
+        f'<span class="mv {"up" if r["rate"] > 0 else "down"}"><b>{html.escape(str(r["name"]))}</b> {"▲" if r["rate"] > 0 else "▼"}{abs(r["rate"]):.2f}%'
+        f'<small>{r["close"]:,.0f}원</small></span>' for r in up + down)
+    return f'<div class="td-lbl">특징주 <small>{html.escape(when)}</small></div><div class="td-movers">{chips}</div>'
 
 
 def render_today():
@@ -10727,6 +10752,11 @@ def render_today():
         return
     if "td_groups" not in st.session_state:
         st.session_state["td_groups"] = team_sector_options(TODAY_TEAM, list(NEWS_SECTORS))
+    with st.container(key="today_wrap"):
+        _render_today_body(rec)
+
+
+def _render_today_body(rec):
     team_buttons("td", NEWS_SECTORS, "td_groups")
     st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key="td_groups", label_visibility="collapsed")
     groups = [g for g in (st.session_state.get("td_groups") or []) if g in NEWS_SECTORS]
@@ -10751,24 +10781,23 @@ def render_today():
             snap = None
     for sec in groups:
         with st.container(border=True):
-            st.markdown(f"##### {sec}")
             cnt = tdc.counts(rows, sec, since)
-            st.caption(f"단독 {cnt['단독']}건 · 통신 {cnt['통신']}건 · 공시 {cnt['공시']}건")
+            pills = "".join(f'<span class="td-pill {cls}">{k} <b>{cnt[k]}</b></span>' for k, cls in (("단독", "k1"), ("통신", "k2"), ("공시", "k3")))
+            st.markdown(f'<div class="td-head"><span class="n">{html.escape(sec)}</span><span class="pills">{pills}</span></div>', unsafe_allow_html=True)
             if snap is not None and codes_by.get(sec):
                 up, down = tdc.movers(snap, codes_by[sec], 2)
                 if up or down:
-                    st.markdown(f"**특징주** ({when})  \n" + "  \n".join(
-                        [f"{'▲' if r['rate'] > 0 else '▼'} {r['name']} {r['rate']:+.2f}% ({r['close']:,.0f}원)" for r in up + down]))
+                    st.markdown(movers_html(up, down, when), unsafe_allow_html=True)
             if earnings_names(sec):
                 events = today_earnings(sec, str(now.date()))
                 if events:
-                    st.markdown(f"**실적·IR 일정** (앞으로 {TODAY_EARN_DAYS}일)  \n" + "\n".join(earnings_lines(events)))
+                    st.markdown(f'<div class="td-lbl">실적·IR 일정 <small>앞으로 {TODAY_EARN_DAYS}일</small></div>{earnings_html(events)}', unsafe_allow_html=True)
             for kind in ("단독", "통신"):
                 items = tdc.sector_items(rows, sec, kind, since)
                 if not items:
                     continue
                 clusters = cluster_news(items)
-                st.markdown(f"**{kind}** ({len(items)}건 → 묶음 {len(clusters)}건)")
+                st.markdown(f'<div class="td-lbl {"k1" if kind == "단독" else "k2"}">{kind} <small>{len(items)}건 → 묶음 {len(clusters)}건</small></div>', unsafe_allow_html=True)
                 st.markdown(news_html(clusters[:TODAY_TOP], now), unsafe_allow_html=True)
                 if len(clusters) > TODAY_TOP:
                     with st.expander(f"{kind} 더 보기 ({len(clusters) - TODAY_TOP}건)"):
