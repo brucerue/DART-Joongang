@@ -6,37 +6,45 @@ jobs:
     steps:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - run: pip install requests
-      - name: probe
+      - run: pip install requests openpyxl xlrd
+      - name: p
         run: |
           cat > p.py <<'PYEOF'
-          import requests, re, html, os, traceback
+          import requests, re, html, os, io, zipfile, sys, traceback
           H={"User-Agent":"Mozilla/5.0"}
-          os.makedirs("out", exist_ok=True)
-          def find2025():
-              out={}
-              for kw in ("25년 공시대상기업집단","2025년 공시대상기업집단","공시대상기업집단 지정 결과 발표","대기업집단 지정"):
-                  for pg in range(1,4):
-                      r=requests.get("https://www.ftc.go.kr/www/selectBbsNttList.do",params={"key":"12","bordCd":"3","pageIndex":str(pg),"searchCnd":"all","searchKrwd":kw},headers=H,timeout=40)
-                      for h,tx in re.findall(r'<a href="(\./selectBbsNttView\.do[^"]*)"[^>]*>(.*?)</a>',r.text,re.S):
-                          n=re.search(r"nttSn=(\d+)",h).group(1); out[n]=html.unescape(re.sub(r"<[^>]+>","",tx)).strip()
-              return out
-          try:
-              c=find2025()
-              cand={n:t for n,t in c.items() if re.search(r"(25년|2025)",t) and "지정" in t}
-              print("::notice::2025후보 "+str(cand)[:600])
-              ids=["39722","40410","40748","41119","41476","41915","42416","42836","43406"]+[n for n in cand if n not in ("42836","43406")][:3]
-              for n in ids:
+          IDS=["39722","40410","40748","41119","41476","41915","42416","42836","43406","46053"]
+          def fname(n):
+              try: return n.encode("cp437").decode("euc-kr")
+              except Exception:
+                  try: return n.encode("cp437").decode("utf-8")
+                  except Exception: return n
+          step=sys.argv[1]
+          ids=IDS[:5] if step=="a" else IDS[5:]
+          for n in ids:
+              try:
                   r=requests.get("https://www.ftc.go.kr/www/downloadBbsFileAll.do",params={"atchmnflNo":n},headers=H,timeout=120)
-                  ok=r.status_code==200 and len(r.content)>2000
-                  print(f"::notice::{n} status={r.status_code} bytes={len(r.content)} type={r.headers.get('content-type')} cd={r.headers.get('content-disposition')}")
-                  if ok: open(f"out/ftc_{n}.zip","wb").write(r.content)
-          except Exception:
-              print("::notice::ERR "+traceback.format_exc()[-600:].replace(chr(10)," | "))
+                  z=zipfile.ZipFile(io.BytesIO(r.content))
+                  names=[fname(i.filename)+f"({i.file_size//1000}k)" for i in z.infolist()]
+                  msg=f"{n}: "+" | ".join(names)
+                  # 엑셀 파일 첫 시트 요약
+                  import openpyxl
+                  for i in z.infolist():
+                      nm=fname(i.filename)
+                      if nm.lower().endswith(".xlsx") and i.file_size<4_000_000:
+                          wb=openpyxl.load_workbook(io.BytesIO(z.read(i)),read_only=True,data_only=True)
+                          msg+=f" || [{nm[:30]}] sheets={wb.sheetnames[:6]}"
+                          ws=wb[wb.sheetnames[0]]
+                          rows=[]
+                          for k,row in enumerate(ws.iter_rows(values_only=True)):
+                              if k>=7: break
+                              rows.append([str(c)[:14] for c in row[:9] if c is not None])
+                          msg+=" rows="+str(rows)[:500]
+                          break
+                  print("::notice::"+msg[:2400].replace(chr(10)," "))
+              except Exception:
+                  print("::notice::ERR "+n+" "+traceback.format_exc()[-300:].replace(chr(10)," | "))
           
           PYEOF
-          python p.py
-      - uses: actions/upload-artifact@v4
-        with:
-          name: ftc
-          path: out/
+          python p.py a
+      - name: q
+        run: python p.py b
