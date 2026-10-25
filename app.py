@@ -7486,7 +7486,7 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 /* 탭: 모바일은 한 줄에 5개씩 2줄 바둑판으로 (옆으로 밀지 않아도 모두 보이게) */
 [data-testid="stTabs"] [role="tablist"] {
     display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.3rem;
-    overflow: visible !important; width: 100% !important; border-bottom: none !important; margin-bottom: 0.6rem;
+    overflow: visible !important; width: 100% !important; border-bottom: 1px solid #dde3ec !important; padding-bottom: 0.75rem; margin-bottom: 1rem;  /* 탭과 내용 사이 구분선 */
 }
 [data-testid="stTab"] {
     display: flex; align-items: center; justify-content: center; min-width: 0; margin: 0 !important;
