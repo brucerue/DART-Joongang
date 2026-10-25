@@ -414,7 +414,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 15:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 16:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -10397,6 +10397,30 @@ def render_trade_flash_cards(data):
     st.caption(f"산업부 보도자료({fm.get('released', '')} 발표) 잠정치예요. 관세청 확정치가 올라오면 아래 표·그래프에 확정치로 들어가요.")
 
 
+def render_trade_group_rank(data, i):
+    """월간 현황: 고른 달의 20대 주력 품목 증감 순위 (미리 모아 둔 groups 자료, 관세청 호출 없음)"""
+    gc = get_groups_country(data)
+    if not gc:
+        return
+    months = data["months"]
+    with st.container(border=True):
+        st.markdown(f"##### 20대 품목 증감 순위 · {months[i].replace('-', '.')}")
+        c1, c2 = st.columns(2)
+        kind_label = c1.radio("구분", ["수출", "수입"], horizontal=True, key="tr_m_gkind")
+        order = c2.radio("정렬", ["증감률", "증감액"], horizontal=True, key="tr_m_gorder")
+        rows = tc.group_month_rows(gc, months, i, "exp" if kind_label == "수출" else "imp")
+        if not rows:
+            st.info("이 달의 20대 품목 자료가 없어요.")
+            return
+        key = "chg" if order == "증감률" else "diff"
+        rows.sort(key=lambda r: (r[key] is None, -(r[key] or 0)))
+        table = pd.DataFrame([{"순위": n if r[key] is not None else "", "품목": r["name"], kind_label: trade_eok(r["cur"]),
+                               "전년 동월": trade_eok(r["prev"]) if r["prev"] is not None else "-", "증감률": px_pct(r["chg"]),
+                               "증감액": "-" if r["diff"] is None else f"{r['diff'] / 1e8:+,.1f}억달러"} for n, r in enumerate(rows, 1)])
+        st.dataframe(trade_styled(table, ["증감률", "증감액"]), hide_index=True, height=min(len(table) + 1, 21) * 35 + 3)
+        st.caption("산업부 20대 주력 품목 기준이에요(미리 모아 둔 자료). 증감은 전년 같은 달 대비예요.")
+
+
 def render_trade_monthly(data):
     months, tot = data["months"], data["total"]
     render_trade_flash_cards(data)
@@ -10410,6 +10434,7 @@ def render_trade_monthly(data):
              ("무역수지", trade_eok(bal[i]), None if i < 12 else f"{(bal[i] - bal[i - 12]) / 1e8:+,.1f}억달러 (전년동월比)", None),
              ("연초 이후 수출", trade_eok(ytd_e), None if ytd_y is None else f"{px_pct(ytd_y)} (전년 누계比)", None)]
     st.markdown(cb_cards(cards), unsafe_allow_html=True)
+    render_trade_group_rank(data, i)
     lo = max(0, i - 12)
     rows = [{"월": months[k].replace("-", "."), "수출": trade_eok(exp[k]), "수출 증감": px_pct(tc.yoy(exp, k)), "수입": trade_eok(imp[k]),
              "수입 증감": px_pct(tc.yoy(imp, k)), "무역수지": trade_eok(bal[k])} for k in range(i, lo - 1, -1)]

@@ -829,6 +829,21 @@ def groups_country(g, months, names=None):
     return out
 
 
+def group_month_rows(gcountry, months, i, kind):
+    """20대 품목별 한 달 수출(또는 수입): groups 자료({품목: {국가: [이름, 수출[], 수입[]]}})를 전 세계로 합쳐
+    -> [{name, cur, prev(전년 같은 달), chg(%), diff(증감액)}] (i는 months의 위치, kind는 'exp' 또는 'imp')"""
+    out = []
+    for name, per in gcountry.items():
+        exp, imp = sum_arrays(per, list(per), months)
+        arr = exp if kind == "exp" else imp
+        if not arr or arr[i] is None:
+            continue
+        cur = arr[i]
+        prev = arr[i - 12] if i >= 12 else None
+        out.append({"name": name, "cur": cur, "prev": prev, "chg": pct(cur, prev) if prev else None, "diff": None if prev is None else cur - prev})
+    return out
+
+
 def rank_entries_arrays(country, months, level, start, end, compare=True):
     """국가별 월 배열({코드: [이름, 수출[], 수입[]]})로 만든 순위 후보 -> [{code, name, cur, prev}]. level: '국가' / '경제권' / '대륙' (경제권·대륙은 소속 국가를 합산, 경제권끼리는 겹칠 수 있다)"""
     pstart, pend = prev_period_bounds(start, end)
