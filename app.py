@@ -428,7 +428,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 11:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 11:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9149,7 +9149,10 @@ def px_basis(data):
     -> {"snap": 종목 표, "day": 'YYYYMMDD', "intraday": bool, "label": 설명, "intra": 장중 자료, "upto": 시각 또는 None}"""
     intra = get_intraday()
     if sc.intraday_ready(intra, data):
-        basis = st.radio("기준", ["장중", "종가"], horizontal=True, key="px_basis")
+        d_new, d_krx = intra["date"][4:6] + "." + intra["date"][6:], data["dates"][-1][4:6] + "." + data["dates"][-1][6:]
+        names = ({"장중": f"{d_new} 마감 (야후·잠정)", "종가": f"{d_krx} 종가 (KRX 확정)"} if intra.get("closed")
+                 else {"장중": f"{d_new} 장중 (야후)", "종가": f"{d_krx} 종가 (KRX)"})  # KRX가 새 날짜를 올리면 이 선택지는 저절로 사라지고 KRX 종가만 보인다
+        basis = st.radio("기준", ["장중", "종가"], horizontal=True, key="px_basis", format_func=names.get)
         if basis == "장중":
             marks = sc.intraday_marks(intra)
             date_text = f"{intra['date'][:4]}.{intra['date'][4:6]}.{intra['date'][6:]}"
