@@ -425,7 +425,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 17:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 18:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8664,6 +8664,20 @@ def fill_calendar():
     st.session_state["cal_corps"] = ", ".join(names)
 
 
+def tsv_text(df, drop=()):
+    """표 -> 엑셀에 붙여넣으면 칸이 나뉘는 글(탭으로 구분, 첫 줄은 제목). 칸 안의 줄바꿈·탭은 공백으로"""
+    d = df.drop(columns=[c for c in drop if c in df.columns]).fillna("")
+    clean = d.astype(str).replace(r"[\t\r\n]+", " ", regex=True)
+    return clean.to_csv(sep="\t", index=False, lineterminator="\n")
+
+
+def copy_table_box(df, key, label="엑셀에 붙여넣기용 복사", drop=()):
+    """표 아래 접이식 상자: 오른쪽 위 복사 아이콘을 누르고 엑셀 셀에 붙여넣으면 표 모양 그대로 들어간다(파일을 받을 필요 없음)"""
+    with st.expander(label):
+        st.caption("오른쪽 위 복사 아이콘을 누르고, 엑셀·구글시트의 셀 하나를 눌러 붙여넣기(Ctrl+V) 하세요.")
+        st.code(tsv_text(df, drop), language=None, wrap_lines=False, height=260)
+
+
 def render_calendar():
     """탭: 실적 캘린더 - 업종별 국내 기업의 잠정실적·IR 일정과 정기보고서 제출기한."""
     st.session_state.setdefault("cal_corps", "")  # 처음엔 섹터도 기업도 비워 둔다
@@ -8726,6 +8740,7 @@ def render_calendar():
                      column_config={"날짜": st.column_config.TextColumn("날짜", width=80), "기업": st.column_config.TextColumn("기업", width=110),
                                     "개최 목적": st.column_config.TextColumn("개최 목적", width=260),
                                     "원문": LINK_COLUMN})
+        copy_table_box(table, "cal_copy")
     else:
         st.info("이 기간에 확인된 실적 일정이 없어요. 기업이 IR 일정을 공시하면 나타나요." + (" 위 스위치를 켜면 전년 기준 예상을 볼 수 있어요." if est_n else ""))
     for (deadline, label), who in sorted(data["deadlines"].items()):
