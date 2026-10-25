@@ -428,7 +428,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 00:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 22:25"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -10729,12 +10729,11 @@ def render_today():
         st.session_state["td_groups"] = team_sector_options(TODAY_TEAM, list(NEWS_SECTORS))
     team_buttons("td", NEWS_SECTORS, "td_groups")
     st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key="td_groups", label_visibility="collapsed")
-    period = st.radio("기간", tdc.PERIODS, horizontal=True, key="td_period")
     groups = [g for g in (st.session_state.get("td_groups") or []) if g in NEWS_SECTORS]
     now = datetime.now(KST)
-    since = tdc.window_start(now, period)
+    since = tdc.window_start(now, "24시간")  # 기간은 24시간으로 고정 (선택지 없음)
     updated = str(rec.get("updated", ""))[:16].replace("T", " ")
-    st.caption(f"{since:%m.%d %H:%M} 이후 · 매시간 모아 둔 기사·공시 · 자료 갱신 {updated}" if updated else f"{since:%m.%d %H:%M} 이후")
+    st.caption(f"{since:%m.%d %H:%M} 이후 · 자료 갱신 {updated}" if updated else f"{since:%m.%d %H:%M} 이후")
     if not groups:
         st.info("섹터를 하나 이상 골라 주세요.")
         return
@@ -10779,7 +10778,7 @@ def render_today():
                 with st.expander(f"공시 {len(disc)}건"):
                     st.markdown("\n".join(f"- [{d['title'].replace('[', '(').replace(']', ')')}]({d['url']}) · {d['publisher']} · {d['dt']:%m.%d %H:%M}" for d in disc[:30]))
             if not any(cnt.values()) and not (snap is not None and codes_by.get(sec)):
-                st.caption("이 기간에 모아 둔 기사·공시가 없어요.")
+                st.caption("최근 24시간에 모아 둔 기사·공시가 없어요.")
 
 
 TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 분석", "주가 분석", "실적 캘린더", "산업 뉴스", "공시 분석", "정기보고서", "무역 통계", "재계 순위"]
