@@ -414,7 +414,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 14:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 14:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7402,6 +7402,12 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 @media (max-width: 500px) { :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .v { font-size: 1.25rem; } }
 :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d { display: inline-block; font-size: 0.76rem; border-radius: 999px; padding: 0.05rem 0.5rem; background: #eef2f7; }
 :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d.up { background: #e7f1fd; } :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .d.down { background: #fdecec; }
+/* 수출입 검색 조건: PC에서는 종류·품목, 지역·기간을 한 줄에 둘씩 (모바일은 위아래) */
+@media (min-width: 900px) {
+  .st-key-trade_wrap { flex-direction: row !important; flex-wrap: wrap; column-gap: 1.35rem; }
+  .st-key-trade_wrap > * { flex: 0 0 100%; min-width: 0; }
+  .st-key-trade_wrap > .st-key-tr_s_kind, .st-key-trade_wrap > .st-key-tr_s_item, .st-key-trade_wrap > .st-key-tr_r_item, .st-key-trade_wrap > .st-key-tr_c_basis, .st-key-trade_wrap > .st-key-tr_s_reg, .st-key-trade_wrap > .st-key-tr_s_period, .st-key-trade_wrap > .st-key-tr_r_level, .st-key-trade_wrap > .st-key-tr_r_period, .st-key-trade_wrap > .st-key-tr_c_reg, .st-key-trade_wrap > .st-key-tr_c_period { flex: 0 0 calc(50% - 0.675rem); }
+}
 /* 수출입 검색 조건(종류·품목·지역·기간): 이름 바로 옆에 선택지 */
 :is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level,.st-key-tr_c_basis) [data-testid="stRadio"] { display: flex; flex-direction: row; align-items: flex-start; gap: 0.7rem; }
 :is(.st-key-tr_s_kind,.st-key-tr_s_item,.st-key-tr_r_item,.st-key-tr_s_reg,.st-key-tr_c_reg,.st-key-tr_s_period,.st-key-tr_c_period,.st-key-tr_r_period,.st-key-tr_r_level,.st-key-tr_c_basis) [data-testid="stRadio"] > label { flex: 0 0 auto; width: 4.1rem; min-width: 4.1rem; margin: 0.15rem 0 0 0; white-space: nowrap; }
