@@ -428,7 +428,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 10:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 10:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -10686,7 +10686,7 @@ def render_trade():
 # 오늘의 현황 (담당 섹터의 통신·단독·공시·특징주를 한 화면에)
 # ------------------------------------------------------------
 TODAY_TEAM = "차팀"  # 처음 열 때 선택돼 있는 섹터 묶음
-TODAY_TOP = 5  # 섹터마다 먼저 보여주는 묶음 수
+TODAY_TOP = {"단독": 5, "통신": 3}  # 섹터마다 먼저 보여주는 묶음 수 (나머지는 '더 보기'에)
 
 
 def today_price_codes(data):
@@ -10798,10 +10798,11 @@ def _render_today_body(rec):
                     continue
                 clusters = cluster_news(items)
                 st.markdown(f'<div class="td-lbl {"k1" if kind == "단독" else "k2"}">{kind} <small>{len(items)}건 → 묶음 {len(clusters)}건</small></div>', unsafe_allow_html=True)
-                st.markdown(news_html(clusters[:TODAY_TOP], now), unsafe_allow_html=True)
-                if len(clusters) > TODAY_TOP:
-                    with st.expander(f"{kind} 더 보기 ({len(clusters) - TODAY_TOP}건)"):
-                        st.markdown(news_html(clusters[TODAY_TOP:], now), unsafe_allow_html=True)
+                top = TODAY_TOP[kind]
+                st.markdown(news_html(clusters[:top], now), unsafe_allow_html=True)
+                if len(clusters) > top:
+                    with st.expander(f"{kind} 더 보기 ({len(clusters) - top}건)"):
+                        st.markdown(news_html(clusters[top:], now), unsafe_allow_html=True)
             disc = tdc.sector_items(rows, sec, "공시", since)
             if disc:
                 with st.expander(f"공시 {len(disc)}건"):
