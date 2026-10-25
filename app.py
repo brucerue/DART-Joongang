@@ -428,7 +428,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 23:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 23:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -10782,7 +10782,7 @@ def render_today():
                 st.caption("이 기간에 모아 둔 기사·공시가 없어요.")
 
 
-TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 조회", "수출입 분석", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위", "주가"]
+TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 조회", "주가", "실적 캘린더", "산업 뉴스", "공시 분석", "정기보고서", "수출입 분석", "재계 순위"]
 SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 숨겨 둔 탭(이슈 타임라인)이 보임
 if SHOW_LAB:
     TAB_NAMES += ["이슈 타임라인"]  # 관리자용 탭은 맨 끝
@@ -10793,7 +10793,7 @@ try:
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
 by_name = dict(zip(TAB_NAMES, tabs))
-tab_today, tab_brief, tab_fin, tab_trade, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in TAB_NAMES if n not in ("주가", "이슈 타임라인"))
+tab_today, tab_brief, tab_fin, tab_trade, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in ("오늘의 현황", "기업 브리핑", "재무 조회", "수출입 분석", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"))
 with tab_today:
     render_today()
 with tab_brief:
