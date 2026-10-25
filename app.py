@@ -430,7 +430,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 14:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 14:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7586,6 +7586,15 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .cb-hero .s { position: relative; color: #e6f1ff; font-size: 0.85rem; margin-top: 0.3rem; }
 .st-key-trade_wrap { gap: 1.35rem !important; }  /* 수출입 분석: 칸 사이를 넓게 */
 .st-key-trade_wrap [data-testid="stRadio"], .st-key-trade_wrap [data-testid="stMultiSelect"] { margin-bottom: 0.2rem; }
+/* 정기보고서 AI 찾기: 원문 발췌 (표는 표로, 찾은 줄은 노란 바탕) */
+.pf-ctx p { margin: 0.15rem 0; font-size: 0.88rem; color: #33415c; line-height: 1.55; padding: 0.05rem 0.3rem; border-radius: 4px; }
+.pf-ctx p.hit { background: #fff3bf; color: #0b2545; font-weight: 600; }
+.pf-wrap { overflow-x: auto; margin: 0.35rem 0; }
+.pf-tbl { border-collapse: collapse; font-size: 0.82rem; min-width: 60%; }
+.pf-tbl td { border: 1px solid #e3e8ef; padding: 0.25rem 0.5rem; white-space: nowrap; color: #33415c; }
+.pf-tbl td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.pf-tbl tr:first-child td { background: #f4f7fb; font-weight: 600; }
+.pf-tbl tr.hit td { background: #fff3bf; color: #0b2545; font-weight: 700; }
 /* 오늘의 현황: 섹터 카드 */
 .st-key-today_wrap [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); }
 .td-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem 0.8rem; padding: 0.2rem 0 0.5rem; border-bottom: 1px solid #eef2f7; margin-bottom: 0.4rem; }
@@ -11294,12 +11303,28 @@ def pfind_quotes(row, spec):
         src = blocks.get(key) or "\n".join(blocks.get(k, "") for k in read)
         if quote and ais.quote_in(quote, src):
             ctx = ais.quote_context(quote, src)  # 원문 앞뒤 줄을 함께 (표 머리글·행 이름이 보이게)
-            shown = "\n".join(("▶ " if m else "   ") + l for l, m in ctx) if ctx else quote
-            found.append({"block": REPORT_BLOCK_LABELS.get(key, key), "quote": shown, "why": str(f.get("why", "")).strip()})
+            found.append({"block": REPORT_BLOCK_LABELS.get(key, key), "quote": quote, "ctx": ctx, "why": str(f.get("why", "")).strip()})
         elif quote:
             dropped += 1
     return {"found": found, "dropped": dropped, "read": [REPORT_BLOCK_LABELS[k] for k in read], "missing": missing,
             "answer": str(raw.get("answer") or "").strip() if found else "", "model": model}
+
+
+def pfind_html(ctx):
+    """발췌(앞뒤 원문 포함) -> 표는 표로, 글은 문단으로. AI가 찾은 줄은 노란 바탕"""
+    out = []
+    for part in ais.context_parts(ctx):
+        if part[0] == "text":
+            out.append(f'<p class="{"hit" if part[2] else ""}">{html.escape(part[1])}</p>')
+            continue
+        width = max(len(c) for c, _ in part[1])
+        rows = []
+        for cells, marked in part[1]:
+            tds = "".join(f'<td class="{"n" if re.fullmatch(r"[\d,.()%△▲▼+-]+", c or "x") else ""}">{html.escape(c)}</td>'
+                          for c in cells + [""] * (width - len(cells)))
+            rows.append(f'<tr class="{"hit" if marked else ""}">{tds}</tr>')
+        out.append(f'<div class="pf-wrap"><table class="pf-tbl">{"".join(rows)}</table></div>')
+    return f'<div class="pf-ctx">{"".join(out)}</div>'
 
 
 def render_report_find():
@@ -11360,8 +11385,11 @@ def render_report_find():
     for f in res["found"]:
         with st.container(border=True):
             st.markdown(f"**{f['block']}**" + (f" · {f['why']}" if f["why"] else ""))
-            st.code(f["quote"], language=None, wrap_lines=True)
-    notes = ["원문 그대로 발췌(앱이 원문과 대조해 확인한 것만 보여줘요) · ▶는 AI가 찾은 줄, 나머지는 그 앞뒤 원문"]
+            if f.get("ctx"):
+                st.markdown(pfind_html(f["ctx"]), unsafe_allow_html=True)
+            else:
+                st.code(f["quote"], language=None, wrap_lines=True)
+    notes = ["원문 그대로 발췌(앱이 원문과 대조해 확인한 것만 보여줘요) · 노란 줄은 AI가 찾은 부분, 나머지는 그 앞뒤 원문"]
     if res["dropped"]:
         notes.append(f"원문과 글자가 달라 뺀 발췌 {res['dropped']}개")
     if res["read"]:

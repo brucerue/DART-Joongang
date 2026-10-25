@@ -170,3 +170,21 @@ def quote_context(quote, text, before=12, after=4, cap=40):
         lo, hi = max(0, hit[0] - before), min(len(lines), max(hit[0] - before, 0) + cap)
     marked = set(hit)
     return [(lines[i].rstrip(), i in marked) for i in range(lo, hi) if lines[i].strip()]
+
+
+def context_parts(ctx):
+    """quote_context 결과 -> 화면용 덩어리 [("text", 글, 표시) | ("table", [(칸 목록, 표시)])].
+    ' | '로 칸이 나뉜 줄이 이어지면 표 하나로 묶는다"""
+    parts = []
+    for line, marked in ctx:
+        if "|" in line:
+            cells = [c.strip() for c in line.split("|")]
+            if cells and cells[-1] == "":
+                cells = cells[:-1]
+            if parts and parts[-1][0] == "table":
+                parts[-1][1].append((cells, marked))
+            else:
+                parts.append(("table", [(cells, marked)]))
+        else:
+            parts.append(("text", line.strip(), marked))
+    return parts
