@@ -374,7 +374,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 09:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 10:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3216,11 +3216,11 @@ def drop_blocked(items):
     return [i for i in items if not is_blocked(i["title"])]
 
 
-SPORTS_TITLES_URL = "https://raw.githubusercontent.com/brucerue/DART-Joongang/sports-titles/sports_titles.json"  # 연합뉴스 스포츠 RSS 제목 (매시간, 30일)
+SPORTS_TITLES_URL = "https://raw.githubusercontent.com/brucerue/DART-Joongang/sports-titles/sports_titles.json"  # 연합뉴스 스포츠·전국 RSS 제목 (매시간, 30일)
 
 
 def is_sports(title, feed_keys=()):
-    """스포츠 기사인지 (통신 기사 제외용). 낱말 목록에 걸리거나, 연합뉴스 스포츠 RSS에 실린 제목이면 True.
+    """스포츠·전국(지방 소식) 기사인지 (통신 기사 제외용). 낱말 목록에 걸리거나, 연합뉴스 스포츠·전국 RSS에 실린 제목이면 True.
     feed_keys: 스포츠 RSS 제목의 비교용 글자(title_key). 구글 뉴스 제목 끝에 '- 연합뉴스'가 붙어도 앞부분으로 맞춘다."""
     t = str(title).lower()
     if any(w.lower() in t for w in SPORTS_WORDS):
