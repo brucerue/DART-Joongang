@@ -432,7 +432,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 21:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 22:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9078,15 +9078,33 @@ def render_px_events(data):
     line = alt.Chart(price).mark_line(color="#495057").encode(
         x=alt.X("날짜:T", title=None), y=alt.Y("종가:Q", title="종가(원)", scale=alt.Scale(zero=False)),
         tooltip=[alt.Tooltip("날짜:T", format="%Y-%m-%d"), alt.Tooltip("종가:Q", format=",.0f")])
-    chart = line
+    picked = []
     if ev_rows:
         ev_df = pd.DataFrame(ev_rows)
-        pts = alt.Chart(ev_df).mark_point(filled=True, size=110, opacity=0.9).encode(
+        ev_df["번호"] = range(len(ev_df))
+        ev_df["날짜"] = ev_df["날짜"].map(lambda d: d.strftime("%Y-%m-%d"))  # 글자로 넘겨야 툴팁에 숫자(타임스탬프)가 아니라 날짜가 보인다
+        # 폰에서는 마우스 올리기(툴팁)가 어렵고 긴 제목은 화면 밖으로 잘리므로, 점을 누르면 아래 카드에 내용을 보여준다 (툴팁은 짧게)
+        pick = alt.selection_point(name="ev_pick", fields=["번호"], nearest=True, on="click", clear="dblclick")
+        pts = alt.Chart(ev_df).mark_point(filled=True, opacity=0.9).encode(
             x=alt.X("차트날짜:T"), y=alt.Y("종가:Q", scale=alt.Scale(zero=False)),
             color=alt.Color("종류:N", title=None, scale=alt.Scale(domain=list(PX_KIND_COLORS), range=list(PX_KIND_COLORS.values())), legend=alt.Legend(orient="bottom")),
-            tooltip=["날짜:N", "종류:N", "제목:N", "당일 등락:N", "3거래일 누적:N"])
-        chart = line + pts
-    st.altair_chart(chart.properties(height=320))
+            size=alt.condition(pick, alt.value(320), alt.value(140)),
+            tooltip=["날짜:N", "종류:N", "당일 등락:N"]).add_params(pick)
+        state = st.altair_chart((line + pts).properties(height=320), on_select="rerun", key="px_ev_chart")
+        try:
+            picked = [int(p["번호"]) for p in (state.selection.get("ev_pick") or []) if "번호" in p]
+        except (AttributeError, TypeError, ValueError):
+            picked = []
+        if picked:
+            for i in picked[:3]:
+                e = ev_rows[i]
+                with st.container(border=True):
+                    st.markdown(f"**{e['날짜']:%m.%d}** · {e['종류']} · 당일 {e['당일 등락']} · 3거래일 {e['3거래일 누적']}  \n"
+                                f"[{html.escape(str(e['제목'])).replace('[', '(').replace(']', ')')}]({e['원문']})")
+        else:
+            st.caption("그래프의 점을 누르면 그 기사·공시가 여기에 나와요. (점이 겹쳐 있으면 가까운 것 하나)")
+    else:
+        st.altair_chart(line.properties(height=320))
     last = df.iloc[-1]
     ret = sc.period_return(df)
     st.markdown(cb_cards([
