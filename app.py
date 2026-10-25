@@ -425,7 +425,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 18:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 19:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5675,14 +5675,59 @@ def render_news_search(kind):
     st.caption("지금 주소를 북마크(또는 홈 화면에 추가)하면 다음에 열 때 같은 검색어로 바로 조회돼요.")
 
 
+def render_miss():
+    """산업 뉴스 > 물먹음 점검: 모아 둔 타사 단독 기사(최근 7일) 중 중앙일보가 단독으로 쓰지 않은 것을 섹터별로 모은다."""
+    rec = get_stored("recent.json")
+    if rec is None:
+        st.info("모아 둔 기사 자료를 아직 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.")
+        return
+    if "ms_groups" not in st.session_state:
+        st.session_state["ms_groups"] = team_sector_options(TODAY_TEAM, list(NEWS_SECTORS))
+    team_buttons("ms", NEWS_SECTORS, "ms_groups")
+    st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key="ms_groups", label_visibility="collapsed")
+    period = st.radio("기간", tdc.MISS_PERIODS, horizontal=True, key="ms_period")
+    groups = [g for g in (st.session_state.get("ms_groups") or []) if g in NEWS_SECTORS]
+    now = datetime.now(KST)
+    since = tdc.window_start(now, period)
+    st.caption(f"{since:%m.%d %H:%M} 이후 · 제목에 [단독]이 붙은 기사만 모아 둔 자료라, 중앙일보가 단독 표기 없이 쓴 기사는 알 수 없어요(그래서 '물먹음 후보'예요)")
+    if not groups:
+        st.info("섹터를 하나 이상 골라 주세요.")
+        return
+    rows = rec["items"]
+    all_theirs = []
+    for sec in groups:
+        items = tdc.sector_items(rows, sec, "단독", since)
+        clusters = cluster_news(items)
+        ours, theirs = tdc.split_miss(clusters)
+        all_theirs += [it for c in theirs for it in [c["rep"]] + c["others"]]
+        with st.container(border=True):
+            st.markdown(f"##### {sec}")
+            st.caption(f"단독 {len(items)}건 → 묶음 {len(clusters)}건 · 중앙일보도 쓴 것 {len(ours)}건 · **물먹음 후보 {len(theirs)}건**")
+            if theirs:
+                st.markdown(news_html(theirs, now), unsafe_allow_html=True)
+            else:
+                st.caption("이 기간에 타사 단독만 있는 사건이 없어요.")
+            if ours:
+                with st.expander(f"중앙일보도 쓴 사건 {len(ours)}건"):
+                    st.markdown(news_html(ours, now), unsafe_allow_html=True)
+    oc = tdc.outlet_counts(all_theirs)
+    if oc:
+        with st.container(border=True):
+            st.markdown("##### 어느 매체가 단독을 많이 냈나 (물먹음 후보 기준)")
+            st.dataframe(pd.DataFrame([{"매체": p, "건수": n} for p, n in oc[:12]]), hide_index=True, height=min(len(oc), 12) * 35 + 38)
+
+
 def render_news():
     """탭: 산업 뉴스 - 통신(연합뉴스·뉴시스·뉴스1) / 단독 / 외신"""
     with st.container(key="news_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에 (재무 조회와 같은 모양)
         c1, c2 = st.columns([1, 4], vertical_alignment="center")
         c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["통신", "단독", "외신"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
+        mode = c2.radio("조회 방식", ["통신", "단독", "외신", "물먹음"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     if mode == "외신":
         render_global_news()
+        return
+    if mode == "물먹음":
+        render_miss()
         return
     render_news_search(mode)
 
