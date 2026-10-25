@@ -414,7 +414,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 13:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 13:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5104,7 +5104,7 @@ GNEWS_OUTLETS = {  # 화면 이름 -> 도메인
     "FT": "ft.com", "CNBC": "cnbc.com", "AP": "apnews.com",
 }
 GNEWS_PERIODS = {"1일": 1, "3일": 3, "7일": 7}
-MAX_GNEWS_CORPS = 5
+MAX_GNEWS_CORPS = 100  # 섹터를 고르면 기업이 많아지므로 넉넉하게 (기업 하나당 구글 검색 한 번)
 # 한글 기업명 -> 영문 검색어 (없으면 입력한 그대로 검색). 필요하면 자유롭게 추가하세요.
 GNEWS_NAMES = {
     "삼성전자": "Samsung Electronics", "SK하이닉스": "SK hynix", "현대자동차": "Hyundai Motor", "기아": "Kia",
@@ -5187,11 +5187,28 @@ def gnews_search(terms, days, domains, in_title=True):
         return dict(zip(terms, pool.map(one, terms)))
 
 
+def global_sector_names(groups):
+    """외신 섹터 이름들 -> 영문 검색어 목록(중복 제외). 재무 조회 '해외 섹터'와 같은 기업 구성, 티커 대신 영문 기업명"""
+    out = []
+    for g in groups:
+        for n in GLOBAL_SECTORS.get(g, []):
+            if n not in out:
+                out.append(n)
+    return out
+
+
+def fill_gn_terms():
+    st.session_state["gn_corp"] = ", ".join(global_sector_names(st.session_state.get("gn_groups") or []))
+
+
 def render_global_news():
     """뉴스 탭 > 외신: 영문 기업명으로 WSJ·Bloomberg 등의 최근 기사 제목과 링크를 보여준다."""
+    st.markdown('<span class="sec-lbl">섹터 (여러 개 선택 가능)</span>', unsafe_allow_html=True)
+    st.pills("섹터", list(GLOBAL_SECTORS), selection_mode="multi", key="gn_groups", on_change=fill_gn_terms, label_visibility="collapsed",
+             help="재무 조회 '해외 섹터'와 같은 기업이에요. 고르면 아래 기업명 칸에 영문 기업명이 채워져요.")
     with st.form("gn_search"):
         corp_text = st.text_input("기업명 (여러 곳은 쉼표로)", key="gn_corp", placeholder="예: Samsung, TSMC, Tesla",
-                                  help=f"한글 이름은 알려진 기업이면 영문으로 바꿔 검색해요. 최대 {MAX_GNEWS_CORPS}곳까지 한 번에 검색해요.")
+                                  help=f"한글 이름은 알려진 기업이면 영문으로 바꿔 검색해요. 최대 {MAX_GNEWS_CORPS}곳까지 한 번에 검색해요(곳 수만큼 시간이 걸려요).")
         period = st.radio("기간", list(GNEWS_PERIODS), index=1, horizontal=True, key="gn_period")
         in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key="gn_title")
         submitted = st.form_submit_button("해외 뉴스 조회")
@@ -5221,8 +5238,13 @@ def render_global_news():
     if not res:
         return
     st.caption(f"최근 {res['period']} · 최신순")
+    many = len(res["got"]) > 5  # 섹터처럼 기업이 많으면 기사 없는 기업은 한 줄로 모은다
+    empty = []
     for term, items in res["got"].items():
         label = res["labels"].get(term, term)
+        if not items and many:
+            empty.append(label)
+            continue
         st.markdown(f"##### {label}" + (f" ({term})" if label.casefold() != term.casefold() else ""))
         if not items:
             st.info("이 기간에 해당 언론사 기사를 찾지 못했어요. 기간을 늘리거나 영문 이름으로 검색해 보세요.")
@@ -5232,6 +5254,8 @@ def render_global_news():
             title = re.sub(r"([\[\]])", r"\\\1", i["title"])
             lines.append(f"- [{title}]({i['url'].replace(')', '%29')})  \n  <small>{i['publisher']} · {i['dt']:%m/%d %H:%M}</small>")
         st.markdown("\n".join(lines), unsafe_allow_html=True)
+    if empty:
+        st.caption("이 기간에 기사가 없는 기업: " + ", ".join(empty))
 
 
 NEWS_ALWAYS_SEARCH = {"엘에스일렉트릭": ["LS일렉트릭"]}
@@ -6471,6 +6495,9 @@ OVERSEAS_GROUPS = {
     "제약·바이오": ["LLY", "JNJ", "PFE", "MRK", "ABBV"],
 }
 KOREAN_TO_TICKER = {re.sub(r"\s+", "", v).lower(): k for k, v in OVERSEAS_NAMES.items()}
+# 산업 뉴스 > 외신의 섹터: 재무 조회 '해외 섹터'(OVERSEAS_GROUPS)와 같은 기업을 티커 대신 영문 기업명으로. 반도체에는 Samsung을 더함
+GLOBAL_SECTORS = {g: list(dict.fromkeys(FOREIGN_ENGLISH.get(t) or OVERSEAS_NAMES.get(t) or t for t in tickers)) for g, tickers in OVERSEAS_GROUPS.items()}
+GLOBAL_SECTORS["반도체"].append("Samsung")
 CURRENCY_NAMES = {"USD": "달러", "EUR": "유로", "JPY": "엔", "GBP": "파운드", "CNY": "위안", "TWD": "대만달러", "CHF": "프랑",
                   "CAD": "캐나다달러", "HKD": "홍콩달러", "AUD": "호주달러", "KRW": "원"}
 SEC_CONCEPTS = {
