@@ -11307,7 +11307,7 @@ def render_report_find():
         return
     st.caption("회사와 찾고 싶은 내용을 말로 쓰면 AI가 보고서와 읽을 부분을 정하고, 관련 원문을 고쳐 쓰지 않고 그대로 보여줘요(앱이 원문과 한 글자씩 대조해 확인).")
     text = st.text_area("찾고 싶은 것", key="pfind_text", height=80,
-                        placeholder="예: LG에너지솔루션 북미 공장 생산능력  /  현대차 지역별 판매 대수  /  삼성전자 2024년 사업보고서 연구개발비")
+                        placeholder="예: 한화오션 수주잔고  /  삼성전자 연구개발비 매출 대비 비율  /  SK하이닉스 주요 원재료 매입액")
     if st.button("AI에게 물어보기", type="primary", key="pfind_go"):
         st.session_state.pop("pfind_result", None)
         if not text.strip():
