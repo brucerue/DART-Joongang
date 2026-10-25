@@ -7599,6 +7599,14 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .cb-hero .s { position: relative; color: #e6f1ff; font-size: 0.85rem; margin-top: 0.3rem; }
 .st-key-trade_wrap { gap: 1.35rem !important; }  /* 수출입 분석: 칸 사이를 넓게 */
 .st-key-trade_wrap [data-testid="stRadio"], .st-key-trade_wrap [data-testid="stMultiSelect"] { margin-bottom: 0.2rem; }
+/* 섹터 알약(st.pills): 폰에서는 5칸 격자로 줄 끝을 맞춘다 (PC는 한 줄에 다 들어가므로 그대로) */
+@media (max-width: 640px) {
+  [data-testid="stButtonGroup"] [role="toolbar"]:has(button[data-variant="pills"]) { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.35rem 0.3rem; }
+  [data-testid="stButtonGroup"] button[data-variant="pills"] { width: 100%; min-width: 0; margin: 0 !important; padding-left: 0.15rem !important; padding-right: 0.15rem !important; justify-content: center; }
+  [data-testid="stButtonGroup"] button[data-variant="pills"] * { max-width: none !important; overflow: visible !important; text-overflow: clip !important; }  /* '에너지·소…'처럼 줄임표로 잘리지 않게 */
+  [data-testid="stButtonGroup"] button[data-variant="pills"] p { font-size: 0.74rem !important; white-space: nowrap !important; letter-spacing: -0.03em; }
+}
+@media (max-width: 400px) { [data-testid="stButtonGroup"] button[data-variant="pills"] p { font-size: 0.68rem !important; } }
 /* 오늘의 현황: 섹터 카드 */
 .st-key-today_wrap [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); }
 .td-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem 0.8rem; padding: 0.2rem 0 0.5rem; border-bottom: 1px solid #eef2f7; margin-bottom: 0.4rem; }
