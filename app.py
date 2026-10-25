@@ -204,6 +204,16 @@ MAJOR_DISCLOSURES = {
     "정기보고서": ["사업보고서", "반기보고서", "분기보고서"],
 }
 
+# 앱의 공시 화면에서만 쓰는 추가 묶음(보기 버튼). 위 MAJOR_DISCLOSURES와 달리 '주요 전체'와 텔레그램 공시 알람에는 들어가지 않는다
+EXTRA_DISCLOSURES = {
+    "투자·출자": ["타법인주식및출자증권취득", "타법인주식및출자증권처분", "유형자산취득", "유형자산처분", "신규시설투자"],
+    "사채 발행": ["전환사채권발행", "신주인수권부사채권발행", "교환사채권발행", "사채권발행"],
+    "최대주주·대표 변경": ["최대주주변경", "대표이사변경", "대표이사(대표집행임원)변경", "최대주주등소유주식변동"],
+    "배당": ["배당결정", "현금배당", "현물배당"],
+    "소송·제재": ["소송등의제기", "소송등의판결", "횡령", "배임", "과징금", "불성실공시", "조회공시"],
+    "상장·거래 위험": ["상장폐지", "관리종목", "거래정지", "회생절차", "파산", "감사의견"],
+}
+
 # 공시 유형 (DART 공시 목록 API의 pblntf_ty 값). 빈 문자열은 '전체'
 DISCLOSURE_TYPES = {
     "전체": "",
@@ -414,7 +424,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 16:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 16:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -1662,6 +1672,8 @@ def match_preset(rows, preset):
         words = REGULAR_REPORTS
     elif preset in MAJOR_DISCLOSURES:
         words = MAJOR_DISCLOSURES[preset]
+    elif preset in EXTRA_DISCLOSURES:
+        words = EXTRA_DISCLOSURES[preset]
     elif preset == "주요 전체":
         words = [w for ws in MAJOR_DISCLOSURES.values() for w in ws]
     else:
@@ -4441,7 +4453,7 @@ def render_disclosures():
     # 주요 공시 버튼과 검색은 이미 가져온 목록 안에서 걸러내는 것이라 DART를 다시 부르지 않는다
     preset = st.radio(
         "주요 공시",
-        ["전체"] + list(MAJOR_DISCLOSURES),
+        ["전체"] + list(MAJOR_DISCLOSURES) + list(EXTRA_DISCLOSURES),
         horizontal=True,
         key=f"list_preset_{res['id']}",  # 건수가 조회마다 바뀌므로 키도 새로 만든다 (feed_view와 같은 이유)
         format_func=lambda p: f"{p} ({len(match_preset(res['rows'], p)):,})",
@@ -5100,7 +5112,7 @@ def render_feed(by_sector=False):
             st.warning("이 날짜에 조회된 공시가 없습니다. 휴장일이거나 아직 공시가 올라오기 전일 수 있어요.")
         return
 
-    views = ["주요 전체"] + list(MAJOR_DISCLOSURES) + ["모든 공시"]
+    views = ["주요 전체"] + list(MAJOR_DISCLOSURES) + list(EXTRA_DISCLOSURES) + ["모든 공시"]
     if by_sector:
         notes = [f"{res['day']}", res["market"], ", ".join(res["groups"]), f"전체 공시 {res['total']:,}건 중 섹터 기업 {len(res['rows']):,}건",
                  "최신순", "정정 공시 포함"]
