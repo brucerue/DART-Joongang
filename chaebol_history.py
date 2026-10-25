@@ -97,21 +97,34 @@ def parse_designation(rows):
 
 
 def parse_changes(rows):
-    """계열회사 변동 내역 표 -> [{"group","t","r","c"}] (구분: 편입/제외). 집단 이름이 비어 있는 줄은 위 줄의 집단"""
+    """계열회사 변동 내역 표 -> [{"group","t","r","c"}] (구분: 편입/제외). 집단 이름이 비어 있는 줄은 위 줄의 집단.
+    2022년부터는 칸 위치가 고정이고(구분 칸에 증가/감소), 그 전에는 빈 칸이 접혀 있어 두 방식을 모두 쓴다"""
     h = header_index(rows, "구분", "사유", "회사명")
     if h is None:
         return None
-    out, group = [], ""
+    head = [txt(c) for c in rows[h]]
+    c_t, c_r, c_c = head.index("구분"), head.index("사유"), head.index("회사명")
+    c_g = head.index("기업집단명") if "기업집단명" in head else None
+    kind = {"편입": "편입", "증가": "편입", "제외": "제외", "감소": "제외"}
+    out, group, last = [], "", ""
     for row in rows[h + 1:]:
-        cells = [txt(c) for c in row if c is not None and txt(c) != ""]
-        if len(cells) < 3 or cells[-3] not in ("편입", "제외"):
+        cells = [txt(c) for c in row]
+        cells += [""] * (max(c_t, c_r, c_c) + 1 - len(cells))
+        if c_g is not None and c_g < len(cells) and cells[c_g] and num(cells[c_g]) is None:
+            group = cells[c_g]
+        if cells[c_t] in kind:
+            last = kind[cells[c_t]]
+        if cells[c_c] not in ("", "-") and (cells[c_t] in kind or (cells[c_t] == "" and last)):  # 구분 칸이 비면 위 줄과 같은 구분
+            out.append({"group": group, "t": last, "r": cells[c_r], "c": cells[c_c]})
             continue
-        # 집단 이름: 줄의 앞쪽 문자 칸(숫자가 아닌 첫 칸). 없으면 위 줄 것을 이어 쓴다
-        for c in cells[:-3]:
-            if num(c) is None and not re.fullmatch(r"[`'’]?\d+\.\d+\.\d+\.?", c):
-                group = c
-                break
-        out.append({"group": group, "t": cells[-3], "r": cells[-2], "c": cells[-1]})
+        # 옛 서식: 비어 있지 않은 칸만 모았을 때 뒤에서 세 칸이 구분·사유·회사명
+        full = [c for c in cells if c != ""]
+        if len(full) >= 3 and full[-3] in ("편입", "제외"):
+            for c in full[:-3]:
+                if num(c) is None and not re.fullmatch(r"[`'’]?\d+\.\d+\.\d+\.?", c):
+                    group = c
+                    break
+            out.append({"group": group, "t": full[-3], "r": full[-2], "c": full[-1]})
     return out
 
 
