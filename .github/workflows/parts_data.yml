@@ -48,7 +48,7 @@ jobs:
           IN_FRESH: ${{ inputs.fresh }}
       - name: DART에서 모으기
         run: |
-          python parts_data.py --corp-csv corp_codes.csv --out parts.json --csv parts.csv \
+          python -u parts_data.py --corp-csv corp_codes.csv --out parts.json --csv parts.csv \
             --prev prev.json --years "$IN_YEARS" --doc-years "$IN_DOC_YEARS" --extra "$IN_EXTRA" \
             --max-minutes 100
         env:

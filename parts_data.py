@@ -248,6 +248,7 @@ def screen(dart, listed, prev_screen, prefixes, extra_names, log):
     todo = [r for r in listed if r["corp_code"] not in info]
     log(f"업종 확인: 지난 결과 {len(info)}곳, 새로 확인 {len(todo)}곳")
     partial = None
+    t0 = time.monotonic()
     for i, r in enumerate(todo, 1):
         try:
             jo = dart.json("company.json", {"corp_code": r["corp_code"]})
@@ -257,8 +258,9 @@ def screen(dart, listed, prev_screen, prefixes, extra_names, log):
             break
         info[r["corp_code"]] = {"induty": (jo or {}).get("induty_code", ""), "cls": (jo or {}).get("corp_cls", ""),
                                 "est": (jo or {}).get("est_dt", "")}
-        if i % 300 == 0:
-            log(f"  {i}/{len(todo)}")
+        if i % 100 == 0:
+            el = time.monotonic() - t0
+            log(f"  {i}/{len(todo)} ({el:.0f}초, 한 번에 {el / i:.2f}초)")
     if partial:
         return info, [], [], partial
     extra = set(n.strip() for n in extra_names if n.strip())
