@@ -18,7 +18,7 @@ import news_digest as nd
 KST = nd.KST
 KEEP_DAYS = 183  # 6개월
 RECENT_DAYS = 7
-SECTORS = list(nd.SECTORS) + ["반도체"]  # 텔레그램 알람 섹터 + 타임라인에만 쓰는 섹터
+SECTORS = list(nd.SECTORS) + ["반도체", "전자", "항공", "재계"]  # 텔레그램 기본 알람 섹터 + 타임라인·오늘의 현황에만 쓰는 섹터
 LOOKBACK_HOURS = 48  # 매시간 돌지만, 실패한 회차가 있어도 메워지도록 이틀 전까지 훑는다
 FMT = "%Y-%m-%dT%H:%M"
 

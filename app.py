@@ -37,6 +37,7 @@ import pandas as pd
 import stock_calc as sc
 
 sc = importlib.reload(sc)  # 배포로 stock_calc.py가 바뀌었는데 서버 메모리에 옛 모듈이 남아 있으면 새 함수를 못 찾으므로, 실행할 때마다 다시 읽는다
+import today_calc as tdc
 import trade_calc as tc
 tc = importlib.reload(tc)  # (위와 같은 이유)
 import requests
@@ -424,7 +425,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 17:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 17:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7412,7 +7413,7 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 [data-testid="stTab"] > div:not([data-testid]) { display: none; }  /* 기본 밑줄 표시는 숨김 */
 [data-testid="stTabs"] [role="tablist"]::before, [data-testid="stTabs"] [role="tablist"]::after { display: none !important; }
 [data-testid="stTabs"] [role="tablist"] { box-shadow: none !important; background: none !important; }
-@media (min-width: 900px) { [data-testid="stTabs"] [role="tablist"] { grid-template-columns: repeat(8, minmax(0, 1fr)); } }  /* PC: 8개 한 줄 (모바일은 4x2) */
+@media (min-width: 900px) { [data-testid="stTabs"] [role="tablist"] { grid-template-columns: repeat(9, minmax(0, 1fr)); } }  /* PC: 9개 한 줄 (모바일은 4x2) */
 @media (max-width: 400px) { [data-testid="stTab"] p { font-size: 0.8rem; } }  /* 작은 휴대폰에서도 글자가 칸 안에 */
 [data-testid="stTabs"] [role="tablist"] ~ button, [data-testid="stTabs"] button[aria-label*="croll"] { display: none !important; }
 
@@ -10580,7 +10581,84 @@ def render_trade():
         {"검색": render_trade_search, "월간 현황": render_trade_monthly, "10일 단위 속보": render_trade_tenday, "국가·경제권": render_trade_country}[view](data)
 
 
-TAB_NAMES = ["기업 브리핑", "재무 조회", "수출입 분석", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
+# ------------------------------------------------------------
+# 오늘의 현황 (담당 섹터의 통신·단독·공시·특징주를 한 화면에)
+# ------------------------------------------------------------
+TODAY_TEAM = "차팀"  # 처음 열 때 선택돼 있는 섹터 묶음
+TODAY_TOP = 5  # 섹터마다 먼저 보여주는 묶음 수
+
+
+def today_price_codes(data):
+    """뉴스 섹터 이름 -> 시세 자료의 종목코드 목록 (중후장대는 조선·해운+방산+철강)"""
+    by = px_sector_codes(data)
+    out = {}
+    for sec in NEWS_SECTORS:
+        names = list(HEAVY_PARTS) if sec == HEAVY_NAME else [sec]
+        codes = []
+        for n in names:
+            codes += [c for c in by.get(n, []) if c not in codes]
+        out[sec] = codes
+    return out
+
+
+def render_today():
+    """탭: 오늘의 현황 - 고른 섹터마다 단독·통신 기사, 공시, 특징주를 모아 보여준다(매시간 모아 둔 자료라 새로 검색하지 않아요)."""
+    rec = get_stored("recent.json")
+    if rec is None:
+        st.info("모아 둔 기사 자료를 아직 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.")
+        return
+    if "td_groups" not in st.session_state:
+        st.session_state["td_groups"] = team_sector_options(TODAY_TEAM, list(NEWS_SECTORS))
+    st.markdown('<span class="sec-lbl">섹터 (여러 개 선택 가능)</span>', unsafe_allow_html=True)
+    team_buttons("td", NEWS_SECTORS, "td_groups")
+    st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key="td_groups", label_visibility="collapsed")
+    period = st.radio("기간", tdc.PERIODS, horizontal=True, key="td_period")
+    groups = [g for g in (st.session_state.get("td_groups") or []) if g in NEWS_SECTORS]
+    now = datetime.now(KST)
+    since = tdc.window_start(now, period)
+    updated = str(rec.get("updated", ""))[:16].replace("T", " ")
+    st.caption(f"{since:%m.%d %H:%M} 이후 · 매시간 모아 둔 기사·공시 · 자료 갱신 {updated}" if updated else f"{since:%m.%d %H:%M} 이후")
+    if not groups:
+        st.info("섹터를 하나 이상 골라 주세요.")
+        return
+    rows = rec["items"]
+    prices = get_prices()
+    snap, when, codes_by = None, "", {}
+    if prices:
+        try:
+            snap, when = brief_snap(prices, get_intraday())
+            codes_by = today_price_codes(prices)
+        except Exception:
+            snap = None
+    for sec in groups:
+        with st.container(border=True):
+            st.markdown(f"##### {sec}")
+            cnt = tdc.counts(rows, sec, since)
+            st.caption(f"단독 {cnt['단독']}건 · 통신 {cnt['통신']}건 · 공시 {cnt['공시']}건")
+            if snap is not None and codes_by.get(sec):
+                up, down = tdc.movers(snap, codes_by[sec], 2)
+                if up or down:
+                    st.markdown(f"**특징주** ({when})  \n" + "  \n".join(
+                        [f"{'▲' if r['rate'] > 0 else '▼'} {r['name']} {r['rate']:+.2f}% ({r['close']:,.0f}원)" for r in up + down]))
+            for kind in ("단독", "통신"):
+                items = tdc.sector_items(rows, sec, kind, since)
+                if not items:
+                    continue
+                clusters = cluster_news(items)
+                st.markdown(f"**{kind}** ({len(items)}건 → 묶음 {len(clusters)}건)")
+                st.markdown(news_html(clusters[:TODAY_TOP], now), unsafe_allow_html=True)
+                if len(clusters) > TODAY_TOP:
+                    with st.expander(f"{kind} 더 보기 ({len(clusters) - TODAY_TOP}건)"):
+                        st.markdown(news_html(clusters[TODAY_TOP:], now), unsafe_allow_html=True)
+            disc = tdc.sector_items(rows, sec, "공시", since)
+            if disc:
+                with st.expander(f"공시 {len(disc)}건"):
+                    st.markdown("\n".join(f"- [{d['title'].replace('[', '(').replace(']', ')')}]({d['url']}) · {d['publisher']} · {d['dt']:%m.%d %H:%M}" for d in disc[:30]))
+            if not any(cnt.values()) and not (snap is not None and codes_by.get(sec)):
+                st.caption("이 기간에 모아 둔 기사·공시가 없어요.")
+
+
+TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 조회", "수출입 분석", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"]
 SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 숨겨 둔 탭(주가, 이슈 타임라인)이 보임
 if SHOW_LAB:
     TAB_NAMES += ["주가", "이슈 타임라인"]  # 관리자용 탭은 맨 끝
@@ -10591,7 +10669,9 @@ try:
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
 by_name = dict(zip(TAB_NAMES, tabs))
-tab_brief, tab_fin, tab_trade, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in TAB_NAMES if n not in ("주가", "이슈 타임라인"))
+tab_today, tab_brief, tab_fin, tab_trade, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in TAB_NAMES if n not in ("주가", "이슈 타임라인"))
+with tab_today:
+    render_today()
 with tab_brief:
     render_brief()
 with tab_fin:
