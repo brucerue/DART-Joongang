@@ -19,6 +19,7 @@
 import argparse
 import ast
 import difflib
+import hashlib
 import html
 import io
 import json
@@ -1123,6 +1124,17 @@ def apply_prefs(subs, prefs, keep_paused=False):
     return out
 
 
+def sent_keys(chat, mode, it):
+    """이미 보낸 기사인지 가리는 기록 키들. 제목으로 하나, 기사 주소로 하나(공시는 접수번호 하나).
+    기사가 업데이트되면서 제목이 조금 바뀌어도 같은 주소면 다시 보내지 않는다(주소는 길어서 줄여서 기록)."""
+    if mode == "공시":
+        return [f"{chat}|{mode}|{it['key']}"]
+    keys = [f"{chat}|{mode}|{title_key(it['title'])}"]
+    if it.get("url"):
+        keys.append(f"{chat}|{mode}|u|{hashlib.sha1(it['url'].encode('utf-8')).hexdigest()[:16]}")
+    return keys
+
+
 def load_seen():
     try:
         with open(SEEN_FILE, encoding="utf-8") as f:
@@ -1324,18 +1336,18 @@ def main():
                         continue
                     if since and ((i.get("dt") and i["dt"] < since) or (i.get("day") and i["day"] < since.strftime("%Y%m%d"))):
                         continue  # /켜기 하기 전에 나온 기사·공시(공시는 날짜 기준)는 보내지 않는다
-                    k = f"{chat}|{mode}|{i['key'] if mode == '공시' else title_key(i['title'])}"
-                    if k in seen or k in placed:
+                    ks = sent_keys(chat, mode, i)
+                    if any(k in seen or k in placed for k in ks):
                         continue
-                    placed.add(k)
+                    placed.update(ks)
                     fresh.append(i)
                 clusters = [{"rep": i, "others": []} for i in fresh] if mode == "공시" else cluster_news(fresh)
                 if baseline and sector == A["HEAVY_NAME"]:
                     for c in clusters:
-                        quiet_keys += [f"{chat}|{mode}|{it['key'] if mode == '공시' else title_key(it['title'])}" for it in [c["rep"]] + c["others"]]
+                        quiet_keys += [k for it in [c["rep"]] + c["others"] for k in sent_keys(chat, mode, it)]
                     continue
                 for c in clusters:
-                    new_keys += [f"{chat}|{mode}|{it['key'] if mode == '공시' else title_key(it['title'])}" for it in [c["rep"]] + c["others"]]
+                    new_keys += [k for it in [c["rep"]] + c["others"] for k in sent_keys(chat, mode, it)]
                 if clusters:
                     sections.append((sector, clusters[:MAX_PER_SECTOR], max(0, len(clusters) - MAX_PER_SECTOR)))
             print(f"[{sub['name']}/{mode}] 새 묶음 {sum(len(c) + h for _, c, h in sections)}건 ({len(sections)}개 섹터)")
