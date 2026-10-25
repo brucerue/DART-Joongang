@@ -424,7 +424,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.25 16:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.25 17:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3347,6 +3347,36 @@ def title_key(title):
     return re.sub(r"[^0-9a-z가-힣]", "", title.lower())
 
 
+def news_tokens(title):
+    """제목 -> 핵심 낱말 목록 ([단독]·[속보]·(종합) 같은 꼬리표와 흔한 말은 뺌, 조사는 떼어냄)"""
+    stop = {"종합", "속보", "영상", "단독", "포토", "사진", "오늘", "올해", "관련", "대한", "위해", "통해", "이후", "지난", "최근", "전망", "예정", "발표", "확대", "추진", "개최", "진행"}
+    t = re.sub(r"\[[^\]]*\]|\([^)]*종합[^)]*\)|\(종합\d*보?\)|\d보", " ", str(title))
+    out = []
+    for w in re.findall(r"[A-Za-z0-9가-힣＆&\.]+", t):
+        w = re.sub(r"(에서|으로|에게|까지|부터|이다|했다|하는|한다|에는|에도|보다|처럼|으로는|이며|이고)$", "", w)
+        if len(w) >= 3:
+            w = re.sub(r"(은|는|이|가|을|를|의|에|도|로|과|와|서)$", "", w)
+        if len(w) >= 2 and w not in stop:
+            out.append(w)
+    return out
+
+
+def same_news_event(a, b):
+    """두 기사(제목·tags)가 같은 사건인지: 핵심 낱말이 충분히 겹치면 True.
+    - 앞머리 낱말(주로 회사)이 같고 3개 이상·절반 가까이 겹치거나, 4개 이상·절반 이상 겹침
+    - 검색어 꼬리표(tags)가 둘 다 있는데 하나도 안 겹치면 다른 회사 기사라 False(실적 기사처럼 틀이 같은 제목이 섞이는 것 방지)"""
+    ta, tb = news_tokens(a["title"]), news_tokens(b["title"])
+    sa, sb = set(ta), set(tb)
+    shared = sa & sb
+    if not shared:
+        return False
+    if a.get("tags") and b.get("tags") and not set(a["tags"]) & set(b["tags"]):
+        return False
+    jac = len(shared) / len(sa | sb)
+    first = bool(ta and tb and ta[0] == tb[0])
+    return (len(shared) >= 3 and jac >= 0.4 and first) or (len(shared) >= 4 and jac >= 0.5)
+
+
 def cluster_news(items):
     """제목이 비슷한 기사를 한 묶음으로. -> [{"rep": 대표 기사, "others": 나머지 기사들}, ...] (최신순)
 
@@ -3367,7 +3397,7 @@ def cluster_news(items):
         for c in clusters:
             m = c["matcher"]
             m.set_seq1(key)
-            if m.real_quick_ratio() >= SIMILAR_TITLE and m.quick_ratio() >= SIMILAR_TITLE and m.ratio() >= SIMILAR_TITLE:
+            if (m.real_quick_ratio() >= SIMILAR_TITLE and m.quick_ratio() >= SIMILAR_TITLE and m.ratio() >= SIMILAR_TITLE) or same_news_event(item, c["items"][0]):
                 c["items"].append(item)
                 break
         else:
