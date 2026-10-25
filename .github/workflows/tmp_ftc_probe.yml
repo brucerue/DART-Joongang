@@ -12,22 +12,27 @@ jobs:
           cat > p.py <<'PYEOF'
           import requests, re, html, traceback
           H={"User-Agent":"Mozilla/5.0"}
+          def lst(kw, pages=3):
+              out={}
+              for pg in range(1,pages+1):
+                  r=requests.get("https://www.ftc.go.kr/www/selectBbsNttList.do",params={"key":"12","bordCd":"3","pageIndex":str(pg),"searchCnd":"all","searchKrwd":kw},headers=H,timeout=40)
+                  for h,tx in re.findall(r'<a href="(\./selectBbsNttView\.do[^"]*)"[^>]*>(.*?)</a>',r.text,re.S):
+                      n=re.search(r"nttSn=(\d+)",h).group(1); out[n]=html.unescape(re.sub(r"<[^>]+>","",tx)).strip()
+              return out
           def main():
-              found={}
-              for kw in ("공시대상기업집단 지정","대규모기업집단 지정"):
-                  for pg in range(1,5):
-                      r=requests.get("https://www.ftc.go.kr/www/selectBbsNttList.do",params={"key":"12","bordCd":"3","pageIndex":str(pg),"searchCnd":"all","searchKrwd":kw},headers=H,timeout=40)
-                      for h,tx in re.findall(r'<a href="(\./selectBbsNttView\.do[^"]*)"[^>]*>(.*?)</a>',r.text,re.S):
-                          n=re.search(r"nttSn=(\d+)",h).group(1); t=html.unescape(re.sub(r"<[^>]+>","",tx)).strip()
-                          found[n]=t
-              print("::notice::전체 "+str(len(found)))
-              sel={n:t for n,t in found.items() if re.search(r"지정",t) and re.search(r"기업집단",t) and not re.search(r"제외|설명|제재|행정예고|개정",t)}
-              for n,t in sorted(sel.items()):
-                  print(f"::notice::{n} | {t[:90]}")
-              for n in sorted(sel)[:10]:
+              allf={}
+              for kw in ("대기업집단 지정","상호출자제한기업집단 지정","기업집단 지정 현황","기업집단 지정결과"):
+                  allf.update(lst(kw))
+              sel={n:t for n,t in allf.items() if re.search(r"지정",t) and not re.search(r"제외|설명|제재|행정예고|개정|해명|연기|동일인|고시",t)}
+              msg=" ;; ".join(f"{n}:{t[:34]}" for n,t in sorted(sel.items()))
+              print("::notice::후보 "+msg[:3000])
+              for n in ("43406","42836","41476"):
                   v=requests.get("https://www.ftc.go.kr/www/selectBbsNttView.do",params={"key":"12","bordCd":"3","nttSn":n},headers=H,timeout=40).text
-                  files=re.findall(r'<a[^>]*href="([^"]*downloadBbsFile[^"]*)"[^>]*>(.*?)</a>',v,re.S)
-                  print(f"::notice::{n} files={len(files)} "+" || ".join(html.unescape(re.sub(r"<[^>]+>","",tx)).strip()[:36] for h,tx in files)[:700])
+                  files=re.findall(r'href="([^"]*(?:downloadBbsFile|previewBbsAtchmnfl)[^"]*)"',v)
+                  names=re.findall(r'<span[^>]*class="[^"]*file[^"]*"[^>]*>(.*?)</span>|<a[^>]*download[^>]*>(.*?)</a>',v,re.S)
+                  print(f"::notice::{n} links={files[:8]}")
+                  i=v.find("첨부")
+                  print(f"::notice::{n} ctx={re.sub(chr(10)+'|'+chr(13)+'|'+chr(9),' ',v[i:i+1200])[:900]}")
           try:
               main()
           except Exception:
