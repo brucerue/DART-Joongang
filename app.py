@@ -432,7 +432,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 17:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 17:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -11352,12 +11352,12 @@ def render_calculator():
             if a is not None and b is not None:
                 r = ct.change(a, b)
                 rows = [("판정", r["status"]),
-                        ("증감률", f"{r['rate']:+,.1f}%" if r["rate"] is not None else "계산 안 함 (이전 값이 0 이하)"),
+                        ("증감률", f"{r['rate']:+.1f}%" if r["rate"] is not None else "계산 안 함 (이전 값이 0 이하)"),
                         ("증감액", ("+" if r["diff"] > 0 else "") + (ct.kor_number(r["diff"]) if abs(r["diff"]) >= 1e4 else ct.num_text(r["diff"], 2)))]
                 if r["times"] is not None:
-                    rows.append(("배수 (B÷A)", f"{r['times']:,.2f}배"))
+                    rows.append(("배수 (B÷A)", f"{r['times']:.2f}배"))
                 if ap and bp:
-                    rows.append(("%p 차이", f"{b - a:+,.1f}%p"))
+                    rows.append(("%p 차이", f"{b - a:+.1f}%p"))
                 calc_result(rows)
                 st.caption("증감률 = (B − A) ÷ A × 100. 이전 값이 적자(0 이하)면 증감률 대신 흑자전환·적자확대·적자축소로 판정해요.")
         with tabs[1]:
@@ -11371,7 +11371,7 @@ def render_calculator():
                 usd = st.text_input("환율 (원/달러, 넣으면 달러로도)", key="calc_fx", placeholder="예: 1,380")
                 fx, _ = ct.parse_num(usd)
                 if fx:
-                    calc_result([("달러", "$" + ct.en_number(won / fx)[0]), ("달러(숫자)", f"${won / fx:,.0f}")])
+                    calc_result([("달러", "$" + ct.en_number(won / fx)[0]), ("달러(숫자)", f"${won / fx:.0f}")])
         with tabs[2]:
             st.caption("한글 단위(조·억·만) ↔ 영어 단위(trillion·billion·million) 바꾸기")
             v, _ = calc_num("한글 → 영어", "calc_en_ko", "예: 3조5000억 / 1,234억")
@@ -11391,15 +11391,15 @@ def render_calculator():
                                     help="2020년→2025년이면 5년 (끝 연도 − 시작 연도)")
             g = ct.cagr(a, b, years)
             if a is not None and b is not None:
-                calc_result([("연평균 성장률", f"{g:+,.1f}%" if g is not None else "계산 안 함 (시작·끝은 0보다 커야 해요)"),
-                             ("전체 증감률", f"{(b - a) / a * 100:+,.1f}%" if a > 0 else "-")])
+                calc_result([("연평균 성장률", f"{g:+.1f}%" if g is not None else "계산 안 함 (시작·끝은 0보다 커야 해요)"),
+                             ("전체 증감률", f"{(b - a) / a * 100:+.1f}%" if a > 0 else "-")])
         with tabs[4]:
             text = st.text_area("한 줄에 하나씩 (이름 값 또는 값만)", key="calc_share", height=120,
                                 placeholder="반도체 1,200\n자동차 600\n기타 200")
             st.button("비중 계산", key="calc_share_go", use_container_width=True)  # 폰은 Ctrl+Enter가 없어, 누르면 입력이 반영돼 계산된다
             items, total = ct.shares(text)
             if items:
-                df = pd.DataFrame([{"항목": n, "값": ct.num_text(v, 2), "비중": f"{p:,.1f}%" if p is not None else "-"} for n, v, p in items]
+                df = pd.DataFrame([{"항목": n, "값": ct.num_text(v, 2), "비중": f"{p:.1f}%" if p is not None else "-"} for n, v, p in items]
                                   + [{"항목": "합계", "값": ct.num_text(total, 2), "비중": "100%"}])
                 st.dataframe(df, hide_index=True, height=(len(df) + 1) * 35 + 3)
         with tabs[5]:
@@ -11407,7 +11407,7 @@ def render_calculator():
             st.button("글자 수 세기", key="calc_text_go", use_container_width=True)  # 폰은 Ctrl+Enter가 없어, 누르면 입력이 반영돼 계산된다
             if text.strip():
                 t = ct.text_stats(text)
-                calc_result([("공백 포함", f"{t['with_space']:,}자"), ("공백 제외", f"{t['no_space']:,}자"),
+                calc_result([("공백 포함", f"{t['with_space']:}자"), ("공백 제외", f"{t['no_space']:}자"),
                              ("200자 원고지", f"{t['sheets']}매"), ("문장", f"{t['sentences']}개"), ("문단", f"{t['paras']}개")])
         with tabs[6]:
             today = datetime.now(KST).date()
@@ -11420,7 +11420,7 @@ def render_calculator():
             d2 = st.date_input("다른 날짜 (사이 일수·D-day)", value=None, key="calc_d2", format="YYYY.MM.DD")
             if d2:
                 gap = (d2 - d1).days
-                calc_result([("사이 일수", f"{gap:+,}일"), ("영업일", f"{ct.business_days_between(d1, d2):+,}일"),
+                calc_result([("사이 일수", f"{gap:+}일"), ("영업일", f"{ct.business_days_between(d1, d2):+}일"),
                              ("D-day", "D-day" if gap == 0 else (f"D-{gap}" if gap > 0 else f"D+{-gap}"))])
             st.caption("영업일은 토·일만 빼요 (공휴일은 빼지 않아요).")
 

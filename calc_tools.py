@@ -1,4 +1,5 @@
-"""제목 옆 '계산기'의 계산 (화면 없음): 증감률, 금액 단위, 연평균 성장률, 비중, 글자 수, 날짜."""
+"""제목 옆 '계산기'의 계산 (화면 없음): 증감률, 금액 단위, 연평균 성장률, 비중, 글자 수, 날짜.
+결과는 기사에 바로 옮겨 쓰므로 중앙일보 표기대로 숫자에 쉼표를 넣지 않는다."""
 import math
 import re
 from datetime import date, timedelta
@@ -61,9 +62,9 @@ def num_text(v, digits=1):
     """숫자 -> 쉼표 붙인 글 (정수면 소수점 없이)"""
     if v is None:
         return "-"
-    if abs(v - round(v)) < 1e-9 and abs(v) < 1e15:
-        return f"{int(round(v)):,}"
-    return f"{v:,.{digits}f}"
+    if abs(v - round(v)) < 1e-9:
+        return str(int(round(v)))
+    return f"{v:.{digits}f}"
 
 
 def won_words(won):
@@ -75,11 +76,11 @@ def won_words(won):
     if w >= 1e8:
         eok = int(round(w / 1e8))
         jo, rest = divmod(eok, 10000)
-        body = f"{jo:,}조{rest}억원" if jo and rest else (f"{jo:,}조원" if jo else f"{rest:,}억원")
+        body = f"{jo}조{rest}억원" if jo and rest else (f"{jo}조원" if jo else f"{rest}억원")
     elif w >= 1e4:
-        body = f"{int(round(w / 1e4)):,}만원"
+        body = f"{int(round(w / 1e4))}만원"
     else:
-        body = f"{int(round(w)):,}원"
+        body = f"{int(round(w))}원"
     return sign + body
 
 
@@ -89,7 +90,7 @@ def convert(value, unit):
     rows = []
     for u, mult in UNIT_MULT.items():
         v = won / mult
-        rows.append((u, f"{v:,.4f}".rstrip("0").rstrip(".") if abs(v) < 1e15 else f"{v:.3e}"))
+        rows.append((u, f"{v:.4f}".rstrip("0").rstrip(".")))  # 중앙일보 표기: 숫자에 쉼표를 쓰지 않는다
     return won, rows, won_words(won)
 
 
@@ -167,11 +168,11 @@ def kor_number(n):
     for word, mult in (("조", 1e12), ("억", 1e8), ("만", 1e4)):
         q = int(w // mult)
         if q:
-            parts.append(f"{q:,}{word}" if word == "조" else f"{q}{word}")
+            parts.append(f"{q}{word}")
             w -= q * mult
     rest = round(w, 2)
     if rest:
-        parts.append(f"{rest:,.2f}".rstrip("0").rstrip(".") if not parts else str(int(round(rest))))
+        parts.append(f"{rest:.2f}".rstrip("0").rstrip(".") if not parts else str(int(round(rest))))
     return sign + ("".join(parts) if parts else "0")
 
 
@@ -183,10 +184,10 @@ def en_number(n):
     for word, mult in EN_UNITS:
         v = n / mult
         if abs(v) >= 1:
-            out.append(f"{v:,.4f}".rstrip("0").rstrip(".") + f" {word}")
+            out.append(f"{v:.4f}".rstrip("0").rstrip(".") + f" {word}")
             if len(out) == 2:
                 break
-    return out or [f"{n:,.2f}".rstrip("0").rstrip(".")]
+    return out or [f"{n:.2f}".rstrip("0").rstrip(".")]
 
 
 def parse_en(text):
