@@ -36,22 +36,22 @@ concurrency:
 
 jobs:
   digest:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Ubuntu 26 자동 전환을 피하려고 고정 (2026.10)
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install requests
       # 이미 보낸 기사 기록을 회차 사이에 이어 쓰기 위한 저장소
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: digest_seen.json
           key: digest-seen-${{ github.run_id }}
           restore-keys: digest-seen-
       # 받는 사람이 봇 명령(/섹터 등)으로 바꾼 설정 (30분마다 도는 '알람 명령 확인'과 함께 쓰는 저장소)
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: digest_prefs.json
           key: digest-prefs-${{ github.run_id }}
