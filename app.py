@@ -445,7 +445,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 16:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 16:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9386,44 +9386,6 @@ def render_px_board(data):
                + ("  \n장중에는 5분봉으로 추정한 누적 거래대금 기준이고, 시총은 전일 시총을 가격 변화율로 늘린 근사값이에요." if b["intraday"] else ""))
 
 
-def render_px_features(data):
-    """특징주: 등락률이 크거나 거래대금이 갑자기 늘어난 종목과 그 무렵의 기사·공시"""
-    b = px_basis(data)
-    day = b["day"]
-    sectors = px_sector_codes(data)
-    labels = px_labels(data, sectors)
-    scope = st.radio("대상", ["섹터 기업", "추적 종목 전체"], horizontal=True, key="px_ft_scope")
-    c1, c2 = st.columns(2)
-    rate_thr = c1.slider("등락률 기준 (±%)", 3.0, 15.0, 5.0, 0.5, key="px_ft_rate")
-    ratio_thr = c2.slider("거래대금 배수 (직전 20거래일 평균 대비)", 2.0, 10.0, 3.0, 0.5, key="px_ft_ratio")
-    snap = b["snap"]
-    if scope == "섹터 기업":
-        snap = snap[snap["code"].isin({c for cs in sectors.values() for c in cs})]
-    feats = sc.pick_features(snap, rate_thr, ratio_thr)
-    st.caption(f"{b['label']} · {scope} {len(snap)}곳 중 등락률 ±{rate_thr:g}% 이상이거나 거래대금이 평균의 {ratio_thr:g}배 이상인 종목"
-               + (" (장중에는 누적 거래대금 기준)" if b["intraday"] else ""))
-    if feats.empty:
-        st.info("기준에 맞는 종목이 없어요. 기준을 낮춰 보세요.")
-        return
-    st.dataframe(px_stock_table(feats, labels, ratio_thr).style.map(price_style, subset=["등락률"]), hide_index=True)
-
-    archive = get_stored("archive.json")
-    names = list(feats["name"])
-    st.markdown("##### 관련 기사·공시")
-    name = st.selectbox("종목", names, key="px_ft_pick")
-    if not archive:
-        st.caption("모아 둔 기사·공시 자료를 불러오지 못했어요.")
-        return
-    d0 = pd.Timestamp(day)
-    events = px_events(archive, name, d0 - pd.Timedelta(days=1), d0)
-    if not events:
-        st.caption("기준일과 그 전날에 모아 둔 기사·공시가 없어요. 섹터 기업의 통신·단독 기사와 주요 공시만 모아요.")
-    for e in events[:10]:
-        title = e["title"].replace("[", "(").replace("]", ")")
-        st.markdown(f"- [{title}]({e['url']}) · {e['kind']} · {e['dt']:%m.%d %H:%M}")
-    st.caption("기사·공시는 원인이 아니라 같은 시기에 나온 것이에요. 공시는 접수 날짜만 알 수 있어요.")
-
-
 def render_px_intraday_now(data):
     """장중 현황: 오늘 종목별 흐름(작은 그래프)과 최근 구간(15분·30분·1시간)에 많이 움직인 종목, 섹터 흐름"""
     intra = get_intraday()
@@ -9479,21 +9441,19 @@ def render_px_intraday_now(data):
 
 
 def render_stock():
-    """탭: 주가 - 시세판 / 특징주 / 업계 비교 / 주가·이벤트 (KRX 일별 종가를 매일 쌓은 자료)"""
+    """탭: 주가 - 장중 현황 / 시세판 / 업계 비교 / 주가·이벤트 (KRX 일별 종가를 매일 쌓은 자료)"""
     data = get_prices()
     if data is None:
         st.info("시세 자료가 아직 없어요. 매 평일 아침 GitHub 작업이 KRX 시세를 모아 두는데, 처음에는 과거 시세를 채우느라 며칠 걸릴 수 있어요.")
         return
     dates = sc.dates_of(data)
     st.caption("자료 기준", help=f"종가는 KRX 일별 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일, 평일 아침 갱신)  \n장중은 야후 파이낸스 5분봉(비공식)을 장중 30분마다 갱신")
-    mode = st.radio("보기", ["장중 현황", "시세판", "특징주", "업계 비교", "주가·이벤트"], horizontal=True, key="px_mode", label_visibility="collapsed")
+    mode = st.radio("보기", ["장중 현황", "시세판", "업계 비교", "주가·이벤트"], horizontal=True, key="px_mode", label_visibility="collapsed")
     track_choice("px_mode", "주가 분석")
     if mode == "시세판":
         render_px_board(data)
     elif mode == "장중 현황":
         render_px_intraday_now(data)
-    elif mode == "특징주":
-        render_px_features(data)
     elif mode == "업계 비교":
         render_px_rivals(data)
     else:
