@@ -558,18 +558,33 @@ def enrich_earnings(items, seen, now, dry=False):
 SPORTS_RSS_URLS = ("https://www.yna.co.kr/rss/sports.xml", "https://www.yna.co.kr/rss/local.xml")  # 스포츠, 전국(지방 소식): 둘 다 통신 기사에서 뺀다
 
 
+SPORTS_TITLES_URL = "https://raw.githubusercontent.com/brucerue/DART-Joongang/sports-titles/sports_titles.json"  # 매시간 모아 둔 스포츠·전국 RSS 제목(30일)
+
+
 def sports_feed_keys():
-    """연합뉴스 스포츠·전국 RSS의 제목 -> 비교용 글자 목록. 못 읽은 RSS는 건너뛴다(둘 다 못 읽으면 빈 목록: 낱말 목록만 쓴다)."""
+    """연합뉴스 스포츠·전국 기사 제목 -> 비교용 글자 목록. 두 곳을 합친다: ① RSS를 지금 바로 읽은 것(가장 새 기사까지, 서버가 늦으면 두 번 더 시도),
+    ② GitHub에 매시간 모아 둔 30일치 목록(①이 실패했을 때의 보험). 둘 다 못 읽으면 빈 목록(낱말 목록만 쓴다)."""
     keys = []
     for url in SPORTS_RSS_URLS:
-        try:
-            res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (news-digest)"}, timeout=(10, 30))
-            res.raise_for_status()
-            root = ET.fromstring(res.content)
-            keys += [A["title_key"](t) for t in (it.findtext("title") or "" for it in root.iter("item")) if t.strip()]
-        except Exception as e:
-            print(f"RSS({url.rsplit('/', 1)[-1]})를 읽지 못해 그 부분은 건너뜁니다: {e}", file=sys.stderr)
-    return tuple(keys)
+        for attempt in range(3):  # 연합뉴스 서버가 가끔 늦어서 다시 시도한다 (실패하면 지방 기사가 알람에 섞인다)
+            try:
+                res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (news-digest)"}, timeout=(10, 30))
+                res.raise_for_status()
+                root = ET.fromstring(res.content)
+                keys += [A["title_key"](t) for t in (it.findtext("title") or "" for it in root.iter("item")) if t.strip()]
+                break
+            except Exception as e:
+                if attempt == 2:
+                    print(f"RSS({url.rsplit('/', 1)[-1]})를 읽지 못해 그 부분은 건너뜁니다: {e}", file=sys.stderr)
+                else:
+                    time.sleep(5)
+    try:
+        res = requests.get(SPORTS_TITLES_URL, timeout=(10, 30))
+        res.raise_for_status()
+        keys += [it["k"] for it in res.json().get("items", []) if it.get("k")]
+    except Exception as e:
+        print(f"모아 둔 스포츠·전국 제목 목록을 읽지 못해 그 부분은 건너뜁니다: {e}", file=sys.stderr)
+    return tuple(dict.fromkeys(keys))
 
 
 def collect(mode, sector, cutoff, google=None):
