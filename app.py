@@ -433,7 +433,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 11:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 11:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9372,7 +9372,7 @@ def run_js(code):
 # 수출 (관세청 수출입 통계: GitHub 'trade' 브랜치의 trade.json, trade_data.py가 매일 모아 둠)
 # ------------------------------------------------------------
 TRADE_BRANCH = "trade"
-TRADE_VIEWS = ["AI 무역 분석", "검색", "월간 현황", "10일 단위", "국가"]  # AI 검색을 맨 앞 보기로 (검색 안 종류에서 꺼냄)
+TRADE_VIEWS = ["AI 검색", "일반 검색", "월간", "10일", "국가"]  # 탭 이름이 'AI 무역 통계'이고 AI 검색이 첫 보기 (검색 안 종류에서 꺼냄)
 CUSTOMS_KEY = load_secret("CUSTOMS_API_KEY")  # 공공데이터포털 일반 인증키 (검색 화면이 품목별 국가별 수출입실적 API를 직접 부른다)
 TRADE_ITEM_URL = "https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH
 TRADE_KINDS = ["일반", "국가별", "품목별"]
@@ -10735,7 +10735,7 @@ def render_trade_country(data):
 
 
 def render_trade():
-    """탭: 무역 통계 - 관세청 수출입 통계(AI 무역 분석·검색·월간 현황·10일 단위·국가)"""
+    """탭: AI 무역 통계 - 관세청 수출입 통계(AI 검색·일반 검색·월간·10일·국가)"""
     data = get_trade()
     if data is None:
         st.info("수출입 자료를 아직 불러오지 못했어요. 처음이라면 GitHub Actions의 '수출입 통계 모으기'를 한 번 실행해 주세요.")
@@ -10747,7 +10747,7 @@ def render_trade():
                    f"월별 자료 {months[0].replace('-', '.')} ~ {months[-1].replace('-', '.')} · 자료 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}  \n"
                    "증감은 전년 같은 달 대비이고, 파랑은 늘어난 것·빨강은 줄어든 것이에요.")
         view = st.radio("보기", TRADE_VIEWS, horizontal=True, key="tr_view", label_visibility="collapsed")
-        {"AI 무역 분석": render_trade_ai, "검색": render_trade_search, "월간 현황": render_trade_monthly, "10일 단위": render_trade_tenday, "국가": render_trade_country}[view](data)
+        {"AI 검색": render_trade_ai, "일반 검색": render_trade_search, "월간": render_trade_monthly, "10일": render_trade_tenday, "국가": render_trade_country}[view](data)
 
 
 # ------------------------------------------------------------
@@ -10877,7 +10877,7 @@ def _render_today_body(rec):
 
 
 # ------------------------------------------------------------
-# AI 검색 (재무 분석 · 공시 분석) — 무역 통계 AI 검색과 같은 방식:
+# AI 검색 (재무 분석 · 공시 분석) — 'AI 무역 통계' 탭의 AI 검색과 같은 방식:
 #  AI는 질문을 '조회 조건'으로 바꾸거나 원문에서 그대로 옮긴 글을 고르기만 하고, 숫자는 DART 자료·원문에서 나온다.
 #  AI가 준 조건은 허용된 값으로 거르고(ai_search.py), 옮긴 글·숫자는 원문에 정말 있는지 확인해 표시한다.
 # ------------------------------------------------------------
@@ -11279,7 +11279,7 @@ def render_disc_ai_search():
                "'확인 필요'는 원문에서 같은 표기를 찾지 못한 것이니 원문으로 확인하세요. 합계는 원문 확인된 원화 금액만 더했어요.")
 
 
-TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 분석", "주가 분석", "공시 분석", "산업 뉴스", "무역 통계", "실적 캘린더", "정기보고서", "재계 순위"]
+TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 분석", "주가 분석", "공시 분석", "산업 뉴스", "AI 무역 통계", "실적 캘린더", "정기보고서", "재계 순위"]
 SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 숨겨 둔 탭(이슈 타임라인)이 보임
 if SHOW_LAB:
     TAB_NAMES += ["이슈 타임라인"]  # 관리자용 탭은 맨 끝
@@ -11290,7 +11290,7 @@ try:
 except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
     tabs = st.tabs(TAB_NAMES)
 by_name = dict(zip(TAB_NAMES, tabs))
-tab_today, tab_brief, tab_fin, tab_trade, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in ("오늘의 현황", "기업 브리핑", "재무 분석", "무역 통계", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"))
+tab_today, tab_brief, tab_fin, tab_trade, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in ("오늘의 현황", "기업 브리핑", "재무 분석", "AI 무역 통계", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"))
 with tab_today:
     render_today()
 with tab_brief:
