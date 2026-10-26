@@ -433,7 +433,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 01:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 09:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7472,6 +7472,7 @@ h1 { font-size: 2.15rem !important; font-weight: 800 !important; letter-spacing:
 [data-testid="stMainBlockContainer"] { position: relative; }
 .st-key-alarm_top { position: absolute; top: 3.9rem; right: 1rem; width: auto !important; z-index: 5; }
 .st-key-calc_box { width: min(26rem, calc(100vw - 3rem)) !important; }  /* 계산기 창: 칸마다 같은 크기 (높이는 st.container(height)로 고정, 넘치면 안에서 스크롤) */
+[class*="st-key-calc_clr"] button { min-height: 0 !important; padding: 0.2rem 0.6rem !important; font-size: 0.8rem !important; color: #7a8699 !important; border-color: #dde3ec !important; }  /* 계산기 '지우기': 작고 연하게 */
 .calc-out { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.4rem; margin: 0.4rem 0; }
 .calc-out .cc { background: #f4f7fb; border-radius: 10px; padding: 0.35rem 0.6rem; }
 .calc-out .l { display: block; font-size: 0.72rem; color: #7a8699; }
@@ -11373,6 +11374,25 @@ def calc_num(label, key, placeholder):
     return v, pct
 
 
+def calc_clear(values):
+    """지우기 버튼: 그 칸의 입력값을 비운다 (다른 칸은 그대로)"""
+    for k, v in values.items():
+        st.session_state[k] = v
+
+
+def calc_clear_button(key, values, label="지우기"):
+    st.button(label, key=key, on_click=calc_clear, args=(values,), use_container_width=True)
+
+
+def calc_go_and_clear(go_key, go_label, clr_key, values):
+    """'계산' 버튼과 '지우기' 버튼을 한 줄에"""
+    c1, c2 = st.columns([3, 1])
+    with c1:
+        st.button(go_label, key=go_key, use_container_width=True)  # 폰은 Ctrl+Enter가 없어, 누르면 입력이 반영돼 계산된다
+    with c2:
+        calc_clear_button(clr_key, values)
+
+
 def render_calculator():
     """제목 옆 '계산기': 숫자를 보면서 바로 쓰는 계산 도구 (앱 안에서 계산만, 외부 조회 없음)"""
     with st.popover("🧮 계산기"), st.container(key="calc_box", height=460, border=False):  # 창 크기는 CSS로 고정 (칸마다 같은 크기, 넘치면 안에서 스크롤)
@@ -11381,6 +11401,7 @@ def render_calculator():
             st.caption("이전 값과 지금 값을 넣으면 증감률·증감액·배수가 나와요. 쉼표·조·억·△(마이너스)·%를 그대로 붙여넣어도 돼요.")
             a, ap = calc_num("이전 값 (A)", "calc_a", "예: 1조2,345억 / 8.1%")
             b, bp = calc_num("지금 값 (B)", "calc_b", "예: 1조5,000억 / 9.4%")
+            calc_clear_button("calc_clr0", {"calc_a": "", "calc_b": ""})
             if a is not None and b is not None:
                 r = ct.change(a, b)
                 rows = [("판정", r["status"]),
@@ -11395,7 +11416,7 @@ def render_calculator():
         with tabs[1]:
             st.caption("한 줄에 '항목 작년값 올해값'. 엑셀에서 이름·작년·올해 세 열을 복사해 붙여넣어도 돼요.")
             text = st.text_area("항목 작년값 올해값", key="calc_tc", height=120, placeholder="반도체 1200 1500\n자동차 600 620\n석유제품 400 350", label_visibility="collapsed")
-            st.button("표 증감 계산", key="calc_tc_go", use_container_width=True)  # 폰은 Ctrl+Enter가 없어, 누르면 입력이 반영돼 계산된다
+            calc_go_and_clear("calc_tc_go", "표 증감 계산", "calc_clr1", {"calc_tc": ""})
             rows, total = ct.table_change(text)
             if rows:
                 def pct(v, sign=False):
@@ -11412,6 +11433,7 @@ def render_calculator():
             with c1:
                 v, _ = calc_num("숫자", "calc_unit_v", "예: 1,234,567")
             unit = c2.selectbox("단위", list(ct.UNIT_MULT), index=list(ct.UNIT_MULT).index("백만원"), key="calc_unit_u")
+            calc_clear_button("calc_clr2", {"calc_unit_v": "", "calc_fx": ""})
             if v is not None:
                 won, rows, words = ct.convert(v, unit)
                 calc_result([("기사체", words)] + rows)
@@ -11425,6 +11447,7 @@ def render_calculator():
             if v is not None:
                 calc_result([("영어", t) for t in ct.en_number(v)])
             raw = st.text_input("영어 → 한글", key="calc_en_en", placeholder="예: $3.5 billion / 350 million / 1.2tn")
+            calc_clear_button("calc_clr3", {"calc_en_ko": "", "calc_en_en": ""})
             if raw.strip():
                 n = ct.parse_en(raw)
                 if n is None:
@@ -11436,6 +11459,7 @@ def render_calculator():
             b, _ = calc_num("끝 값", "calc_g_b", "예: 200")
             years = st.number_input("기간 (년)", min_value=0.0, value=5.0, step=1.0, key="calc_g_n",
                                     help="2020년→2025년이면 5년 (끝 연도 − 시작 연도)")
+            calc_clear_button("calc_clr4", {"calc_g_a": "", "calc_g_b": "", "calc_g_n": 5.0})
             g = ct.cagr(a, b, years)
             if a is not None and b is not None:
                 calc_result([("연평균 성장률", f"{g:+.1f}%" if g is not None else "계산 안 함 (시작·끝은 0보다 커야 해요)"),
@@ -11443,7 +11467,7 @@ def render_calculator():
         with tabs[5]:
             text = st.text_area("한 줄에 하나씩 (이름 값 또는 값만)", key="calc_share", height=120,
                                 placeholder="반도체 1,200\n자동차 600\n기타 200")
-            st.button("비중 계산", key="calc_share_go", use_container_width=True)  # 폰은 Ctrl+Enter가 없어, 누르면 입력이 반영돼 계산된다
+            calc_go_and_clear("calc_share_go", "비중 계산", "calc_clr5", {"calc_share": ""})
             items, total = ct.shares(text)
             if items:
                 df = pd.DataFrame([{"항목": n, "값": ct.num_text(v, 2), "비중": f"{p:.1f}%" if p is not None else "-"} for n, v, p in items]
@@ -11451,7 +11475,7 @@ def render_calculator():
                 st.dataframe(df, hide_index=True, height=(len(df) + 1) * 35 + 3)
         with tabs[6]:
             text = st.text_area("원고 붙여넣기", key="calc_text", height=160)
-            st.button("글자 수 세기", key="calc_text_go", use_container_width=True)  # 폰은 Ctrl+Enter가 없어, 누르면 입력이 반영돼 계산된다
+            calc_go_and_clear("calc_text_go", "글자 수 세기", "calc_clr6", {"calc_text": ""})
             if text.strip():
                 t = ct.text_stats(text)
                 calc_result([("공백 포함", f"{t['with_space']:}자"), ("공백 제외", f"{t['no_space']:}자"),
@@ -11469,6 +11493,7 @@ def render_calculator():
                 gap = (d2 - d1).days
                 calc_result([("사이 일수", f"{gap:+}일"), ("영업일", f"{ct.business_days_between(d1, d2):+}일"),
                              ("D-day", "D-day" if gap == 0 else (f"D-{gap}" if gap > 0 else f"D+{-gap}"))])
+            calc_clear_button("calc_clr7", {"calc_d1": today, "calc_dn": 0, "calc_d2": None})
             st.caption("영업일은 토·일만 빼요 (공휴일은 빼지 않아요).")
 
 
