@@ -445,7 +445,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 17:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 18:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7581,6 +7581,7 @@ h1 { font-size: 2.15rem !important; font-weight: 800 !important; letter-spacing:
 .st-key-alarm_top button * { overflow: visible !important; text-overflow: clip !important; max-width: none !important; }
 .st-key-alarm_top > div, .st-key-alarm_top [data-testid="stPopover"] { width: auto !important; min-width: 0 !important; }
 .st-key-alarm_top button:hover { border-color: #1c7ed6 !important; color: #1c7ed6 !important; }
+.lab-lbl { margin: 1.2rem 0 0.2rem; font-size: 0.78rem; font-weight: 700; color: #7a8699; letter-spacing: 0.06em; }  /* 관리자 탭 제목 */
 .st-key-bottom_bar { flex-wrap: wrap !important; }
 .st-key-bottom_bar > div, .st-key-bottom_bar [data-testid="stPopover"] { width: auto !important; flex: 0 0 auto !important; }  /* 맨 아래 버튼 세 개: 글자 폭만큼만 (창 자체는 넓게) */
 .st-key-bottom_bar [data-testid="stPopover"] > button { width: auto !important; }
@@ -11432,7 +11433,7 @@ def render_usage_stats():
 
 
 TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 분석", "주가 분석", "공시 분석", "산업 뉴스", "AI 무역 통계", "실적 캘린더", "정기보고서", "재계 순위"]
-SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 맨 아래 알람 버튼 옆에 '타임라인'·'사용 통계' 창이 보임
+SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 맨 아래(알람 버튼 밑)에 관리자 탭 '타임라인'·'사용 통계'가 보임 (위 탭 줄은 그대로)
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 산업 뉴스 탭을 먼저 연다
 first_tab = "산업 뉴스" if apply_watchlist() else None
 try:
@@ -11657,11 +11658,13 @@ def render_calculator():
 
 with st.container(key="alarm_top"):  # 코드는 맨 아래지만 CSS로 제목 오른쪽 위에 작게 띄움
     render_calculator()
-with st.container(key="bottom_bar", horizontal=True, gap="small"):  # 맨 아래: 알람 받기 (+ 관리자 주소면 타임라인·사용 통계 창)
+with st.container(key="bottom_bar", horizontal=True, gap="small"):  # 맨 아래: 알람 받기
     render_alarm_signup()
-    if SHOW_LAB:
-        with st.popover("🗂 타임라인", width="stretch"):
-            render_timeline()
-        with st.popover("📊 사용 통계", width="stretch"):
-            render_usage_stats()
+if SHOW_LAB:  # 관리자 주소(?lab=1): 위 탭 줄은 일반 사용자와 똑같이 두고, 관리자용 탭은 맨 아래에 따로 (내용은 보통 탭처럼 펼쳐짐)
+    st.markdown('<div class="lab-lbl">관리자</div>', unsafe_allow_html=True)
+    lab_tl, lab_use = st.tabs(["타임라인", "사용 통계"])
+    with lab_tl:
+        render_timeline()
+    with lab_use:
+        render_usage_stats()
 st.caption(f"updated {LAST_UPDATED}")  # 맨 아래
