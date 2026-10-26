@@ -446,7 +446,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 23:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 23:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5733,9 +5733,9 @@ def render_news_search(kind):
                     if period == "오늘":  # 구글·네이버는 '24시간' 단위로 찾으니, 오늘 0시(한국시간) 이후 기사만 남긴다
                         today0 = datetime.now(KST).replace(hour=0, minute=0, second=0, microsecond=0)
                         items = [i for i in items if i["dt"] >= today0]
-                    if kind == "통신":  # 통신: 스포츠 기사는 기업명이 들어 있어도 뺀다 (낱말 + 연합뉴스 스포츠 제목 목록)
+                    if kind in ("통신", "일반"):  # 스포츠 기사는 기업명이 들어 있어도 뺀다 (낱말 목록은 모든 언론사, 연합뉴스 스포츠·전국 RSS 제목 목록은 연합 기사에)
                         sports_keys = load_sports_keys()
-                        items = [i for i in items if not is_sports(i["title"], sports_keys)]
+                        items = [i for i in items if not is_sports(i["title"], sports_keys if (kind == "통신" or i["publisher"] == "연합뉴스") else ())]
                     if yna_only:  # 연합만: 연합뉴스 아닌 기사(뉴시스·뉴스1 등)는 뺀다
                         items = [i for i in items if i["publisher"] == "연합뉴스"]
                     keys = {t: name_key(t) for t in owner}

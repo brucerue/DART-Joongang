@@ -609,12 +609,12 @@ def collect(mode, sector, cutoff, google=None):
             raise RuntimeError(f"구글 뉴스 오류: {err}")
         sports_keys = sports_feed_keys()  # 연합뉴스 스포츠 RSS의 제목 (낱말 목록과 함께 스포츠 기사를 뺀다)
         items = [i for i in items if i["category"] == "통신사" and i["publisher"] == "연합뉴스" and not A["is_sports"](i["title"], sports_keys)]
-    elif mode == "일반":  # 단독 표기와 상관없이 목록에 있는 언론사 기사 전부 (연합뉴스 기사는 통신과 같은 스포츠·지방 거르기)
+    elif mode == "일반":  # 단독 표기와 상관없이 목록에 있는 언론사 기사 전부. 스포츠 낱말은 모든 언론사에, 연합뉴스 스포츠·전국 RSS 제목은 연합 기사에 적용해 뺀다
         items, err = google(search, list(A["PUBLISHERS"]), "", cutoff)
         if err:
             raise RuntimeError(f"구글 뉴스 오류: {err}")
         sports_keys = sports_feed_keys()
-        items = [i for i in items if i["category"] and not (i["category"] == "통신사" and A["is_sports"](i["title"], sports_keys))]
+        items = [i for i in items if i["category"] and not A["is_sports"](i["title"], sports_keys if i["publisher"] == "연합뉴스" else ())]
     else:
         items, err = google(search, list(A["PUBLISHERS"]), "단독", cutoff)
         if USE_NAVER and os.environ.get("NAVER_CLIENT_ID"):  # 구글 뉴스에 네이버 뉴스를 항상 합친다(구글이 늦게 반영하는 기사를 네이버가 메움)
