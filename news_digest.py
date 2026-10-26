@@ -1020,10 +1020,10 @@ def run_command(text, sub, prefs):
         mine["hours"] = list(h)
         return f"받는 시간을 {h[0]}~{h[1]}시로 바꿨어요. 이 시간 밖에 나온 기사는 시작 시각에 한꺼번에 와요."
     if cmd in ("종류", "modes", "mode"):
-        chosen, bad = parse_choice(rest, list(MODES), {"전체": list(DEFAULT_MODES)})  # '전체'는 전부터 쓰던 뜻 그대로 통신·단독·공시 (일반은 따로 적어야 받는다)
+        chosen, bad = parse_choice(rest, list(MODES), {"전체": list(MODES)})  # 전체 = 통신·단독·일반·공시 모두
         if bad or not chosen:
             head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 종류를 같이 보내주세요. 예: /종류 통신 공시"
-            return f"{head}\n\n가능한 종류: {', '.join(MODES)} / 전체(통신·단독·공시)"
+            return f"{head}\n\n가능한 종류: {', '.join(MODES)} / 전체"
         mine["modes"] = chosen
         sub["modes"] = chosen
         return "받을 종류를 바꿨어요: " + ", ".join(chosen)

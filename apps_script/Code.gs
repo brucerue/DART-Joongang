@@ -610,10 +610,10 @@ function runCommand_(text, sub, prefs, cid) {
     return "✅ 받는 시간을 " + nums[0] + "~" + nums[1] + "시로 바꿨어요. 이 시간 밖에 나온 기사는 시작 시각 기준 12시간 안에 나온 것만 와요.\n\n" + describe_(sub, mine);
   }
   if (["종류", "modes", "mode"].indexOf(cmd) >= 0) {
-    var r2 = parseChoice_(rest, cfg_().modes, { "전체": cfg_().defaultModes });   // '전체'는 전부터 쓰던 뜻 그대로 통신·단독·공시 (일반은 따로 적어야 받는다)
+    var r2 = parseChoice_(rest, cfg_().modes, { "전체": cfg_().modes });   // 전체 = 통신·단독·일반·공시 모두
     if (r2.bad.length || !r2.chosen.length) {
       return (r2.bad.length ? "알아듣지 못한 말: " + r2.bad.join(", ") : "받을 종류를 같이 보내주세요. 예: /종류 통신 공시") +
-        "\n\n가능한 종류: " + cfg_().modes.join(", ") + " / 전체(통신·단독·공시)";
+        "\n\n가능한 종류: " + cfg_().modes.join(", ") + " / 전체";
     }
     mine.modes = r2.chosen;
     sub.modes = r2.chosen;
