@@ -170,20 +170,29 @@ def parse_items(xml_text):
     return out
 
 
-def query_items(fetch, hs, cnty, start, end):
+def query_items(fetch, hs, cnty, start, end, workers=1):
     """품목·국가 조건으로 월별 행을 모두 받는다. fetch(params dict) -> 응답 글. 1년 넘는 기간은 나눠서 받는다.
-    hs: 2·4·6자리 코드 또는 None, cnty: 2글자 국가코드 또는 None (둘 중 하나는 있어야 함)"""
+    hs: 2·4·6자리 코드 또는 None, cnty: 2글자 국가코드 또는 None (둘 중 하나는 있어야 함)
+    workers > 1이면 1년 단위 구간들을 동시에 받는다(관세청은 동시 요청을 받아 줘서 3년이면 거의 3배 빠름). 행 순서는 구간 순서 그대로."""
     if not hs and not cnty:
         raise TradeApiError("품목이나 국가 중 하나는 골라야 해요.")
-    rows = []
-    for s, e in chunk_months(start, end):
-        params = {"strtYymm": s, "endYymm": e}
+
+    def one(chunk):
+        params = {"strtYymm": chunk[0], "endYymm": chunk[1]}
         if hs:
             params["hsSgn"] = hs
         if cnty:
             params["cntyCd"] = cnty
-        rows += parse_items(fetch(params))
-    return rows
+        return parse_items(fetch(params))
+
+    chunks = chunk_months(start, end)
+    if workers > 1 and len(chunks) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(workers, len(chunks))) as pool:
+            parts = list(pool.map(one, chunks))
+    else:
+        parts = [one(c) for c in chunks]
+    return [r for part in parts for r in part]
 
 
 def metrics_by_month(rows):

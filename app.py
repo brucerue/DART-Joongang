@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 02:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 03:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9614,7 +9614,7 @@ HS_NOTES = {  # 코드에 대해 확인된 설명(관세청 확인 내용) -> �
 @st.cache_data(ttl=6 * 3600, show_spinner=False, max_entries=60)
 def trade_query(hs, cnty, start, end):
     """품목(hs)·국가(cnty) 조건의 월별 행 (관세청 품목별 국가별 수출입실적 API). 같은 조회는 6시간 동안 저장한 결과를 쓴다. 실패는 TradeApiError."""
-    return tc.query_items(trade_fetch_text, hs, cnty, start, end)
+    return tc.query_items(trade_fetch_text, hs, cnty, start, end, workers=TRADE_CHUNK_WORKERS)
 
 
 @st.cache_resource(show_spinner=False)
@@ -9643,6 +9643,46 @@ def trade_hs_rows(code, start, end, cnty=None):
     if len(code) in (2, 4, 6):
         return trade_query(code, cnty, start, end)
     return [r for r in trade_query(code[:6], cnty, start, end) if r["hs"].startswith(code)]
+
+
+TRADE_PARALLEL = 6  # 관세청을 동시에 부르는 수 (실측: 1년 전체국가 조회 6건이 하나씩 21초 -> 동시에 4.4초)
+TRADE_CHUNK_WORKERS = 3  # 한 조회가 1년을 넘을 때 1년 단위 구간을 동시에 받는 수
+
+
+def trade_prefetch(items, ranges, wait=True):
+    """조회에 쓸 관세청 자료를 미리 동시에 받아 저장소(trade_query·trade_mti_query)에 넣어 둔다.
+    그 뒤의 차례 조회는 저장된 결과를 바로 쓰므로, 품목·기간이 여러 개여도 거의 가장 느린 한 건 시간에 끝난다.
+    items: [('hs'|'mti', 코드)] (20대 품목 '@…'은 모아 둔 자료를 쓰거나 호출이 수백 번이라 빼고 부른다), ranges: [(시작YYYYMM, 끝YYYYMM)].
+    실패는 여기서 무시한다(뒤에서 다시 부를 때 오류가 제대로 보인다). wait=False면 뒤에서 받고 바로 돌아온다."""
+    hs_jobs, mti_jobs = [], []
+    for kind, code in items:
+        for s_ym, e_ym in ranges:
+            if kind == "mti":
+                mti_jobs.append((code, s_ym, e_ym))
+            elif kind == "hs" and len(code) >= 2:
+                hs_jobs.append((code if len(code) in (2, 4, 6) else code[:6], s_ym, e_ym))
+    hs_jobs, mti_jobs = list(dict.fromkeys(hs_jobs)), list(dict.fromkeys(mti_jobs))
+    if not CUSTOMS_KEY or len(hs_jobs) + len(mti_jobs) < (2 if wait else 1):
+        return
+
+    def safe(fn, *a):
+        try:
+            fn(*a)
+        except Exception:
+            pass
+
+    def run():
+        with ThreadPoolExecutor(max_workers=TRADE_PARALLEL) as pool:
+            for j in hs_jobs:
+                pool.submit(safe, trade_query, j[0], None, j[1], j[2])
+            with ThreadPoolExecutor(max_workers=2) as mpool:  # MTI 조회는 안에서 이미 8개씩 동시에 부르므로 두 건까지만 겹친다
+                for j in mti_jobs:
+                    mpool.submit(safe, trade_mti_query, j[0], None, j[1], j[2])
+
+    if wait:
+        run()
+    else:
+        threading.Thread(target=run, daemon=True).start()
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False, max_entries=40)
@@ -9723,6 +9763,8 @@ def trade_series(data, q):
     hs_names = data.get("hs") or {}
     gcountry = get_groups_country(data, q.get("metrics") or ()) if any(k == "mti" and c.startswith(tc.GROUP_PREFIX) for k, c in items) else None
     mti = get_mti() if any(k == "mti" and not (gcountry and c.startswith(tc.GROUP_PREFIX) and c[len(tc.GROUP_PREFIX):] in gcountry) for k, c in items) else None
+    live = [(k, c) for k, c in items if not (k == "mti" and c.startswith(tc.GROUP_PREFIX) and gcountry and c[len(tc.GROUP_PREFIX):] in gcountry)]
+    trade_prefetch(live, [(s_ym, e_ym)] + ([(p_s, p_e)] if q["compare"] else []))  # 올해·전년, 품목 여러 개를 동시에 받아 둔다
     for ikind, code in items:  # 품목은 국가를 정하지 않고 한 번 받아 두고, 지역은 그 행에서 거른다(호출 수가 지역 수와 무관)
         skipped = []
         gname = code[len(tc.GROUP_PREFIX):] if ikind == "mti" and code.startswith(tc.GROUP_PREFIX) else None
@@ -9992,12 +10034,16 @@ def trade_hs_children(code, ym, limit=6):
 
 
 def trade_ai_expand(code, ym):
-    """HS 제안 하나의 하위 코드: 4자리면 6자리 몇 개와 그 아래 10자리, 6자리면 10자리 -> [{code, name, exp, sub: [...]}]"""
-    out = []
-    for c, n, e in trade_hs_children(code, ym):
-        sub = [{"code": c2, "name": n2, "exp": e2, "sub": []} for c2, n2, e2 in trade_hs_children(c, ym)] if len(code) == 4 and len(out) < 3 else []
-        out.append({"code": c, "name": n, "exp": e, "sub": sub})
-    return out
+    """HS 제안 하나의 하위 코드: 4자리면 6자리 몇 개와 그 아래 10자리, 6자리면 10자리 -> [{code, name, exp, sub: [...]}]
+    4자리면 위 3개 6자리의 10자리 목록을 동시에 받는다."""
+    kids = trade_hs_children(code, ym)
+    subs = {}
+    if len(code) == 4 and kids:
+        top = [c for c, _, _ in kids[:3]]
+        with ThreadPoolExecutor(max_workers=len(top)) as pool:
+            subs = dict(zip(top, pool.map(lambda c: trade_hs_children(c, ym), top)))
+    return [{"code": c, "name": n, "exp": e, "sub": [{"code": c2, "name": n2, "exp": e2, "sub": []} for c2, n2, e2 in subs.get(c, [])]}
+            for c, n, e in kids]
 
 
 def trade_ai_ask(text, data):
@@ -10028,10 +10074,32 @@ def trade_ai_ask(text, data):
         return out
 
     out = ai_cached(("trade_ai", text.strip(), ctx["months"][-1]), make)
-    for it in out["items"]:  # 코드 확인은 저장하지 않고 그때그때(관세청 자료로)
-        it["checked"] = trade_hs_check(it["code"], ctx["months"][-1], ctx["hs_names"]) if it["kind"] == "hs" else None
-        it["children"] = trade_ai_expand(it["code"], ctx["months"][-1]) if it["kind"] == "hs" and len(it["code"]) in (4, 6) else []
+    ym = ctx["months"][-1]
+
+    def prep(it):  # 코드 확인·하위 코드 펼치기 (저장하지 않고 그때그때 관세청 자료로)
+        if it["kind"] != "hs":
+            return None, []
+        return trade_hs_check(it["code"], ym, ctx["hs_names"]), (trade_ai_expand(it["code"], ym) if len(it["code"]) in (4, 6) else [])
+
+    with ThreadPoolExecutor(max_workers=TRADE_PARALLEL) as pool:  # 코드 여러 개를 동시에 (하나씩 하면 코드 3개에 30초 넘게 걸렸음)
+        got = list(pool.map(prep, out["items"]))
+    for it, (checked, children) in zip(out["items"], got):
+        it["checked"], it["children"] = checked, children
     return out
+
+
+def trade_ai_warmup(spec, data):
+    """AI 답이 화면에 뜬 뒤 사용자가 코드를 확인하는 동안, 기본으로 체크된 품목의 '조회' 자료(올해·전년)를 뒤에서 미리 받아 둔다.
+    체크를 바꾸지 않고 '조회'를 누르면 저장된 자료로 바로 나온다. 20대 품목은 모아 둔 자료라 필요 없다."""
+    try:
+        items = [it["key"] for it in spec.get("items") or [] if it.get("confidence") != "낮음"
+                 and not (it["kind"] == "group" or str(it["key"][1]).startswith(tc.GROUP_PREFIX))]
+        if not items or not spec.get("start"):
+            return
+        s_ym, e_ym = spec["start"].replace("-", ""), min(spec["end"], data["months"][-1]).replace("-", "")
+        trade_prefetch(items, [(s_ym, e_ym), (tc.month_add(s_ym, -12), tc.month_add(e_ym, -12))], wait=False)
+    except Exception:
+        pass
 
 
 def render_trade_ai(data):
@@ -10051,6 +10119,7 @@ def render_trade_ai(data):
             try:
                 with st.spinner("AI가 코드와 조건을 찾는 중입니다... (몇 초~수십 초)"):
                     st.session_state["tr_ai_spec"] = trade_ai_ask(text, data)
+                trade_ai_warmup(st.session_state["tr_ai_spec"], data)
             except AiError as e:
                 st.session_state.pop("tr_ai_spec", None)
                 st.error(str(e))
@@ -10613,6 +10682,8 @@ def render_trade_rank_result(data, rq):
         tabs = st.tabs([trade_item_label(data, k, c, mti_tab) for k, c in rq["items"]]) if len(rq["items"]) > 1 else [st.container()]
         gcountry = get_groups_country(data, metrics) if any(k == "mti" and c.startswith(tc.GROUP_PREFIX) for k, c in rq["items"]) else None
         with st.spinner("관세청 자료를 불러오는 중입니다... (산업부 품목은 묶인 HS 코드마다 조회해서 몇 초~1분 걸려요)"):
+            live = [(k, c) for k, c in rq["items"] if not (k == "mti" and c.startswith(tc.GROUP_PREFIX) and gcountry and c[len(tc.GROUP_PREFIX):] in gcountry)]
+            trade_prefetch(live, [(s_ym, e_ym)] + ([(p_s, p_e)] if rq["compare"] else []))  # 품목·올해·전년을 동시에 받아 둔다
             for (ikind, code), tab in zip(rq["items"], tabs):
                 gname = code[len(tc.GROUP_PREFIX):] if ikind == "mti" and code.startswith(tc.GROUP_PREFIX) else None
                 if gname and gcountry and gname in gcountry:  # 20대 품목: 미리 모아 둔 자료로 바로
