@@ -19,6 +19,7 @@ import io
 import json
 import os
 import re
+import sys
 import threading
 import uuid
 import time
@@ -446,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 23:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 00:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -540,8 +541,8 @@ def track_choice(key, label):
     seen[key] = cur
 
 
-# AI 기능 (선택). ANTHROPIC_API_KEY가 있으면 Claude(유료), 없고 GEMINI_API_KEY가 있으면 Gemini(무료 한도)를 쓴다.
-# 둘 다 넣어 두었다면 Secrets의 AI_PROVIDER = "gemini" 또는 "claude"로 고를 수 있다.
+# AI 기능 (선택). GEMINI_API_KEY가 있으면 Gemini(무료 한도)를 먼저 쓰고, 한도 소진·서버 혼잡 등으로 실패하면
+# ANTHROPIC_API_KEY(Claude, 유료)로 조용히 넘어가 처리한다 (화면에는 어느 쪽을 썼는지 보이지 않는다). 둘 중 하나만 있으면 그것만 쓴다.
 # 모델 이름은 자주 바뀌므로 Secrets의 GEMINI_MODEL / ANTHROPIC_MODEL로 바꿀 수 있다.
 GEMINI_KEY = load_secret("GEMINI_API_KEY")
 GEMINI_MODEL = load_secret("GEMINI_MODEL") or "gemini-3.6-flash"
@@ -549,13 +550,9 @@ GEMINI_MODEL = load_secret("GEMINI_MODEL") or "gemini-3.6-flash"
 GEMINI_FALLBACK = load_secret("GEMINI_FALLBACK_MODEL") or "gemini-3.5-flash-lite"
 ANTHROPIC_KEY = load_secret("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = load_secret("ANTHROPIC_MODEL") or "claude-haiku-5-5"
-_want = (load_secret("AI_PROVIDER") or "").strip().lower()
-if _want == "gemini" and GEMINI_KEY:
-    AI_PROVIDER = "gemini"
-elif _want == "claude" and ANTHROPIC_KEY:
-    AI_PROVIDER = "claude"
-else:
-    AI_PROVIDER = "claude" if ANTHROPIC_KEY else ("gemini" if GEMINI_KEY else None)
+AI_PROVIDER = "gemini" if GEMINI_KEY else ("claude" if ANTHROPIC_KEY else None)  # 먼저 쓰는 쪽 (None이면 AI 기능 꺼짐)
+GEMINI_REST_SEC = 600  # Gemini 한도(429)에 걸리면 이 시간(초) 동안은 Gemini를 건너뛰고 바로 Claude로 (매번 한도 오류를 거치지 않게)
+_GEMINI_REST = {"until": 0.0}
 
 # 계정명은 회사·연도마다 바뀔 수 있다 (예: LG에너지솔루션 2026년부터 '매출액 및 기타수익').
 # 그래서 표준 계정 코드(_IDS)로 먼저 찾고, 없으면 이름으로 찾는다. 이름은 띄어쓰기를 지우고 비교.
@@ -2158,7 +2155,11 @@ def change_style(cell):
 # AI 공시 요약 (DART 원문 -> Gemini/Claude)
 # ------------------------------------------------------------
 class AiError(Exception):
-    """AI 요약 실패 (키 오류·사용량 초과·원문 없음 등). 화면에 그대로 보여준다."""
+    """AI 요약 실패 (키 오류·사용량 초과·원문 없음 등). 화면에 그대로 보여준다. quota=True면 사용량 한도 초과."""
+
+    def __init__(self, msg, quota=False):
+        super().__init__(msg)
+        self.quota = quota
 
 
 def doc_text_from_zip(data):
@@ -2276,7 +2277,7 @@ def call_gemini(session, prompt, system=None, json_mode=False):
     if res.status_code in (500, 502, 503, 504):
         raise AiError("Gemini 서버가 지금 붐벼서 응답하지 못했어요 (API 키 문제는 아니에요). 1~2분 뒤 다시 눌러주세요.")
     if res.status_code == 429:
-        raise AiError("Gemini 사용량 한도를 넘었어요 (무료 등급은 분·일 한도가 있어요). 잠시 후 다시 시도해주세요.")
+        raise AiError("Gemini 사용량 한도를 넘었어요 (무료 등급은 분·일 한도가 있어요). 잠시 후 다시 시도해주세요.", quota=True)
     if res.status_code == 404:
         raise AiError(f"Gemini 모델 '{model}'을 찾지 못했어요. Secrets의 GEMINI_MODEL 이름을 확인해주세요.")
     if res.status_code in (400, 401, 403):
@@ -2357,10 +2358,18 @@ def ai_summary(rcept_no, title):
 
 
 def ai_generate(prompt, system=None, json_mode=False):
-    """설정된 AI(Gemini 또는 Claude)로 글을 받는다. -> (글, 쓴 모델)"""
+    """AI로 글을 받는다. Gemini를 먼저 쓰고, 실패하면(한도 소진·서버 혼잡·응답 없음 등) Claude 키가 있을 때 조용히 Claude로 넘어간다.
+    한도에 걸린 뒤 GEMINI_REST_SEC 동안은 Gemini를 건너뛴다. -> (글, 쓴 모델) — 쓴 모델은 내부 기록용, 화면에는 보여 주지 않는다"""
     session = get_session()
-    if AI_PROVIDER == "gemini":
-        return call_gemini(session, prompt, system=system, json_mode=json_mode)
+    if GEMINI_KEY and (not ANTHROPIC_KEY or time.time() >= _GEMINI_REST["until"]):
+        try:
+            return call_gemini(session, prompt, system=system, json_mode=json_mode)
+        except AiError as e:
+            if not ANTHROPIC_KEY:
+                raise
+            if e.quota:
+                _GEMINI_REST["until"] = time.time() + GEMINI_REST_SEC
+            print(f"(Gemini 실패라 Claude로 넘김: {e})", file=sys.stderr)
     return call_claude(session, prompt, system=system, json_mode=json_mode), ANTHROPIC_MODEL
 
 
@@ -4055,7 +4064,7 @@ def render_fin_ai(result):
     saved = st.session_state.get("fin_ai")
     if saved and saved["sig"] == prompt_sig:
         st.markdown(saved["text"])
-        st.caption(f"AI 분석({saved['model']}) · 위 표의 숫자만 근거로 한 해석이에요. 원인·배경은 취재로 확인하세요")
+        st.caption(f"AI 분석 · 위 표의 숫자만 근거로 한 해석이에요. 원인·배경은 취재로 확인하세요")
     else:
         st.caption("누르면 위 표(실적·재무상태)를 종합해 흑자·적자 흐름, 수익성, 재무 건전성의 핵심 포인트를 정리해 줘요.")
 
@@ -4435,7 +4444,7 @@ def render_ai_summary(rows, prefix, all_rows=None):
                     st.session_state[f"{prefix}_ai"] = saved
         if saved and saved["rcept_no"] == rno:
             st.markdown(saved["summary"])
-            notes = [f"AI 요약({saved.get('model') or AI_PROVIDER}) · 숫자는 반드시 원문으로 확인하세요"]
+            notes = ["AI 요약 · 숫자는 반드시 원문으로 확인하세요"]
             if saved["truncated"]:
                 notes.append(f"원문이 길어 앞부분 {MAX_DOC_CHARS:,}자만 요약했어요")
             st.caption(" · ".join(notes))
@@ -4458,7 +4467,7 @@ def render_ai_summary(rows, prefix, all_rows=None):
             if fsaved and fsaved["rcept_no"] == rno:
                 st.markdown("**정정 전후 비교**")
                 st.markdown(fsaved["text"])
-                st.caption(f"AI 비교({fsaved['model']}) · 정정 전: {fsaved['prev_title']} · 숫자는 반드시 원문으로 확인하세요")
+                st.caption(f"AI 비교 · 정정 전: {fsaved['prev_title']} · 숫자는 반드시 원문으로 확인하세요")
                 st.markdown(f"[정정 전 원문]({DART_VIEW_URL.format(fsaved['prev'])})")
 
         q = st.text_input("이 공시에 질문하기", key=f"{prefix}_q", placeholder="예: 계약 상대방이 누구야? 자금은 어디에 써?")
@@ -4477,7 +4486,7 @@ def render_ai_summary(rows, prefix, all_rows=None):
                         st.session_state[f"{prefix}_qa"] = qsaved
         if qsaved and qsaved["rcept_no"] == rno and qsaved["q"] == q.strip():
             st.markdown(qsaved["text"])
-            st.caption(f"AI 답변({qsaved['model']}) · 근거 문장을 원문에서 확인하세요")
+            st.caption(f"AI 답변 · 근거 문장을 원문에서 확인하세요")
         st.markdown(f"[DART 원문 보기]({DART_VIEW_URL.format(rno)})")
 
 
@@ -4507,7 +4516,7 @@ def render_news_picks(rows, res_id):
             } for r, why in saved["picks"]])
             st.dataframe(df, hide_index=True, column_config={
                 "이유": st.column_config.TextColumn("이유", width="large"), "원문": LINK_COLUMN})
-            st.caption(f"AI 추천({saved['model']}) · 제목만 보고 고른 것이라 참고용이에요")
+            st.caption(f"AI 추천 · 제목만 보고 고른 것이라 참고용이에요")
 
 
 def render_disclosures():
@@ -8031,7 +8040,7 @@ def render_report_ai():
         st.markdown(res["text"])
     notes = []
     if res["model"]:
-        notes.append(f"AI 분석({res['model']}) · 숫자는 반드시 원문으로 확인하세요")
+        notes.append(f"AI 분석 · 숫자는 반드시 원문으로 확인하세요")
     if res["read"]:
         notes.append("읽은 부분: " + ", ".join(res["read"]))
     if res["missing"]:
@@ -8385,7 +8394,7 @@ def render_brief_overview(b):
     saved = st.session_state.get("brief_ov")
     if saved and saved["rno"] == rno:
         st.markdown(saved["text"])
-        st.caption(f"AI 요약({saved['model']}) · [{saved['name']}]({DART_VIEW_URL.format(saved['used_rno'])}) 발췌만 근거 · 읽은 부분: {', '.join(saved['read'])}")
+        st.caption(f"AI 요약 · [{saved['name']}]({DART_VIEW_URL.format(saved['used_rno'])}) 발췌만 근거 · 읽은 부분: {', '.join(saved['read'])}")
     else:
         st.caption(f"누르면 {strip_correction(row.get('report_nm'))}의 '사업의 내용'을 읽어 회사 소개·주력 제품·부문별 매출 비중을 정리해 줘요.")
 
@@ -8417,7 +8426,7 @@ def render_brief_trend(b):
             st.caption(f"{label}를 불러오지 못해 빼고 정리해요: {b['errors'][key]}")
     if saved and saved["sig"] == sig:
         st.markdown(brief_trend_linkify(saved["text"], brief_trend_sources(b)))
-        st.caption(f"AI 분석({saved['model']}) · 공시 제목과 기사 제목만 보고 정리한 것이에요. 본문은 읽지 않았으니 원문 확인이 필요해요")
+        st.caption(f"AI 분석 · 공시 제목과 기사 제목만 보고 정리한 것이에요. 본문은 읽지 않았으니 원문 확인이 필요해요")
     else:
         st.caption(f"누르면 최근 주요 공시 {0 if not has_disc else len(b['disc'])}건과 기사 {n_news}묶음의 제목을 종합해 이슈를 정리해 줘요. (기사는 최근 1주일 단독·통신 기사와 일반 기사 중 주요 언론사 것만 봐요. 통신 기사는 브리핑 화면에는 보이지 않아요)")
 
@@ -8687,7 +8696,7 @@ def render_brief_result(b):
         saved = st.session_state.get("brief_ai")
         if saved and saved["sig"] == sig:
             st.markdown(saved["text"])
-            st.caption(f"AI 분석({saved['model']}) · 위 실적·공시 자료만 근거로 한 해석이에요. 공시는 제목만 보고 판단한 것이라 원문 확인이 필요해요")
+            st.caption(f"AI 분석 · 위 실적·공시 자료만 근거로 한 해석이에요. 공시는 제목만 보고 판단한 것이라 원문 확인이 필요해요")
         else:
             st.caption("누르면 위 실적·공시 자료를 종합해 취재 포인트와 확인할 질문을 정리해 줘요. (뉴스는 포함하지 않아요)")
 
