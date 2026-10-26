@@ -224,6 +224,16 @@ EXTRA_DISCLOSURES = {
     "상장·거래 위험": ["상장폐지", "관리종목", "거래정지", "회생절차", "파산", "감사의견"],
 }
 
+# 공시 화면의 '보기' 버튼: 위 묶음들을 기자 질문 기준 6개로 합친 것 (앱 화면 전용. 텔레그램 공시 알람 범위는 MAJOR_DISCLOSURES 그대로)
+DISC_VIEW_GROUPS = {
+    "실적·IR": ["영업실적", "기업설명회"],
+    "수주·계약": ["공급계약", "거래 중단·해지"],
+    "자본·M&A": ["증자·감자", "합병·분할", "투자·출자", "사채 발행", "자기주식"],
+    "지배구조": ["지분 변동", "최대주주·대표 변경", "배당"],
+    "풍문·리스크": ["풍문 해명", "소송·제재", "상장·거래 위험"],
+    "정기보고서": ["정기보고서"],
+}
+
 # 공시 유형 (DART 공시 목록 API의 pblntf_ty 값). 빈 문자열은 '전체'
 DISCLOSURE_TYPES = {
     "전체": "",
@@ -434,7 +444,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 12:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 12:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -1684,12 +1694,21 @@ def match_preset(rows, preset):
         words = MAJOR_DISCLOSURES[preset]
     elif preset in EXTRA_DISCLOSURES:
         words = EXTRA_DISCLOSURES[preset]
-    elif preset == "주요 전체":
+    elif preset in DISC_VIEW_GROUPS:  # 화면의 합친 묶음: 안에 든 묶음들의 낱말을 모두
+        words = [w for g in DISC_VIEW_GROUPS[preset] for w in {**MAJOR_DISCLOSURES, **EXTRA_DISCLOSURES}[g]]
+    elif preset == "주요 전체":  # 화면 6개 묶음의 합 (= 주요 + 추가 묶음 전부)
+        words = [w for ws in {**MAJOR_DISCLOSURES, **EXTRA_DISCLOSURES}.values() for w in ws]
+    elif preset == "알람 주요":  # 텔레그램 알람과 같은 범위(MAJOR_DISCLOSURES만) — 기업 브리핑이 씀
         words = [w for ws in MAJOR_DISCLOSURES.values() for w in ws]
     else:
         return rows
     keys = [disclosure_key(w) for w in words]
     return [r for r in rows if any(k in disclosure_key(r.get("report_nm", "")) for k in keys)]
+
+
+def disc_view_label(name, n):
+    """보기 버튼 글자: '실적·IR (3)'. 0건이면 회색으로 흐리게 (버튼은 그대로 있어 헷갈리지 않게)"""
+    return f":gray[{name} ({n:,})]" if n == 0 else f"{name} ({n:,})"
 
 
 def disclosure_table(rows):
@@ -4495,10 +4514,10 @@ def render_disclosures():
     # 주요 공시 버튼과 검색은 이미 가져온 목록 안에서 걸러내는 것이라 DART를 다시 부르지 않는다
     preset = st.radio(
         "주요 공시",
-        ["전체"] + list(MAJOR_DISCLOSURES) + list(EXTRA_DISCLOSURES),
+        ["전체"] + list(DISC_VIEW_GROUPS),
         horizontal=True,
         key=f"list_preset_{res['id']}",  # 건수가 조회마다 바뀌므로 키도 새로 만든다 (feed_view와 같은 이유)
-        format_func=lambda p: f"{p} ({len(match_preset(res['rows'], p)):,})",
+        format_func=lambda p: disc_view_label(p, len(match_preset(res["rows"], p))),
     )
     base_rows = match_preset(res["rows"], preset)
     keyword = st.text_input(
@@ -5154,7 +5173,7 @@ def render_feed(by_sector=False):
             st.warning("이 날짜에 조회된 공시가 없습니다. 휴장일이거나 아직 공시가 올라오기 전일 수 있어요.")
         return
 
-    views = ["주요 전체"] + list(MAJOR_DISCLOSURES) + list(EXTRA_DISCLOSURES) + ["모든 공시"]
+    views = ["주요 전체"] + list(DISC_VIEW_GROUPS) + ["모든 공시"]
     if by_sector:
         notes = [f"{res['day']}", res["market"], ", ".join(res["groups"]), f"전체 공시 {res['total']:,}건 중 섹터 기업 {len(res['rows']):,}건",
                  "최신순", "정정 공시 포함"]
@@ -5169,7 +5188,7 @@ def render_feed(by_sector=False):
         horizontal=True,
         # 선택지 이름의 건수가 조회마다 바뀌므로, 조회마다 키를 새로 만들어 항상 첫 번째가 선택된 채로 시작하게 한다
         key=f"{p}_view_{res['id']}",
-        format_func=lambda v: f"{v} ({len(match_preset(res['rows'], v)):,})",
+        format_func=lambda v: disc_view_label(v, len(match_preset(res["rows"], v))),
     )
     keyword = st.text_input(
         "회사·보고서명 검색", key=f"{p}_keyword", placeholder="예: 삼성, 하이닉스, 유상증자 (공백으로 여러 단어를 넣으면 모두 포함된 공시만)"
@@ -8173,7 +8192,7 @@ def collect_brief(name, code, progress):
     def disclosures():
         rows, total, _ = collect_disclosures(code, TODAY - timedelta(days=BRIEF_DISC_DAYS), TODAY, "")
         b["disc_total"] = total
-        major = match_preset(rows, "주요 전체")
+        major = match_preset(rows, "알람 주요")
         major.sort(key=lambda r: str(r.get("rcept_no", "")), reverse=True)
         return disclosure_table(major[:BRIEF_DISC_MAX]) if major else pd.DataFrame()
 
