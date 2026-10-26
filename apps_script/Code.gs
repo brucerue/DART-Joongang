@@ -322,16 +322,18 @@ function usageStats_(days) {
   try {
     var sh = usageSheet_(), last = sh.getLastRow();
     var from = new Date(Date.now() + 9 * 3600000 - days * 86400000).toISOString().slice(0, 10);   // 한국시간 기준 날짜
-    var byDay = {}, byFeat = {}, out = { days: [], features: [], from: from, to: "" };
+    var byDay = {}, byFeat = {}, out = { days: [], features: [], from: from, to: "", days_exclude_ai: true };   // 날짜별 합계에는 AI 호출 기록('AI·…')을 넣지 않는다
     if (last >= 2) {
       var vals = sh.getRange(2, 1, last - 1, 5).getValues();
       for (var i = 0; i < vals.length; i++) {
         var d = vals[i][0] instanceof Date ? Utilities.formatDate(vals[i][0], "Asia/Seoul", "yyyy-MM-dd") : String(vals[i][0]);
         if (d < from) continue;
         var sid = String(vals[i][2]), f = String(vals[i][3]), me = Number(vals[i][4]) === 1;
-        if (!byDay[d]) byDay[d] = { s: {}, so: {}, n: 0, no: 0 };
-        byDay[d].s[sid] = 1; byDay[d].n++;
-        if (!me) { byDay[d].so[sid] = 1; byDay[d].no++; }
+        if (f.indexOf("AI·") !== 0) {
+          if (!byDay[d]) byDay[d] = { s: {}, so: {}, n: 0, no: 0 };
+          byDay[d].s[sid] = 1; byDay[d].n++;
+          if (!me) { byDay[d].so[sid] = 1; byDay[d].no++; }
+        }
         if (!byFeat[f]) byFeat[f] = { n: 0, no: 0, s: {} };
         byFeat[f].n++; byFeat[f].s[sid] = 1;
         if (!me) byFeat[f].no++;

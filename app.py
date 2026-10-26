@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 01:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 02:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -521,6 +521,22 @@ def log_use(feature, once=False):
             return
         stamp[feature] = now
     payload = {"use": True, "sid": sid, "me": 1 if me else 0, "items": [{"f": str(feature)[:60], "t": datetime.now(KST).strftime("%Y-%m-%dT%H:%M")}]}
+    threading.Thread(target=_post_use, args=(payload,), daemon=True).start()
+
+
+AI_LOG_PREFIX = "AI·"  # AI 호출 기록 이름 앞머리 (사용 통계에서 기능 순위와 따로 센다)
+
+
+def log_ai(kind):
+    """실제 AI 호출 한 건(저장해 둔 답을 다시 쓴 경우는 제외)을 'AI·Gemini' / 'AI·Claude(대체)' 이름으로 기록한다.
+    여러 줄을 한꺼번에 처리하는 작업 스레드 안에서도 불릴 수 있어 세션 정보를 못 읽으면 '-'로 보낸다."""
+    if not APPS_SCRIPT_URL:
+        return
+    try:
+        sid, me = use_session()
+    except Exception:
+        sid, me = "-", False
+    payload = {"use": True, "sid": sid, "me": 1 if me else 0, "items": [{"f": AI_LOG_PREFIX + kind, "t": datetime.now(KST).strftime("%Y-%m-%dT%H:%M")}]}
     threading.Thread(target=_post_use, args=(payload,), daemon=True).start()
 
 
@@ -2368,14 +2384,27 @@ def ai_generate(prompt, system=None, json_mode=False):
     session = get_session()
     if GEMINI_KEY and (not ANTHROPIC_KEY or time.time() >= _GEMINI_REST["until"]):
         try:
-            return call_gemini(session, prompt, system=system, json_mode=json_mode)
+            out = call_gemini(session, prompt, system=system, json_mode=json_mode)
+            log_ai("Gemini")
+            return out
         except AiError as e:
             if not ANTHROPIC_KEY:
                 raise
             if e.quota:
                 _GEMINI_REST["until"] = time.time() + GEMINI_REST_SEC
             print(f"(Gemini 실패라 Claude로 넘김: {e})", file=sys.stderr)
-    return call_claude(session, prompt, system=system, json_mode=json_mode), ANTHROPIC_MODEL
+    if not (GEMINI_KEY and ANTHROPIC_KEY):
+        out = call_claude(session, prompt, system=system, json_mode=json_mode), ANTHROPIC_MODEL
+        log_ai("Claude")
+        return out
+    try:
+        out = call_claude(session, prompt, system=system, json_mode=json_mode), ANTHROPIC_MODEL
+        log_ai("Claude(대체)")  # Gemini가 안 돼서 Claude(유료)로 넘어간 호출 — 관리자 '사용 통계'에서 비용 확인용
+        return out
+    except AiError as e:  # 둘 다 안 될 때: 사용자에게는 어느 AI인지 드러나지 않는 한 가지 문구 (관리자 주소에서는 원인도 함께)
+        print(f"(Claude도 실패: {e})", file=sys.stderr)
+        detail = f" (관리자용: {e})" if st.query_params.get("lab", "") == "1" else ""
+        raise AiError("AI가 지금 응답하지 않아요. 1~2분 뒤 다시 눌러 주세요." + detail, quota=e.quota)
 
 
 def ai_model_name():
@@ -11403,12 +11432,17 @@ def render_usage_stats():
     if stats.get("error"):
         st.error(f"Apps Script 오류: {stats['error']}")
         return
-    day_rows, feat_rows = stats.get("days") or [], stats.get("features") or []
+    day_rows, all_feats = stats.get("days") or [], stats.get("features") or []
+    ai_rows = [f for f in all_feats if str(f["f"]).startswith(AI_LOG_PREFIX)]  # AI 호출 기록은 기능 순위와 따로
+    feat_rows = [f for f in all_feats if not str(f["f"]).startswith(AI_LOG_PREFIX)]
+    ai_total = sum(f["n"] for f in ai_rows)
     if not day_rows:
         st.info("아직 기록이 없어요. 기능을 쓰면 곧 쌓여요.")
         return
     k_s, k_n = ("sessions_others", "n_others") if exclude_me else ("sessions", "n")
     total_n = sum(d[k_n] for d in day_rows)
+    if not stats.get("days_exclude_ai"):  # 예전 Apps Script(재배포 전)는 날짜별 합계에 AI 호출 기록이 섞여 있어 빼 준다
+        total_n -= sum(f[k_n] for f in ai_rows)
     st.markdown(cb_cards([
         ("사용 횟수", f"{total_n:,}건", f"최근 {days}일", "flat"),
         ("하루 평균 세션", f"{sum(d[k_s] for d in day_rows) / max(len(day_rows), 1):.1f}개", "기록 있는 날 기준", "flat"),
@@ -11417,6 +11451,17 @@ def render_usage_stats():
     st.markdown("##### 기능별")
     ft = pd.DataFrame([{"기능": f["f"], "횟수": f[k_n], "세션 수": f["sessions"]} for f in feat_rows if f[k_n] > 0]).sort_values("횟수", ascending=False)
     st.dataframe(ft, hide_index=True, height=min(len(ft) + 1, 25) * 35 + 3)
+    st.markdown("##### AI 호출 (비용 확인용)")
+    if ai_rows:
+        cnt = {str(f["f"])[len(AI_LOG_PREFIX):]: f["n"] for f in ai_rows}
+        paid = cnt.get("Claude(대체)", 0) + cnt.get("Claude", 0)
+        st.markdown(cb_cards([
+            ("Gemini(무료)", f"{cnt.get('Gemini', 0):,}번", f"최근 {days}일", "flat"),
+            ("Claude로 넘어감(유료)", f"{paid:,}번", f"전체의 {paid / max(ai_total, 1) * 100:.0f}%", "up" if paid else "flat"),
+        ]), unsafe_allow_html=True)
+        st.caption("저장해 둔 답을 다시 보여 준 경우는 세지 않아요. 내 사용 포함 전체 횟수예요. Claude 횟수가 늘면 Gemini 한도가 자주 찬다는 뜻이에요.")
+    else:
+        st.caption("아직 AI 호출 기록이 없어요.")
     st.markdown("##### 날짜별")
     dt = pd.DataFrame([{"날짜": d["d"], "세션": d[k_s], "사용 횟수": d[k_n]} for d in day_rows]).sort_values("날짜", ascending=False)
     st.dataframe(dt, hide_index=True, height=min(len(dt) + 1, 20) * 35 + 3)
