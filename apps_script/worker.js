@@ -16,13 +16,25 @@
  *   - :15, :30, :45       -> '단독'만 확인해서, 단독을 켜 둔 사람에게 새 단독 기사가 있으면 바로 발송
  * GitHub Actions의 '산업 뉴스 텔레그램 발송'을 바로 실행시킨다.
  * (GitHub 자체 예약은 20~30분씩 밀려서, 시각 지키는 일을 여기서 맡는다.)
+ * 장중 시세: 같은 15분 틱에서 평일 09:15~16:15(한국시간)에는 '장중 시세 모으기'(intraday.yml)도 실행시킨다.
  */
 const SEND_HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]; // 한국시간
 // Cron Triggers에 넣을 값(UTC 기준, 15분마다):  */15 * * * *
 const WORKFLOW_FILE = "news_digest.yml";
+// 장중 시세 모으기(intraday.yml)도 여기서 15분마다 실행시킨다: 한국시간 평일 09:15 ~ 16:15 (GitHub 예약은 늦거나 빠져서)
+// 야후 5분봉이 15~20분 늦게 나오므로 09:00 회차는 건너뛰고, 16:00·16:15 회차는 마감 뒤 일봉 종가 보정용
+const INTRADAY_FILE = "intraday.yml";
+const INTRADAY_FROM = 9 * 60 + 15, INTRADAY_TO = 16 * 60 + 15; // 분 단위(한국시간)
 
-async function dispatch(env, inputs) {
-  const url = `https://api.github.com/repos/${env.GH_REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
+function intradayDue(kst) {
+  const day = kst.getUTCDay(); // 0=일 … 6=토 (한국시간으로 옮긴 Date라 UTC getter가 한국 요일)
+  if (day === 0 || day === 6) return false;
+  const m = kst.getUTCHours() * 60 + kst.getUTCMinutes();
+  return m >= INTRADAY_FROM && m <= INTRADAY_TO;
+}
+
+async function dispatch(env, inputs, file = WORKFLOW_FILE) {
+  const url = `https://api.github.com/repos/${env.GH_REPO}/actions/workflows/${file}/dispatches`;
   let last = "";
   for (let i = 0; i < 3; i++) {
     try {
@@ -63,6 +75,7 @@ export default {
   async scheduled(event, env, ctx) {
     const kst = new Date(event.scheduledTime + 9 * 3600 * 1000); // UTC getter로 한국시간을 읽는다
     const hour = kst.getUTCHours();
+    if (intradayDue(kst)) ctx.waitUntil(dispatch(env, null, INTRADAY_FILE)); // 장중 시세 모으기 (평일 09:15~16:15)
     if (!SEND_HOURS.includes(hour)) return;  // 시간 밖은 쉼 (요일은 받는 사람마다 정해요: 기본 월~금, '/요일'로 토·일도 선택)
     const quick = kst.getUTCMinutes() >= 5; // 정각이 아니면 단독만
     ctx.waitUntil(dispatch(env, quick ? { mode: "단독", auto: "true" } : { auto: "true" }));
