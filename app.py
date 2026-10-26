@@ -10944,7 +10944,7 @@ def _render_today_body(rec):
     updated = str(rec.get("updated", ""))[:16].replace("T", " ")
     st.caption(f"{since:%m.%d %H:%M} 이후 · 자료 갱신 {updated}" if updated else f"{since:%m.%d %H:%M} 이후")
     if not groups:
-        st.info("섹터를 하나 이상 골라 주세요.")
+        st.info("섹터나 팀을 하나 이상 골라 주세요.")
         return
     rows = rec["items"]
     prices = get_prices()
