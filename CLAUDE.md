@@ -30,6 +30,7 @@
 - `mti_map.json` + `mti_build.py`: 무역협회 K-stat HSK-MTI 연계표(엑셀)를 앱이 읽는 파일로 바꾼 것(기준년도별 표 3개 + MTI 이름). '수출입 분석' 탭 검색의 '산업부 품목(MTI)'이 HS 10자리를 MTI로 묶는 데 씀. 연계표가 갱신되면 `mti_build.py`로 다시 만든다.
 - `.github/workflows/news_digest.yml`: Cloudflare Worker가 15분마다 호출(정각 전체, 15·30·45분 `단독`).
 - `.github/workflows/sync_config.yml`: app.py/news_digest.py 푸시 + 매시 17분에 구글 스크립트로 동기화.
+- 기능 사용 통계: `app.py`의 `log_use`/`log_if`/`track_choice`가 Streamlit Secrets `APPS_SCRIPT_URL`(Apps Script 웹앱 주소+?key=…)로 기능 이름·시각·세션 번호만 POST(`{use:true,…}`) → `Code.gs`의 `handleUse_`가 구글 시트 '사용기록'(속성 USAGE_SHEET_ID)에 추가, `usageStats_`(GET `?usage=1&days=N`)가 집계. 앱 `?lab=1` '사용 통계' 탭이 읽음. 새 기능을 만들면 조회 버튼에 `log_if(...)`, 보기 라디오에 `track_choice(...)`를 붙일 것.
 - `apps_script/Code.gs`(텔레그램 명령·승인·백업), `apps_script/worker.js`(Cloudflare Worker). 수정 후 Apps Script는 **새 버전으로 배포**해야 반영됨.
 - 문서: `업데이트_기록.md`(기능 변경 로그), `뉴스_자동발송_사용법.md`, `관리자_명령어_정리.md`, `앱_데이터모으기_사용법.md`, `apps_script/*.md`.
 

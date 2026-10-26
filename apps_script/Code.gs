@@ -66,6 +66,7 @@ function doPost(e) {
   if (update.sync) return handleSync_(update);   // GitHub가 보내는 동기화(받는 사람 목록·섹터·팀)
   if (update.alert) return handleAlert_(update); // Worker·GitHub가 보내는 오류 알림
   if (update.run) return handleRun_(update);     // 뉴스 발송이 끝날 때마다 보내는 실행 결과 (/점검에서 보여줌)
+  if (update.use) return handleUse_(update);     // 앱이 보내는 기능 사용 기록 (구글 시트 '사용기록'에 한 줄씩)
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -263,9 +264,88 @@ function doGet(e) {
   if (!e || !e.parameter || e.parameter.key !== props.getProperty("SECRET")) {
     return ContentService.createTextOutput("no");
   }
+  if (e.parameter.usage) return usageStats_(Number(e.parameter.days) || 30);   // 앱 관리자 화면(?lab=1)의 사용 통계
   var out = loadPrefs_();
   out._approved = loadApproved_();   // 앱 신청을 승인 버튼으로 받아들인 사람들 (뉴스 발송이 GitHub 명단에 합쳐서 씀)
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// ---------------------------------------------------------------- 앱 사용 기록 (구글 시트)
+// 앱이 기능을 쓸 때마다 {use:true, sid:세션번호, me:0|1, items:[{f:기능, t:시각}]}를 보낸다. 개인정보 없이 기능 이름·시각·무작위 세션 번호만.
+// 시트는 처음 쓸 때 내 드라이브에 '산업 취재 도우미 사용기록'으로 만들고 속성 USAGE_SHEET_ID에 기억한다.
+var USAGE_SHEET_NAME = "사용기록", USAGE_MAX_ROWS = 200000;
+
+function usageSheet_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty("USAGE_SHEET_ID"), ss = null;
+  if (id) { try { ss = SpreadsheetApp.openById(id); } catch (err) { ss = null; } }
+  if (!ss) {
+    ss = SpreadsheetApp.create("산업 취재 도우미 사용기록");
+    props.setProperty("USAGE_SHEET_ID", ss.getId());
+  }
+  var sh = ss.getSheetByName(USAGE_SHEET_NAME);
+  if (!sh) {
+    sh = ss.getSheets()[0]; sh.setName(USAGE_SHEET_NAME);
+    sh.appendRow(["날짜", "시각", "세션", "기능", "나"]);
+  }
+  return sh;
+}
+
+function handleUse_(u) {
+  try {
+    var items = Array.isArray(u.items) ? u.items.slice(0, 50) : [];
+    var sid = String(u.sid || "").replace(/[^A-Za-z0-9]/g, "").slice(0, 12) || "-";
+    var me = u.me ? 1 : 0, rows = [];
+    for (var i = 0; i < items.length; i++) {
+      var t = String(items[i].t || ""), f = String(items[i].f || "").slice(0, 60);
+      if (!f || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(t)) continue;
+      rows.push([t.slice(0, 10), t.slice(11, 16), sid, f, me]);
+    }
+    if (!rows.length) return ContentService.createTextOutput(JSON.stringify({ ok: true, n: 0 })).setMimeType(ContentService.MimeType.JSON);
+    var lock = LockService.getScriptLock(); lock.waitLock(10000);
+    try {
+      var sh = usageSheet_();
+      sh.getRange(sh.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
+      if (sh.getLastRow() > USAGE_MAX_ROWS) sh.deleteRows(2, 20000);   // 너무 쌓이면 오래된 것부터 지운다
+    } finally { lock.releaseLock(); }
+    return ContentService.createTextOutput(JSON.stringify({ ok: true, n: rows.length })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    console.error(err);
+    return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(err) })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// 최근 days일 통계: {days:[{d, sessions, sessions_others, n, n_others}], features:[{f, n, n_others, sessions}], from, to}
+function usageStats_(days) {
+  try {
+    var sh = usageSheet_(), last = sh.getLastRow();
+    var from = new Date(Date.now() + 9 * 3600000 - days * 86400000).toISOString().slice(0, 10);   // 한국시간 기준 날짜
+    var byDay = {}, byFeat = {}, out = { days: [], features: [], from: from, to: "" };
+    if (last >= 2) {
+      var vals = sh.getRange(2, 1, last - 1, 5).getValues();
+      for (var i = 0; i < vals.length; i++) {
+        var d = vals[i][0] instanceof Date ? Utilities.formatDate(vals[i][0], "Asia/Seoul", "yyyy-MM-dd") : String(vals[i][0]);
+        if (d < from) continue;
+        var sid = String(vals[i][2]), f = String(vals[i][3]), me = Number(vals[i][4]) === 1;
+        if (!byDay[d]) byDay[d] = { s: {}, so: {}, n: 0, no: 0 };
+        byDay[d].s[sid] = 1; byDay[d].n++;
+        if (!me) { byDay[d].so[sid] = 1; byDay[d].no++; }
+        if (!byFeat[f]) byFeat[f] = { n: 0, no: 0, s: {} };
+        byFeat[f].n++; byFeat[f].s[sid] = 1;
+        if (!me) byFeat[f].no++;
+        if (d > out.to) out.to = d;
+      }
+    }
+    Object.keys(byDay).sort().forEach(function (d) {
+      out.days.push({ d: d, sessions: Object.keys(byDay[d].s).length, sessions_others: Object.keys(byDay[d].so).length, n: byDay[d].n, n_others: byDay[d].no });
+    });
+    Object.keys(byFeat).forEach(function (f) { out.features.push({ f: f, n: byFeat[f].n, n_others: byFeat[f].no, sessions: Object.keys(byFeat[f].s).length }); });
+    out.features.sort(function (a, b) { return b.n - a.n; });
+    return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    console.error(err);
+    return ContentService.createTextOutput(JSON.stringify({ error: String(err) })).setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 // ---------------------------------------------------------------- 메시지 처리

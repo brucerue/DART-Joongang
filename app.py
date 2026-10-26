@@ -20,6 +20,7 @@ import json
 import os
 import re
 import threading
+import uuid
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
@@ -444,7 +445,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 15:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 16:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -483,6 +484,60 @@ def load_secret(name):
 NAVER_ID = load_secret("NAVER_CLIENT_ID")
 NAVER_SECRET = load_secret("NAVER_CLIENT_SECRET")
 USE_NAVER = (load_secret("USE_NAVER") or "1").strip().lower() in ("1", "true", "yes", "on")  # 기본은 켜짐(네이버 키가 있을 때): 단독 검색은 구글 뉴스에 네이버 뉴스를 항상 합친다. 끄려면 Streamlit Secrets에 USE_NAVER = "0"
+
+# 기능 사용 기록 (선택). Streamlit Secrets에 APPS_SCRIPT_URL(Apps Script 웹앱 주소 + ?key=…, GitHub의 PREFS_URL과 같은 값)이 있으면
+# 기능을 쓸 때마다 기능 이름·시각·무작위 세션 번호만 구글 시트 '사용기록'에 보낸다(개인정보 없음). 관리자 주소 ?lab=1의 '사용 통계' 탭이 집계를 보여준다.
+# 본인 사용을 따로 세려면 주소 끝에 ?me=1 (관리자 주소는 ?lab=1&me=1).
+APPS_SCRIPT_URL = (load_secret("APPS_SCRIPT_URL") or "").strip()
+USE_LOG_THROTTLE = 10 * 60  # once=True인 기록은 세션마다 이 시간에 한 번만
+
+
+def use_session():
+    """세션 번호(무작위 8자)와 본인 표시(?me=1)."""
+    if "use_sid" not in st.session_state:
+        st.session_state["use_sid"] = uuid.uuid4().hex[:8]
+        st.session_state["use_me"] = st.query_params.get("me", "") == "1"
+    return st.session_state["use_sid"], st.session_state["use_me"]
+
+
+def _post_use(payload):
+    try:
+        requests.post(APPS_SCRIPT_URL, json=payload, timeout=8)
+    except Exception:
+        pass  # 기록 실패는 조용히 넘긴다 (화면에 영향 없음)
+
+
+def log_use(feature, once=False):
+    """기능 사용 한 건을 뒤에서 조용히 보낸다. once=True면 세션마다 USE_LOG_THROTTLE 안에 한 번만."""
+    if not APPS_SCRIPT_URL or not feature:
+        return
+    sid, me = use_session()
+    if once:
+        stamp = st.session_state.setdefault("use_last", {})
+        now = time.time()
+        if now - stamp.get(feature, 0) < USE_LOG_THROTTLE:
+            return
+        stamp[feature] = now
+    payload = {"use": True, "sid": sid, "me": 1 if me else 0, "items": [{"f": str(feature)[:60], "t": datetime.now(KST).strftime("%Y-%m-%dT%H:%M")}]}
+    threading.Thread(target=_post_use, args=(payload,), daemon=True).start()
+
+
+def log_if(flag, feature):
+    """버튼·조회가 눌렸으면(flag 참) 기록하고 flag를 그대로 돌려준다 -> if log_if(st.button(...), "뉴스 조회"):"""
+    if flag:
+        log_use(feature)
+    return flag
+
+
+def track_choice(key, label):
+    """라디오·선택칸(key)의 값이 바뀐 때만 기록한다 (처음 그려질 때의 기본값은 세지 않는다)."""
+    cur = st.session_state.get(key)
+    seen = st.session_state.setdefault("use_seen", {})
+    if key in seen and seen[key] != cur and cur is not None:
+        v = ", ".join(cur) if isinstance(cur, (list, tuple)) else str(cur)
+        log_use(f"{label}: {v}"[:60])
+    seen[key] = cur
+
 
 # AI 기능 (선택). ANTHROPIC_API_KEY가 있으면 Claude(유료), 없고 GEMINI_API_KEY가 있으면 Gemini(무료 한도)를 쓴다.
 # 둘 다 넣어 두었다면 Secrets의 AI_PROVIDER = "gemini" 또는 "claude"로 고를 수 있다.
@@ -3981,7 +4036,7 @@ def render_fin_ai(result):
         st.caption("AI 분석을 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude)를 추가해주세요. (무료 Gemini를 쓰려면 GEMINI_API_KEY를 추가해주세요.)")
         return
     prompt_sig = hashlib.sha1(fin_ai_prompt(result["corp"], result["records"], result["period"]).encode("utf-8")).hexdigest()
-    go = st.button("조회한 실적·재무상태 AI 분석", key="fin_ai_go", type="primary")
+    go = log_if(st.button("조회한 실적·재무상태 AI 분석", key="fin_ai_go", type="primary"), "재무 AI 분석")
     if go:
         with st.spinner("실적과 재무상태를 종합하는 중입니다... (10~30초)"):
             try:
@@ -4021,7 +4076,7 @@ def render_financials():
         c1, c2 = st.columns(2)
         start = c1.number_input("시작연도", min_value=2015, max_value=this_year, step=1, key="fin_start")
         end = c2.number_input("종료연도", min_value=2015, max_value=this_year, step=1, key="fin_end")
-        submitted = st.form_submit_button("조회") or st.session_state.pop("fin_run", False)
+        submitted = log_if(st.form_submit_button("조회") or st.session_state.pop("fin_run", False), "재무 분석 조회")
 
     if submitted:
         corp = corp_text.strip()
@@ -4170,6 +4225,7 @@ def render_fin_hub():
             c1, c2 = st.columns([1, 4], vertical_alignment="center")
             c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
             mode = c2.radio("조회 방식", ["개별", "국내", "해외", "AI 검색"], horizontal=True, key="fin_mode", label_visibility="collapsed")
+        track_choice("fin_mode", "재무 분석")
         if mode == "AI 검색":
             render_fin_ai_search()
         elif mode == "개별":
@@ -4195,7 +4251,7 @@ def render_industry():
         c1, c2 = st.columns(2)
         year = c1.selectbox("연도", years, index=years.index(ly), key="ind_year")
         period = c2.radio("기간", INDUSTRY_PERIODS, index=INDUSTRY_PERIODS.index(lp), horizontal=True, key="ind_period")
-        submitted = st.form_submit_button("합산 조회")
+        submitted = log_if(st.form_submit_button("합산 조회"), "재무 국내 섹터 합산")
 
     if submitted:
         names = []
@@ -4459,7 +4515,7 @@ def render_disclosures():
             "시작일", value=TODAY - timedelta(days=92), min_value=first_day, max_value=TODAY, key="list_start"
         )
         end = c2.date_input("종료일", value=TODAY, min_value=first_day, max_value=TODAY, key="list_end")
-        submitted = st.form_submit_button("공시 조회") or st.session_state.pop("list_run", False)
+        submitted = log_if(st.form_submit_button("공시 조회") or st.session_state.pop("list_run", False), "공시 기업 조회")
 
     if submitted:
         corp = corp_text.strip()
@@ -4571,7 +4627,7 @@ def render_pay():
         )
         year = st.selectbox("사업연도", years, index=years.index(default_pay_year()), key="pay_year")
         report = st.selectbox("보고서", list(PAY_REPORTS_ALL), key="pay_report")
-        submitted = st.form_submit_button("임직원 조회") or st.session_state.pop("pay_run", False)
+        submitted = log_if(st.form_submit_button("임직원 조회") or st.session_state.pop("pay_run", False), "정기보고서 임직원")
 
     if submitted:
         names = []
@@ -4976,7 +5032,7 @@ def render_dividend():
                         help="연도별 추이는 고른 사업연도를 끝으로 최근 5년을 한 표에 보여줘요.")
         tsk_label = c4.selectbox("자사주 결정 공시 기간", list(TSK_PERIODS), key="div_tsk_period",
                                  help="자기주식 취득·처분·소각·신탁계약 결정 공시를 이 기간만큼 찾아요.")
-        submitted = st.form_submit_button("배당·자사주 조회") or st.session_state.pop("div_run", False)
+        submitted = log_if(st.form_submit_button("배당·자사주 조회") or st.session_state.pop("div_run", False), "정기보고서 배당·자사주")
 
     if submitted:
         names = []
@@ -5138,7 +5194,7 @@ def render_feed(by_sector=False):
         )
         market = c2.radio("시장", list(FEED_MARKETS), index=0 if by_sector else list(FEED_MARKETS).index("코스피"),
                           horizontal=True, key=f"{p}_market")
-        submitted = st.form_submit_button("공시 불러오기")
+        submitted = log_if(st.form_submit_button("공시 불러오기"), "공시 불러오기")
 
     if submitted:
         groups = list(st.session_state.get("fsec_groups") or []) if by_sector else []
@@ -5335,7 +5391,7 @@ def render_global_news():
                                   help=f"한글 이름은 알려진 기업이면 영문으로 바꿔 검색해요. 최대 {MAX_GNEWS_CORPS}곳까지 한 번에 검색해요(곳 수만큼 시간이 걸려요).")
         period = st.radio("기간", list(GNEWS_PERIODS), index=1, horizontal=True, key="gn_period")
         in_title = st.checkbox("제목에 검색어(기업명)가 들어간 기사만", value=True, key="gn_title")
-        submitted = st.form_submit_button("해외 뉴스 조회")
+        submitted = log_if(st.form_submit_button("해외 뉴스 조회"), "외신 조회")
     if submitted:
         st.session_state.pop("gn_res", None)
         parts = []
@@ -5607,7 +5663,7 @@ def render_news_search(kind):
         else:
             in_title = st.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.")
             yna_only = False
-        submitted = st.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False)
+        submitted = log_if(st.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False), f"뉴스 조회: {kind}")
 
     if submitted:
         terms = parse_news_terms(text)
@@ -5733,7 +5789,8 @@ def render_news():
     with st.container(key="news_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에 (재무 조회와 같은 모양)
         c1, c2 = st.columns([1, 4], vertical_alignment="center")
         c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["통신", "단독", "일반", "외신"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
+        mode = c2.radio("조회 방식", ["통신", "단독", "일반", "외신"], horizontal=True, key="news_mode", label_visibility="collapsed")
+    track_choice("news_mode", "산업 뉴스")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     if mode == "외신":
         render_global_news()
         return
@@ -6139,6 +6196,7 @@ def render_chaebol():
     choice = st.selectbox("기업집단 선택", list(labels), index=None, key="cb_group",
                           placeholder="그룹을 고르면 재무·지분구조도·계열회사를 모아 보여줘요")
     if choice:
+        log_use("재계 순위 그룹 보기", once=True)
         render_chaebol_detail(labels[choice], unit, data, caps)
     st.caption("자료: 공정거래위원회 · 계열회사 수·재무·경영성과는 보도자료 별첨2~6 기준")
 
@@ -7364,7 +7422,7 @@ def render_overseas():
         year = c1.selectbox("연도 (달력 기준)", years, index=years.index(ly), key="ovs_year")
         period = c2.radio("기간", OVS_PERIODS, index=OVS_PERIODS.index(lp), horizontal=True, key="ovs_period",
                           help="분기는 달력 분기에 가장 가까운 회사별 결산 분기를 골라요. 연간은 회계연도 종료일이 그 해에 있는 해예요.")
-        submitted = st.form_submit_button("해외 기업 조회")
+        submitted = log_if(st.form_submit_button("해외 기업 조회"), "재무 해외 섹터")
 
     if submitted:
         names, items, notes, missing = [], [], [], []
@@ -7803,7 +7861,7 @@ def render_shareholders():
         year = c1.selectbox("사업연도", years, index=years.index(default_pay_year()), key=f"{prefix}_year")
         report = c2.selectbox("보고서", list(RT_REPORTS), key=f"{prefix}_report")
         mode = st.radio("보기", ["기업 비교 (한 해)", f"연도별 추이 (최근 {RT_TREND_YEARS}년, 첫 기업)"], horizontal=True, key=f"{prefix}_mode")
-        submitted = st.form_submit_button("주주·지분 조회") or st.session_state.pop(f"{prefix}_run", False)
+        submitted = log_if(st.form_submit_button("주주·지분 조회") or st.session_state.pop(f"{prefix}_run", False), "정기보고서 주주·지분")
 
     stored = f"{prefix}_res"
     if submitted:
@@ -7897,7 +7955,7 @@ def render_report_ai():
         return
     with st.form("rai_search"):
         corp_text = st.text_input("기업명", key="rai_corp", placeholder="예: 삼성전자")
-        found = st.form_submit_button("보고서 찾기")
+        found = log_if(st.form_submit_button("보고서 찾기"), "정기보고서 AI 분석 보고서 찾기")
     if found:
         st.session_state.pop("rai_rows", None)
         st.session_state.pop("rai_pick", None)
@@ -7937,7 +7995,7 @@ def render_report_ai():
         st.caption(f"비교 대상: {label(prev)}" if prev else "비교할 직전(1년 전 같은 기간) 보고서가 목록에 없어요.")
     rno = str(row["rcept_no"]).strip()
     state_key = (rno, spec["key"])
-    if st.button("분석하기", key="rai_go", type="primary"):
+    if log_if(st.button("분석하기", key="rai_go", type="primary"), "정기보고서 AI 분석"):
         if spec["needs_prev"] and not prev:
             st.error("직전 보고서를 찾지 못해 비교할 수 없어요.")
         else:
@@ -7984,6 +8042,7 @@ def render_periodic():
         if key in st.session_state:
             st.session_state[key] = st.session_state[key]
     view = st.radio("보기", PERIODIC_VIEWS, horizontal=True, key="periodic_view", label_visibility="collapsed")
+    track_choice("periodic_view", "정기보고서")
     if view == "배당·자사주":
         render_dividend()
     elif view == "임직원":
@@ -8604,7 +8663,7 @@ def render_brief_result(b):
             return
         prompt = brief_ai_prompt(b)
         sig = hashlib.sha1(prompt.encode("utf-8")).hexdigest()
-        if st.button("위 자료로 취재 포인트 뽑기", key="brief_ai_go", type="primary"):
+        if log_if(st.button("위 자료로 취재 포인트 뽑기", key="brief_ai_go", type="primary"), "브리핑 AI 취재 포인트"):
             with st.spinner("자료를 종합하는 중입니다... (10~30초)"):
                 try:
                     (text, used) = ai_cached(("brief", sig), lambda: ai_generate(prompt, system=AI_BRIEF_SYSTEM))
@@ -8623,7 +8682,7 @@ def render_brief():
     """탭: 기업 브리핑 - 회사 하나의 실적·공시·뉴스를 한 화면에."""
     with st.form("brief_search"):
         corp_text = st.text_input("기업명 또는 종목코드", key="brief_corp", placeholder="예: 삼성전자 또는 005930")
-        submitted = st.form_submit_button("브리핑 만들기", type="primary") or st.session_state.pop("brief_run", False)
+        submitted = log_if(st.form_submit_button("브리핑 만들기", type="primary") or st.session_state.pop("brief_run", False), "기업 브리핑")
 
     if submitted:
         corp = canonical_corp(corp_text.strip())
@@ -8847,7 +8906,7 @@ def render_calendar():
         corp_text = st.text_input("기업 (쉼표로 구분)", key="cal_corps", placeholder="예: 삼성전자, SK하이닉스",
                                   help=f"고른 섹터의 대표 기업이 채워져요. 기업을 직접 빼거나 더해서 최대 {MAX_CAL_CORPS}곳까지 볼 수 있어요. 많으면 조회가 오래 걸려요.")
         span = st.radio("기간", list(CAL_RANGES), horizontal=True, key="cal_span", help=CAL_KINDS_HELP)
-        submitted = st.form_submit_button("일정 조회")
+        submitted = log_if(st.form_submit_button("일정 조회"), "실적 캘린더")
 
     if submitted:
         names = []
@@ -8917,6 +8976,7 @@ def render_disclosure_hub():
         c1, c2 = st.columns([1, 4], vertical_alignment="center")
         c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
         mode = c2.radio("조회 방식", ["오늘의 공시", "기업", "섹터", "AI 검색"], horizontal=True, key="disc_mode", label_visibility="collapsed")
+    track_choice("disc_mode", "공시 분석")
     if mode == "AI 검색":
         render_disc_ai_search()
     elif mode == "오늘의 공시":
@@ -9377,6 +9437,7 @@ def render_px_intraday_now(data):
     fetched = str(intra.get("fetched", ""))[11:16]
     team_buttons("pxnow", sectors, "px_now_groups")
     st.pills("섹터", list(sectors), selection_mode="multi", key="px_now_groups", label_visibility="collapsed")
+    track_choice("px_now_groups", "장중 현황 섹터")
     picked = [g for g in (st.session_state.get("px_now_groups") or []) if g in sectors]
     c2, c3 = st.columns([2, 3])
     window = c2.radio("최근 구간", list(sc.INTRADAY_WINDOWS), index=1, horizontal=True, key="px_now_window")
@@ -9426,6 +9487,7 @@ def render_stock():
     dates = sc.dates_of(data)
     st.caption("자료 기준", help=f"종가는 KRX 일별 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일, 평일 아침 갱신)  \n장중은 야후 파이낸스 5분봉(비공식)을 장중 30분마다 갱신")
     mode = st.radio("보기", ["장중 현황", "시세판", "특징주", "업계 비교", "주가·이벤트"], horizontal=True, key="px_mode", label_visibility="collapsed")
+    track_choice("px_mode", "주가 분석")
     if mode == "시세판":
         render_px_board(data)
     elif mode == "장중 현황":
@@ -9992,7 +10054,7 @@ def render_trade_ai(data):
         return
     st.caption("품목을 말로 설명하거나(예: 전기차) 질문하듯 쓰면(예: 2025년 미국으로 수출된 자동차 수출액) AI가 코드와 검색 조건을 제안해요. 확인하고 '조회'를 누르면 일반 검색과 같은 결과가 나와요.")
     text = st.text_area("찾고 싶은 것", key="tr_ai_text", height=80, placeholder="예: 전기차  /  2025년 미국으로 수출된 자동차 수출액  /  올해 EU 반도체 수입")
-    if st.button("AI에게 물어보기", type="primary", key="tr_ai_go"):
+    if log_if(st.button("AI에게 물어보기", type="primary", key="tr_ai_go"), "무역 AI 검색"):
         st.session_state.pop("tr_ai_query", None)
         st.session_state["tr_ai_n"] = st.session_state.get("tr_ai_n", 0) + 1  # 새로 물을 때마다 체크 상태를 새로 시작
         if not text.strip():
@@ -10598,6 +10660,7 @@ def render_trade_search(data):
     """검색: 무엇을(품목: 전체·HS·산업부 MTI) × 어디서(지역: 전체·국가·경제권) -> 기간 -> 지표를 고르면 바로 보여준다. 시도·세관은 따로."""
     months = data["months"]
     kind = st.radio("종류", TRADE_KINDS, horizontal=True, key="tr_s_kind")
+    track_choice("tr_s_kind", "무역 검색 종류")
     if kind == "국가별":
         render_trade_rank_country(data)
         return
@@ -10828,6 +10891,7 @@ def render_trade():
                    f"월별 자료 {months[0].replace('-', '.')} ~ {months[-1].replace('-', '.')} · 자료 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}  \n"
                    "증감은 전년 같은 달 대비이고, 파랑은 늘어난 것·빨강은 줄어든 것이에요.")
         view = st.radio("보기", TRADE_VIEWS, horizontal=True, key="tr_view", label_visibility="collapsed")
+        track_choice("tr_view", "AI 무역 통계")
         {"AI 검색": render_trade_ai, "일반 검색": render_trade_search, "월간": render_trade_monthly, "10일": render_trade_tenday, "국가": render_trade_country}[view](data)
 
 
@@ -10905,6 +10969,7 @@ def render_today():
 def _render_today_body(rec):
     team_buttons("td", NEWS_SECTORS, "td_groups")
     st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key="td_groups", label_visibility="collapsed")
+    track_choice("td_groups", "오늘의 현황 섹터")
     groups = [g for g in (st.session_state.get("td_groups") or []) if g in NEWS_SECTORS]
     now = datetime.now(KST)
     since = tdc.window_start(now, "24시간")  # 기간은 24시간으로 고정 (선택지 없음)
@@ -11122,7 +11187,7 @@ def render_fin_ai_search():
     st.caption("궁금한 것을 말로 쓰면 AI가 회사·기간·지표를 정하고, 숫자는 재무 조회와 같은 DART 자료로 계산해요.")
     text = st.text_area("찾고 싶은 것", key="fai_text", height=80,
                         placeholder="예: 현대차·기아 최근 5년 영업이익률 비교  /  배터리 3사 올해 분기별 영업이익  /  조선 3사 부채비율 추이")
-    if st.button("AI에게 물어보기", type="primary", key="fai_go"):
+    if log_if(st.button("AI에게 물어보기", type="primary", key="fai_go"), "재무 AI 검색"):
         st.session_state.pop("fai_result", None)
         if not text.strip():
             st.warning("찾고 싶은 것을 입력해 주세요.")
@@ -11261,7 +11326,7 @@ def render_disc_ai_search():
     st.caption("찾고 싶은 공시를 말로 쓰면 AI가 회사·공시 종류·기간을 정하고, 목록은 DART에서 그대로 가져와요. 금액 같은 숫자는 원문에서 옮긴 뒤 원문에 있는지 확인해요.")
     text = st.text_area("찾고 싶은 공시", key="dai_text", height=80,
                         placeholder="예: 최근 한 달 조선사 수주 공시 금액 합계  /  올해 자사주 소각한 반도체 기업  /  이번 주 유상증자 결정한 배터리 회사")
-    if st.button("AI에게 물어보기", type="primary", key="dai_go"):
+    if log_if(st.button("AI에게 물어보기", type="primary", key="dai_go"), "공시 AI 검색"):
         for k in ("dai_rows", "dai_nums"):
             st.session_state.pop(k, None)
         if not text.strip():
@@ -11360,10 +11425,53 @@ def render_disc_ai_search():
                "'확인 필요'는 원문에서 같은 표기를 찾지 못한 것이니 원문으로 확인하세요. 합계는 원문 확인된 원화 금액만 더했어요.")
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_usage_stats(days):
+    res = requests.get(APPS_SCRIPT_URL, params={"usage": "1", "days": str(days)}, timeout=20)
+    res.raise_for_status()
+    return res.json()
+
+
+def render_usage_stats():
+    """관리자(?lab=1) 탭: 기능 사용 통계 (구글 시트 '사용기록' 집계)"""
+    if not APPS_SCRIPT_URL:
+        st.info("Streamlit Secrets에 APPS_SCRIPT_URL(Apps Script 웹앱 주소 + ?key=…)을 넣으면 기능 사용이 구글 시트에 기록되고 여기에 집계가 보여요.")
+        return
+    days = st.radio("기간", [7, 30, 90], index=1, horizontal=True, key="use_days", format_func=lambda d: f"최근 {d}일")
+    exclude_me = st.toggle("내 사용(?me=1로 연 세션) 빼고 보기", value=True, key="use_exclude_me")
+    try:
+        stats = fetch_usage_stats(days)
+    except Exception as e:
+        st.error(f"사용 기록을 불러오지 못했어요: {e}")
+        return
+    if stats.get("error"):
+        st.error(f"Apps Script 오류: {stats['error']}")
+        return
+    day_rows, feat_rows = stats.get("days") or [], stats.get("features") or []
+    if not day_rows:
+        st.info("아직 기록이 없어요. 기능을 쓰면 곧 쌓여요.")
+        return
+    k_s, k_n = ("sessions_others", "n_others") if exclude_me else ("sessions", "n")
+    total_n = sum(d[k_n] for d in day_rows)
+    st.markdown(cb_cards([
+        ("사용 횟수", f"{total_n:,}건", f"최근 {days}일", "flat"),
+        ("하루 평균 세션", f"{sum(d[k_s] for d in day_rows) / max(len(day_rows), 1):.1f}개", "기록 있는 날 기준", "flat"),
+        ("가장 많이 쓴 기능", (max(feat_rows, key=lambda f: f[k_n])["f"] if feat_rows else "-"), None, "flat"),
+    ]), unsafe_allow_html=True)
+    st.markdown("##### 기능별")
+    ft = pd.DataFrame([{"기능": f["f"], "횟수": f[k_n], "세션 수": f["sessions"]} for f in feat_rows if f[k_n] > 0]).sort_values("횟수", ascending=False)
+    st.dataframe(ft, hide_index=True, height=min(len(ft) + 1, 25) * 35 + 3)
+    st.markdown("##### 날짜별")
+    dt = pd.DataFrame([{"날짜": d["d"], "세션": d[k_s], "사용 횟수": d[k_n]} for d in day_rows]).sort_values("날짜", ascending=False)
+    st.dataframe(dt, hide_index=True, height=min(len(dt) + 1, 20) * 35 + 3)
+    st.caption("세션 = 앱을 한 번 연 브라우저(무작위 번호). 기능 이름·시각·세션 번호만 기록하고 개인정보는 없어요. "
+               "탭을 연 것만으로는 기록되지 않고, 보기 바꾸기·조회·AI 버튼처럼 실제 동작만 세요. 10분마다 새로 읽어요.")
+
+
 TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 분석", "주가 분석", "공시 분석", "산업 뉴스", "AI 무역 통계", "실적 캘린더", "정기보고서", "재계 순위"]
 SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 숨겨 둔 탭(이슈 타임라인)이 보임
 if SHOW_LAB:
-    TAB_NAMES += ["이슈 타임라인"]  # 관리자용 탭은 맨 끝
+    TAB_NAMES += ["이슈 타임라인", "사용 통계"]  # 관리자용 탭은 맨 끝
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 산업 뉴스 탭을 먼저 연다
 first_tab = "산업 뉴스" if apply_watchlist() else None
 try:
@@ -11387,6 +11495,8 @@ with tab_news:
 if SHOW_LAB:
     with by_name["이슈 타임라인"]:
         render_timeline()
+    with by_name["사용 통계"]:
+        render_usage_stats()
 with tab_disc:
     render_disclosure_hub()
 with tab_periodic:
@@ -11453,6 +11563,7 @@ CALC_TABS = ["증감", "표 증감", "단위", "영어", "연평균", "비중", 
 
 def calc_result(rows):
     """계산 결과 (이름, 값) 목록 -> 작은 카드 줄"""
+    log_use("계산기", once=True)
     cells = "".join(f'<div class="cc"><span class="l">{html.escape(k)}</span><span class="v">{html.escape(v)}</span></div>' for k, v in rows)
     st.markdown(f'<div class="calc-out">{cells}</div>', unsafe_allow_html=True)
 
