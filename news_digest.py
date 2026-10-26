@@ -48,6 +48,7 @@ PREFS_FILE = os.path.join(HERE, "digest_prefs.json")  # 받는 사람이 봇 명
 SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지"]
 MODES = ["통신", "단독", "일반", "공시"]  # 알람 종류(순서대로)
 DEFAULT_MODES = ["통신", "단독", "공시"]  # 종류를 안 적은 사람의 기본값. 일반(단독 표기 없는 기사 전부)은 양이 많아 직접 골라야 받는다
+ADDED_LOOKBACK_HOURS = 1  # 봇으로 섹터·종류를 새로 더하면 그 시각 이만큼 전 기사부터 보낸다 (공시는 시각이 없어 그날 것만)
 LOOKBACK_HOURS = 12  # 발송 시각 기준 이 시간 안에 올라온 기사만 (쉬는 요일·시간 뒤에 다시 받을 때도 같은 기준. 이미 보낸 기사는 기록으로 걸러냄)
 MAX_PER_SECTOR = 100  # 섹터마다 메시지에 싣는 최대 묶음 수 (넘으면 '외 N건'). 길면 텔레그램 메시지가 여러 통으로 나뉨
 USE_NAVER = os.environ.get("USE_NAVER", "1").strip().lower() in ("1", "true", "yes", "on")  # 기본은 켜짐(네이버 키가 있을 때만 실제로 사용). 끄려면 환경변수 USE_NAVER=0
@@ -968,6 +969,20 @@ def describe_prefs(sub, prefs):
     return (f"지금 설정이에요.\n상태: {state}\n섹터: {', '.join(sub['sectors'])}\n종류: {', '.join(sub['modes'])}\n받는 시간: {hours}\n받는 요일: {dtxt}")
 
 
+def mark_added(mine, kind, before, after, now_ms=None):
+    """새로 더한 섹터(kind 's')·종류('m')의 추가 시각(밀리초)을 남긴다 (Code.gs의 markAdded_와 같은 규칙). 이틀 지난 기록·뺀 항목은 지운다."""
+    now_ms = now_ms or int(time.time() * 1000)
+    keep = {k: v for k, v in (mine.get("added") or {}).items()
+            if now_ms - v < 2 * 86400000 and (k[0] != kind or k[2:] in after)}
+    for x in after:
+        if x not in before:
+            keep[f"{kind}:{x}"] = now_ms
+    if keep:
+        mine["added"] = keep
+    else:
+        mine.pop("added", None)
+
+
 def run_command(text, sub, prefs):
     """받는 사람의 명령 한 줄 -> 답장 글(명령이 아니면 None). prefs를 그 자리에서 고친다."""
     m = re.match(r"^/(\S+?)(?:@\w+)?(?:\s+(.*))?$", text.strip(), re.S)
@@ -996,6 +1011,7 @@ def run_command(text, sub, prefs):
         if bad or not chosen:
             head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 섹터를 같이 보내주세요. 예: /섹터 자동차 배터리"
             return f"{head}\n\n가능한 섹터: {', '.join(plain_name(o) for o in options)}\n팀: {', '.join(presets) or '-'} / 전체"
+        mark_added(mine, "s", sub.get("sectors") or [], chosen)
         mine["sectors"] = chosen
         sub["sectors"] = chosen
         return "받을 섹터를 바꿨어요: " + ", ".join(chosen)
@@ -1024,6 +1040,7 @@ def run_command(text, sub, prefs):
         if bad or not chosen:
             head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 종류를 같이 보내주세요. 예: /종류 통신 공시"
             return f"{head}\n\n가능한 종류: {', '.join(MODES)} / 전체"
+        mark_added(mine, "m", sub.get("modes") or [], chosen)
         mine["modes"] = chosen
         sub["modes"] = chosen
         return "받을 종류를 바꿨어요: " + ", ".join(chosen)
@@ -1141,6 +1158,10 @@ def apply_prefs(subs, prefs, keep_paused=False):
         ra = mine.get("resumed_at")  # 마지막으로 /켜기 한 시각(밀리초). 이전에 나온 기사·공시는 보내지 않는다
         if isinstance(ra, (int, float)) and ra > 0:
             new["since"] = datetime.fromtimestamp(ra / 1000, KST)
+        added = mine.get("added")  # 새로 더한 섹터·종류의 시각 {"s:자동차": 밀리초, "m:일반": 밀리초} (봇 /섹터·/종류가 남김)
+        if isinstance(added, dict):
+            new["added"] = {k: datetime.fromtimestamp(v / 1000, KST) for k, v in added.items()
+                            if isinstance(k, str) and k[:2] in ("s:", "m:") and isinstance(v, (int, float)) and v > 0}
         if mine.get("sectors"):
             moved, partial = migrate_sectors(mine["sectors"])
             new["sectors"] = [x for x in moved if x in A["NEWS_SECTORS"]] or sub["sectors"]
@@ -1365,6 +1386,10 @@ def main():
                     continue
                 fresh = []
                 since = sub.get("since")
+                add_at = [t for t in ((sub.get("added") or {}).get("m:" + mode), (sub.get("added") or {}).get("s:" + sector)) if t]
+                if add_at:  # 새로 더한 섹터·종류: 더한 시각 1시간 전부터 (그 전 기사로 한꺼번에 몰려오지 않게)
+                    start = max(add_at) - timedelta(hours=ADDED_LOOKBACK_HOURS)
+                    since = max(since, start) if since else start
                 for i in found[(mode, sector)]:
                     if i.get("hold"):  # 원문이 올라오면 수치와 함께 보낸다 (다음 회차)
                         continue

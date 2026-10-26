@@ -583,9 +583,10 @@ function runCommand_(text, sub, prefs, cid) {
         "\n\n가능한 섹터: " + C.sectors.map(plainName_).join(", ") +
         "\n팀: " + (Object.keys(C.teams).join(", ") || "-") + " / 전체";
     }
+    markAdded_(mine, "s", sub.sectors, r.chosen);
     mine.sectors = r.chosen;
     sub.sectors = r.chosen;
-    return "✅ 받을 섹터를 바꿨어요. 다음 뉴스 발송부터 적용돼요.\n\n" + describe_(sub, mine);
+    return "✅ 받을 섹터를 바꿨어요. 다음 뉴스 발송부터 적용돼요. 새로 더한 섹터는 지금부터 1시간 전 기사부터 와요.\n\n" + describe_(sub, mine);
   }
   if (["요일", "days", "day"].indexOf(cmd) >= 0) {
     var pd = parseDays_(rest);
@@ -615,9 +616,10 @@ function runCommand_(text, sub, prefs, cid) {
       return (r2.bad.length ? "알아듣지 못한 말: " + r2.bad.join(", ") : "받을 종류를 같이 보내주세요. 예: /종류 통신 공시") +
         "\n\n가능한 종류: " + cfg_().modes.join(", ") + " / 전체";
     }
+    markAdded_(mine, "m", sub.modes, r2.chosen);
     mine.modes = r2.chosen;
     sub.modes = r2.chosen;
-    return "✅ 받을 종류를 바꿨어요. 다음 뉴스 발송부터 적용돼요.\n\n" + describe_(sub, mine);
+    return "✅ 받을 종류를 바꿨어요. 다음 뉴스 발송부터 적용돼요. 새로 더한 종류는 지금부터 1시간 전 기사부터 와요.\n\n" + describe_(sub, mine);
   }
   return "모르는 명령이에요.\n" + HELP_TEXT;
 }
@@ -657,6 +659,17 @@ function parseDays_(words) {
   }
   if (!any) return { error: "요일을 알려주세요. 예: /요일 월-금 일 (되돌리기: /요일 기본)" };
   return { days: Object.keys(out).map(Number).sort(function (a, b) { return a - b; }) };
+}
+
+// 새로 더한 섹터(kind "s")·종류("m")의 추가 시각을 남긴다. 뉴스 발송이 읽어 그 시각 1시간 전보다 오래된 기사는 보내지 않는다 (공시는 그날 것만)
+function markAdded_(mine, kind, before, after) {
+  var added = mine.added || {}, now = nowMs_(), keep = {};
+  Object.keys(added).forEach(function (k) {   // 지금 고른 것 중 이틀 안에 더한 기록만 남긴다
+    var name = k.slice(2);
+    if (k.charAt(0) !== kind ? now - added[k] < 2 * 86400000 : (after.indexOf(name) >= 0 && now - added[k] < 2 * 86400000)) keep[k] = added[k];
+  });
+  after.forEach(function (x) { if ((before || []).indexOf(x) < 0) keep[kind + ":" + x] = now; });
+  if (Object.keys(keep).length) mine.added = keep; else delete mine.added;
 }
 
 function describe_(sub, mine) {
