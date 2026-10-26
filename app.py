@@ -5650,6 +5650,7 @@ def render_news_search(kind):
         if carried:
             fill_news_terms(kind)
     if kind == "일반":
+        st.caption("단독이 아닌 기사까지 모두 찾아 결과가 많아요. 섹터는 하나만 고를 수 있어요.")
         st.pills("섹터 (하나만)", list(NEWS_SECTORS), selection_mode="single", key=f"{k}_groups", label_visibility="collapsed",
                  on_change=news_groups_changed, args=(kind,))
     else:
