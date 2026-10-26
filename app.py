@@ -444,7 +444,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 15:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 15:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5439,6 +5439,11 @@ def team_sector_options(team, options):
         name = sec if sec in options else next((o for o in options if sec in o.split("·") and "·" in o and sec in ("자동차", "배터리")), None)
         if name is None and sec in HEAVY_PARTS and HEAVY_NAME in options:
             name = HEAVY_NAME
+        if name is None and sec == HEAVY_NAME:  # 화면이 조선·해운/방산/철강을 따로 쓰면(주가 장중 현황) 셋으로 풀어 준다
+            for part in HEAVY_PARTS:
+                if part in options and part not in out:
+                    out.append(part)
+            continue
         if name and name not in out:
             out.append(name)
     return out
@@ -9370,17 +9375,15 @@ def render_px_intraday_now(data):
     day = intra["date"]
     last_end = sc.bar_end_text(intra["t"][-1], intra.get("interval", 5))
     fetched = str(intra.get("fetched", ""))[11:16]
-    c1, c2, c3 = st.columns([2, 2, 3])
-    scope = c1.selectbox("대상", ["섹터 기업"] + list(sectors) + ["추적 종목 전체"], key="px_now_scope")
+    team_buttons("pxnow", sectors, "px_now_groups")
+    st.pills("섹터", list(sectors), selection_mode="multi", key="px_now_groups", label_visibility="collapsed")
+    picked = [g for g in (st.session_state.get("px_now_groups") or []) if g in sectors]
+    c2, c3 = st.columns([2, 3])
     window = c2.radio("최근 구간", list(sc.INTRADAY_WINDOWS), index=1, horizontal=True, key="px_now_window")
     order = c3.radio("정렬", ["구간 변동", "등락률", "거래대금"], horizontal=True, key="px_now_order")
     bars = sc.INTRADAY_WINDOWS[window]
-    if scope == "추적 종목 전체":
-        codes = None
-    elif scope == "섹터 기업":
-        codes = {c for cs in sectors.values() for c in cs}
-    else:
-        codes = set(sectors[scope])
+    scope = ", ".join(picked) if picked else "섹터 기업 전체"
+    codes = {c for g in (picked or list(sectors)) for c in sectors[g]}  # 아무것도 안 고르면 섹터 기업 전체
     rows = sc.intraday_stock_rows(intra, data, bars, codes)
     if not rows:
         st.info("보여줄 종목이 없어요.")
@@ -9422,7 +9425,7 @@ def render_stock():
         return
     dates = sc.dates_of(data)
     st.caption("자료 기준", help=f"종가는 KRX 일별 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일, 평일 아침 갱신)  \n장중은 야후 파이낸스 5분봉(비공식)을 장중 30분마다 갱신")
-    mode = st.radio("보기", ["시세판", "장중 현황", "특징주", "업계 비교", "주가·이벤트"], horizontal=True, key="px_mode", label_visibility="collapsed")
+    mode = st.radio("보기", ["장중 현황", "시세판", "특징주", "업계 비교", "주가·이벤트"], horizontal=True, key="px_mode", label_visibility="collapsed")
     if mode == "시세판":
         render_px_board(data)
     elif mode == "장중 현황":
