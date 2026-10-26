@@ -433,7 +433,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 09:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 10:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5362,11 +5362,12 @@ def render_global_news():
 
 
 NEWS_ALWAYS_SEARCH = {"엘에스일렉트릭": ["LS일렉트릭"]}
-MAX_NEWS_TERMS = {"통신": 100, "단독": 100}  # 검색어 칸에 넣을 수 있는 검색어 수 (섹터를 여러 개 고르면 많아짐). 통신은 구글 뉴스라 한도가 넉넉함
+MAX_NEWS_TERMS = {"통신": 100, "단독": 100, "일반": 30}  # 일반은 단독 표기 없는 기사를 모두 찾아 결과가 많으므로 검색어를 적게  # 검색어 칸에 넣을 수 있는 검색어 수 (섹터를 여러 개 고르면 많아짐). 통신은 구글 뉴스라 한도가 넉넉함
 NEWS_ALIAS_LIMIT = 5  # 검색어가 이 수 이하일 때만 줄임말(별칭)도 따로 검색 (그 이상이면 호출이 너무 많아져 제목 확인에만 씀)
 NEWS_KINDS = {  # 조회 방식 -> 검색 때 붙이는 말(None=단독), 보여줄 언론사 구분
     "통신": {"keyword": "", "need_exclusive": False},
     "단독": {"keyword": None, "need_exclusive": True},
+    "일반": {"keyword": "", "need_exclusive": False},  # 단독 모드에서 '단독' 필터만 뺀 것 (앱 화면 전용 — 텔레그램 알람 종류에는 없음)
 }
 
 
@@ -5542,7 +5543,7 @@ def render_timeline():
 
 
 def render_news_search(kind):
-    """통신/단독 공통 화면: 섹터 고르기 + 검색어 + 기간 -> 기사 묶음 목록."""
+    """통신/단독/일반 공통 화면: 섹터 고르기 + 검색어 + 기간 -> 기사 묶음 목록. 일반 = 단독과 같은 검색에서 '단독' 표기 조건만 뺀 것."""
     cfg = NEWS_KINDS[kind]
     k = f"nw_{kind}"
     st.session_state.setdefault(f"{k}_terms", "")  # 처음엔 섹터도 검색어도 비워 둔다
@@ -5602,10 +5603,10 @@ def render_news_search(kind):
                             raise NewsApiError(g_err)
                         source = "구글 뉴스"
                     else:  # 단독: 구글 뉴스에 네이버 뉴스를 항상 합친다(구글이 늦게 반영하는 기사를 네이버가 메움). 키가 없거나 USE_NAVER=0이면 구글만
-                        items, g_err = google_news(search, NEWS_PERIODS[period], list(PUBLISHERS), "단독")
+                        items, g_err = google_news(search, NEWS_PERIODS[period], list(PUBLISHERS), "단독" if cfg["need_exclusive"] else "")
                         items = drop_blocked(items)
                         source = "구글 뉴스"
-                        n_excl = sum(is_exclusive(i["title"]) for i in items)
+                        n_excl = sum(is_exclusive(i["title"]) for i in items) if cfg["need_exclusive"] else len(items)
                         few = n_excl < NEWS_GOOGLE_MIN
                         if USE_NAVER and NAVER_ID and NAVER_SECRET:
                             try:
@@ -5690,11 +5691,11 @@ def render_news_search(kind):
 
 
 def render_news():
-    """탭: 산업 뉴스 - 통신(연합뉴스·뉴시스·뉴스1) / 단독 / 외신"""
+    """탭: 산업 뉴스 - 통신(연합뉴스·뉴시스·뉴스1) / 단독 / 일반(단독 필터 없음) / 외신"""
     with st.container(key="news_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에 (재무 조회와 같은 모양)
         c1, c2 = st.columns([1, 4], vertical_alignment="center")
         c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["통신", "단독", "외신"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
+        mode = c2.radio("조회 방식", ["통신", "단독", "일반", "외신"], horizontal=True, key="news_mode", label_visibility="collapsed")  # 폼 밖: 바꾸면 아래 입력칸이 바뀜
     if mode == "외신":
         render_global_news()
         return
