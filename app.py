@@ -487,7 +487,7 @@ USE_NAVER = (load_secret("USE_NAVER") or "1").strip().lower() in ("1", "true", "
 
 # 기능 사용 기록 (선택). Streamlit Secrets에 APPS_SCRIPT_URL(Apps Script 웹앱 주소 + ?key=…, GitHub의 PREFS_URL과 같은 값)이 있으면
 # 기능을 쓸 때마다 기능 이름·시각·무작위 세션 번호만 구글 시트 '사용기록'에 보낸다(개인정보 없음). 관리자 주소 ?lab=1의 '사용 통계' 탭이 집계를 보여준다.
-# 본인 사용을 따로 세려면 주소 끝에 ?me=1 (관리자 주소는 ?lab=1&me=1).
+# 본인 사용은 관리자 주소(?lab=1)로 열면 저절로 따로 세고, 일반 주소로 쓸 때는 끝에 ?me=1을 붙이면 된다.
 APPS_SCRIPT_URL = (load_secret("APPS_SCRIPT_URL") or "").strip()
 USE_LOG_THROTTLE = 10 * 60  # once=True인 기록은 세션마다 이 시간에 한 번만
 
@@ -496,7 +496,7 @@ def use_session():
     """세션 번호(무작위 8자)와 본인 표시(?me=1)."""
     if "use_sid" not in st.session_state:
         st.session_state["use_sid"] = uuid.uuid4().hex[:8]
-        st.session_state["use_me"] = st.query_params.get("me", "") == "1"
+        st.session_state["use_me"] = st.query_params.get("me", "") == "1" or st.query_params.get("lab", "") == "1"  # 관리자 주소(?lab=1)로 연 것도 본인 사용
     return st.session_state["use_sid"], st.session_state["use_me"]
 
 
@@ -7581,6 +7581,9 @@ h1 { font-size: 2.15rem !important; font-weight: 800 !important; letter-spacing:
 .st-key-alarm_top button * { overflow: visible !important; text-overflow: clip !important; max-width: none !important; }
 .st-key-alarm_top > div, .st-key-alarm_top [data-testid="stPopover"] { width: auto !important; min-width: 0 !important; }
 .st-key-alarm_top button:hover { border-color: #1c7ed6 !important; color: #1c7ed6 !important; }
+.st-key-bottom_bar { flex-wrap: wrap !important; }
+.st-key-bottom_bar > div, .st-key-bottom_bar [data-testid="stPopover"] { width: auto !important; flex: 0 0 auto !important; }  /* 맨 아래 버튼 세 개: 글자 폭만큼만 (창 자체는 넓게) */
+.st-key-bottom_bar [data-testid="stPopover"] > button { width: auto !important; }
 h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 [data-testid="stElementContainer"]:has(h1) + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"] { font-size: 0.78rem; letter-spacing: 0.06em; color: #7a8699; margin-top: 0.1rem; }
 [data-testid="stElementContainer"]:has(h1) + [data-testid="stElementContainer"] [data-testid="stCaptionContainer"] p::before { content: ""; display: inline-block; width: 1.6rem; height: 3px; border-radius: 2px; background: #1c7ed6; vertical-align: middle; margin-right: 0.5rem; }
@@ -11398,7 +11401,7 @@ def render_usage_stats():
         st.info("Streamlit Secrets에 APPS_SCRIPT_URL(Apps Script 웹앱 주소 + ?key=…)을 넣으면 기능 사용이 구글 시트에 기록되고 여기에 집계가 보여요.")
         return
     days = st.radio("기간", [7, 30, 90], index=1, horizontal=True, key="use_days", format_func=lambda d: f"최근 {d}일")
-    exclude_me = st.toggle("내 사용(?me=1로 연 세션) 빼고 보기", value=True, key="use_exclude_me")
+    exclude_me = st.toggle("내 사용(?lab=1 또는 ?me=1로 연 세션) 빼고 보기", value=True, key="use_exclude_me")
     try:
         stats = fetch_usage_stats(days)
     except Exception as e:
