@@ -7621,9 +7621,9 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 /* 섹터 알약(st.pills): 폰에서는 5칸 격자로 줄 끝을 맞춘다 (PC는 한 줄에 다 들어가므로 그대로) */
 @media (max-width: 640px) {
   [data-testid="stElementContainer"]:has(button[data-variant="pills"]), [data-testid="stButtonGroup"]:has(button[data-variant="pills"]) { width: 100% !important; max-width: none !important; }  /* 알약 상자가 내용 폭(오른쪽 빈 자리)이 아니라 화면 폭을 다 쓰게 */
-  [data-testid="stButtonGroup"] [role="toolbar"]:has(button[data-variant="pills"]) { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.35rem 0.3rem; width: 100% !important; max-width: none !important; }
-  [data-testid="stButtonGroup"] [role="toolbar"]:has(> :nth-child(8):last-child), [data-testid="stButtonGroup"] [role="toolbar"]:has(> :nth-child(4):last-child) { grid-template-columns: repeat(4, minmax(0, 1fr)); }  /* 8개·4개짜리는 4칸씩 (빈 칸 없이) */
-  [data-testid="stButtonGroup"] [role="toolbar"]:has(> :nth-child(6):last-child), [data-testid="stButtonGroup"] [role="toolbar"]:has(> :nth-child(3):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  [data-testid="stButtonGroup"] div:has(> button[data-variant="pills"]) { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.35rem 0.3rem; width: 100% !important; max-width: none !important; }
+  [data-testid="stButtonGroup"] div:has(> button[data-variant="pills"]):has(> :nth-child(8):last-child), [data-testid="stButtonGroup"] div:has(> button[data-variant="pills"]):has(> :nth-child(4):last-child) { grid-template-columns: repeat(4, minmax(0, 1fr)); }  /* 8개·4개짜리는 4칸씩 (빈 칸 없이) */
+  [data-testid="stButtonGroup"] div:has(> button[data-variant="pills"]):has(> :nth-child(6):last-child), [data-testid="stButtonGroup"] div:has(> button[data-variant="pills"]):has(> :nth-child(3):last-child) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   [data-testid="stButtonGroup"] button[data-variant="pills"] { width: 100%; min-width: 0; margin: 0 !important; padding-left: 0.15rem !important; padding-right: 0.15rem !important; justify-content: center; }
   [data-testid="stButtonGroup"] button[data-variant="pills"] * { max-width: none !important; overflow: visible !important; text-overflow: clip !important; }  /* '에너지·소…'처럼 줄임표로 잘리지 않게 */
   [data-testid="stButtonGroup"] button[data-variant="pills"] p { white-space: nowrap !important; }
