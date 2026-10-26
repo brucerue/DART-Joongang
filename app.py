@@ -11662,9 +11662,9 @@ with st.container(key="bottom_bar", horizontal=True, gap="small"):  # 맨 아래
     render_alarm_signup()
 if SHOW_LAB:  # 관리자 주소(?lab=1): 위 탭 줄은 일반 사용자와 똑같이 두고, 관리자용 탭은 맨 아래에 따로 (내용은 보통 탭처럼 펼쳐짐)
     st.markdown('<div class="lab-lbl">관리자</div>', unsafe_allow_html=True)
-    lab_tl, lab_use = st.tabs(["타임라인", "사용 통계"])
-    with lab_tl:
-        render_timeline()
+    lab_use, lab_tl = st.tabs(["사용 통계", "타임라인"])  # 사용 통계가 먼저 열림
     with lab_use:
         render_usage_stats()
+    with lab_tl:
+        render_timeline()
 st.caption(f"updated {LAST_UPDATED}")  # 맨 아래
