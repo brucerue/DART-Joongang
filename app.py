@@ -445,7 +445,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 19:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 19:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -11481,10 +11481,15 @@ _COL_LOCK_JS = """
       if(!t) return false;
       var p = e.touches && e.touches[0] ? e.touches[0] : e;
       var r = t.getBoundingClientRect();
-      return (p.clientY - r.top) < 40;
+      return (p.clientY - r.top) < 48;
     }
+    function isTouch(e){ return e.pointerType === 'touch' || (e.type && e.type.indexOf('touch') === 0); }
     ['pointerdown','mousedown','touchstart'].forEach(function(n){
-      d.addEventListener(n, function(e){ armed = inHeader(e); }, true);
+      d.addEventListener(n, function(e){
+        armed = inHeader(e);
+        // 폰(손가락)에서 표 머리글을 누른 것은 표에 아예 전하지 않는다: 손가락으로 끌다가 열 순서가 바뀌는 일을 막는다 (마우스는 그대로: 정렬·열 끌기 가능)
+        if(armed && isTouch(e)){ e.stopImmediatePropagation(); }
+      }, true);
     });
     ['pointerup','mouseup','touchend','touchcancel','pointercancel'].forEach(function(n){
       w.addEventListener(n, function(){ armed = false; }, true);
