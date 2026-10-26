@@ -445,7 +445,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 18:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 19:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7554,9 +7554,9 @@ footer { visibility: hidden; }
 [class*="secbar"] button p { font-size: 0.8rem !important; }
 .sec-lbl { font-size: 0.9rem; color: #31333f; white-space: nowrap; }
 .mode-lbl { font-size: 0.9rem; font-weight: 600; color: #334155; white-space: nowrap; }
-.st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-fin_unit_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"], .st-key-news_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
-.st-key-fin_mode_bar [data-testid="stColumn"], .st-key-fin_unit_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"], .st-key-news_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
-.st-key-fin_mode_bar [data-testid="stColumn"]:first-child, .st-key-fin_unit_bar [data-testid="stColumn"]:first-child, .st-key-disc_mode_bar [data-testid="stColumn"]:first-child, .st-key-news_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
+.st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-fin_unit_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"], .st-key-news_mode_bar [data-testid="stHorizontalBlock"], .st-key-px_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
+.st-key-fin_mode_bar [data-testid="stColumn"], .st-key-fin_unit_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"], .st-key-news_mode_bar [data-testid="stColumn"], .st-key-px_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
+.st-key-fin_mode_bar [data-testid="stColumn"]:first-child, .st-key-fin_unit_bar [data-testid="stColumn"]:first-child, .st-key-disc_mode_bar [data-testid="stColumn"]:first-child, .st-key-news_mode_bar [data-testid="stColumn"]:first-child, .st-key-px_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
 .st-key-news_opts_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
 .st-key-news_opts_bar [data-testid="stColumn"] { min-width: 0 !important; }
 .st-key-ovs_fx_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.75rem !important; }  /* 모바일에서도 한 줄 */
@@ -9446,14 +9446,17 @@ def render_px_intraday_now(data):
 
 
 def render_stock():
-    """탭: 주가 - 장중 현황 / 시세판 / 업계 비교 / 주가·이벤트 (KRX 일별 종가를 매일 쌓은 자료)"""
+    """탭: 주가 - 장중 현황 / 시세판 / 업계 비교 / 이벤트 (KRX 일별 종가를 매일 쌓은 자료)"""
     data = get_prices()
     if data is None:
         st.info("시세 자료가 아직 없어요. 매 평일 아침 GitHub 작업이 KRX 시세를 모아 두는데, 처음에는 과거 시세를 채우느라 며칠 걸릴 수 있어요.")
         return
     dates = sc.dates_of(data)
-    st.caption("자료 기준", help=f"종가는 KRX 일별 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일, 평일 아침 갱신)  \n장중은 야후 파이낸스 5분봉(비공식)을 장중 30분마다 갱신")
-    mode = st.radio("보기", ["장중 현황", "시세판", "업계 비교", "주가·이벤트"], horizontal=True, key="px_mode", label_visibility="collapsed")
+    with st.container(key="px_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에 (재무 분석과 같은 모양)
+        c1, c2 = st.columns([1, 4], vertical_alignment="center")
+        c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
+        mode = c2.radio("조회 방식", ["장중 현황", "시세판", "업계 비교", "이벤트"], horizontal=True, key="px_mode", label_visibility="collapsed",
+                        help=f"종가는 KRX 일별 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일, 평일 아침 갱신)  \n장중은 야후 파이낸스 5분봉(비공식)을 장중 15분마다 갱신")
     track_choice("px_mode", "주가 분석")
     if mode == "시세판":
         render_px_board(data)
