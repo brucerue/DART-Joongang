@@ -49,6 +49,7 @@ SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너�
 MODES = ["통신", "단독", "일반", "공시"]  # 알람 종류(순서대로)
 DEFAULT_MODES = ["통신", "단독", "공시"]  # 종류를 안 적은 사람의 기본값. 일반(단독 표기 없는 기사 전부)은 양이 많아 직접 골라야 받는다
 ADDED_LOOKBACK_HOURS = 1  # 봇으로 섹터·종류를 새로 더하면 그 시각 이만큼 전 기사부터 보낸다 (공시는 시각이 없어 그날 것만)
+SENT_TITLE_HOURS = 12  # 이 시간 안에 보낸 기사와 제목이 비슷하면(같은 사건) 또 보내지 않는다 (연합이 제목·주소를 바꿔 다시 올린 기사 등)
 LOOKBACK_HOURS = 12  # 발송 시각 기준 이 시간 안에 올라온 기사만 (쉬는 요일·시간 뒤에 다시 받을 때도 같은 기준. 이미 보낸 기사는 기록으로 걸러냄)
 MAX_PER_SECTOR = 100  # 섹터마다 메시지에 싣는 최대 묶음 수 (넘으면 '외 N건'). 길면 텔레그램 메시지가 여러 통으로 나뉨
 USE_NAVER = os.environ.get("USE_NAVER", "1").strip().lower() in ("1", "true", "yes", "on")  # 기본은 켜짐(네이버 키가 있을 때만 실제로 사용). 끄려면 환경변수 USE_NAVER=0
@@ -1189,6 +1190,29 @@ def sent_keys(chat, mode, it):
     return keys
 
 
+def sent_title_key(chat, title):
+    """보낸 기사 제목 기록 키 (비슷한 제목 거르기용). 값은 다른 기록처럼 보낸 시각"""
+    return f"{chat}|title|{title}"
+
+
+def recent_sent_titles(seen, chat, now):
+    """이 사람에게 SENT_TITLE_HOURS 안에 보낸 기사 제목들"""
+    pre, cut = f"{chat}|title|", (now - timedelta(hours=SENT_TITLE_HOURS)).isoformat()
+    return [k[len(pre):] for k, v in seen.items() if k.startswith(pre) and v >= cut]
+
+
+def same_story_sent(title, titles):
+    """제목이 이미 보낸 제목 중 하나와 같은 사건인지 (앱의 기사 묶기와 같은 기준: 글자 80% 이상 비슷하거나 핵심 낱말이 충분히 겹침)"""
+    k = title_key(title)
+    for t in titles:
+        m = difflib.SequenceMatcher(None, k, title_key(t), autojunk=False)
+        if m.real_quick_ratio() >= A["SIMILAR_TITLE"] and m.quick_ratio() >= A["SIMILAR_TITLE"] and m.ratio() >= A["SIMILAR_TITLE"]:
+            return True
+        if A["same_news_event"]({"title": title}, {"title": t}):
+            return True
+    return False
+
+
 def load_seen():
     try:
         with open(SEEN_FILE, encoding="utf-8") as f:
@@ -1379,6 +1403,7 @@ def main():
         baseline = bool(sub.get("heavy_partial")) and base_key not in seen and not dry and not args.force and not args.only
         quiet_keys = []  # 중후장대로 묶이기 전 일부만 받던 사람: 넓어진 범위의 기존 기사는 보내지 않고 '받은 것으로만' 기록
         placed_all = set()  # 이 사람에게 이번 회차에 들어간 기사 (모든 종류)
+        sent_titles = recent_sent_titles(seen, chat, now)  # 최근에 보낸 기사 제목 (비슷한 제목 거르기)
         for mode in sub["modes"]:
             sections, placed, new_keys = [], set(), []
             for sector in sub["sectors"]:
@@ -1402,6 +1427,10 @@ def main():
                         placed.update(ks)  # 통신·단독으로 이미 받았거나 이번에 받는 기사는 일반에서 되풀이하지 않는다 (기록만 남긴다)
                         new_keys += ks
                         continue
+                    if mode != "공시" and same_story_sent(i["title"], sent_titles):
+                        placed.update(ks)  # 최근에 보낸 기사와 같은 사건(제목만 고쳐 다시 올린 기사 등): 보내지 않고 기록만 남긴다
+                        new_keys += ks
+                        continue
                     placed.update(ks)
                     placed_all.update(ks)
                     fresh.append(i)
@@ -1412,6 +1441,9 @@ def main():
                     continue
                 for c in clusters:
                     new_keys += [k for it in [c["rep"]] + c["others"] for k in sent_keys(chat, mode, it)]
+                    if mode != "공시":
+                        new_keys += [sent_title_key(chat, it["title"]) for it in [c["rep"]] + c["others"]]
+                        sent_titles += [it["title"] for it in [c["rep"]] + c["others"]]  # 이번 회차 뒤 종류(일반 등)에서도 같은 사건은 거른다
                 if clusters:
                     sections.append((sector, clusters[:MAX_PER_SECTOR], max(0, len(clusters) - MAX_PER_SECTOR)))
             print(f"[{sub['name']}/{mode}] 새 묶음 {sum(len(c) + h for _, c, h in sections)}건 ({len(sections)}개 섹터)")
