@@ -1,0 +1,51 @@
+name: 임시 - 관세청 응답 시간 측정
+
+# 무역 AI 검색이 느린 원인을 찾으려고 잠깐 두는 측정용 작업 (측정이 끝나면 지운다). 시간·행 수만 남기고 키는 출력하지 않는다.
+on:
+  workflow_dispatch:
+
+jobs:
+  timing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 측정
+        env:
+          CUSTOMS_API_KEY: ${{ secrets.CUSTOMS_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os, time, requests, trade_calc as tc
+          from urllib.parse import unquote
+          from concurrent.futures import ThreadPoolExecutor
+          K = os.environ["CUSTOMS_API_KEY"]; K = unquote(K) if "%" in K else K
+          URL = "https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH
+          def call(p):
+              t = time.time(); r = requests.get(URL, params={"serviceKey": K, **p}, timeout=(10, 120)); el = time.time() - t
+              rows = tc.parse_items(r.text)
+              return el, len(rows), len(r.content)
+          def note(msg): print("::notice::" + msg, flush=True)
+          cases = [("HS6 854232 1년 전체국가", {"hsSgn": "854232", "strtYymm": "202501", "endYymm": "202512"}),
+                   ("HS4 8703 1년 전체국가", {"hsSgn": "8703", "strtYymm": "202501", "endYymm": "202512"}),
+                   ("HS4 8703 3개월 전체국가", {"hsSgn": "8703", "strtYymm": "202507", "endYymm": "202509"}),
+                   ("HS6 870380 1년 미국만", {"hsSgn": "870380", "strtYymm": "202501", "endYymm": "202512", "cntyCd": "US"}),
+                   ("HS2 87 1년 전체국가", {"hsSgn": "87", "strtYymm": "202501", "endYymm": "202512"}),
+                   ("HS4 8703 1년 전체국가(같은 것 다시)", {"hsSgn": "8703", "strtYymm": "202501", "endYymm": "202512"})]
+          for name, p in cases:
+              try:
+                  el, n, b = call(p); note(f"{name}: {el:.1f}초, {n}행, {b/1024:.0f}KB")
+              except Exception as e:
+                  note(f"{name}: 실패 {type(e).__name__} {str(e)[:80]}")
+          # 동시에 6개 vs 하나씩
+          ps = [{"hsSgn": h, "strtYymm": "202501", "endYymm": "202512"} for h in ("8542", "8703", "8708", "2710", "8901", "7208")]
+          t = time.time(); seq = [call(p)[0] for p in ps]; t_seq = time.time() - t
+          t = time.time()
+          with ThreadPoolExecutor(6) as pool: par = list(pool.map(lambda p: call(p)[0], ps))
+          t_par = time.time() - t
+          note(f"6개 하나씩: 합계 {t_seq:.1f}초 (각 {', '.join(f'{x:.1f}' for x in seq)})")
+          note(f"6개 동시에: 전체 {t_par:.1f}초 (각 {', '.join(f'{x:.1f}' for x in par)})")
+          PY
