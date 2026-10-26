@@ -425,6 +425,9 @@ function handleCallback_(cb) {
   if (m[1] === "ok") {
     var list = loadApproved_().filter(function (a) { return String(a.chat_id) !== cid; });
     list.push(entry); saveApproved_(list);
+    var prefsA = loadPrefs_(), mineA = prefsA[cid] || (prefsA[cid] = {});
+    mineA.resumed_at = nowMs_() - 3600000;   // 승인 1시간 전부터 나온 기사만 보낸다 (첫 발송에 12시간치가 몰려오지 않게. 공시는 그날 것만)
+    savePrefs_(prefsA);
     tg_("answerCallbackQuery", { callback_query_id: cb.id, text: "승인했어요." });
     if (mchat !== undefined && mid) tg_("editMessageText", { chat_id: mchat, message_id: mid, parse_mode: "HTML",
       text: "✅ 승인함: " + who + "\n섹터: " + esc_(entry.sectors.join(", ") || "-") + "\n종류: " + esc_(entry.modes.join(", ") || "-") +
