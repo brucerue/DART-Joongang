@@ -444,7 +444,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 14:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 15:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9359,6 +9359,61 @@ def render_px_features(data):
     st.caption("기사·공시는 원인이 아니라 같은 시기에 나온 것이에요. 공시는 접수 날짜만 알 수 있어요.")
 
 
+def render_px_intraday_now(data):
+    """장중 현황: 오늘 종목별 흐름(작은 그래프)과 최근 구간(15분·30분·1시간)에 많이 움직인 종목, 섹터 흐름"""
+    intra = get_intraday()
+    if not sc.intraday_ready(intra, data):
+        st.info("오늘 장중 자료가 아직 없어요. 평일 09:15부터 15분마다 들어와요 (장이 끝난 뒤에는 그날 마감까지의 흐름이 보여요).")
+        return
+    sectors = px_sector_codes(data)
+    labels = px_labels(data, sectors)
+    day = intra["date"]
+    last_end = sc.bar_end_text(intra["t"][-1], intra.get("interval", 5))
+    fetched = str(intra.get("fetched", ""))[11:16]
+    c1, c2, c3 = st.columns([2, 2, 3])
+    scope = c1.selectbox("대상", ["섹터 기업"] + list(sectors) + ["추적 종목 전체"], key="px_now_scope")
+    window = c2.radio("최근 구간", list(sc.INTRADAY_WINDOWS), index=1, horizontal=True, key="px_now_window")
+    order = c3.radio("정렬", ["구간 변동", "등락률", "거래대금"], horizontal=True, key="px_now_order")
+    bars = sc.INTRADAY_WINDOWS[window]
+    if scope == "추적 종목 전체":
+        codes = None
+    elif scope == "섹터 기업":
+        codes = {c for cs in sectors.values() for c in cs}
+    else:
+        codes = set(sectors[scope])
+    rows = sc.intraday_stock_rows(intra, data, bars, codes)
+    if not rows:
+        st.info("보여줄 종목이 없어요.")
+        return
+    key = {"구간 변동": "move", "등락률": "rate", "거래대금": "val"}[order]
+    rows.sort(key=lambda r: -(r[key] if r[key] is not None else -1e9))
+    up = [r for r in rows if r["move"] is not None and r["move"] > 0]
+    down = [r for r in rows if r["move"] is not None and r["move"] < 0]
+    st.markdown(cb_cards([
+        ("기준 시각", f"{day[4:6]}.{day[6:]} {last_end}", f"자료 받음 {fetched}" if fetched else None, "flat"),
+        (f"최근 {window} 오른 종목", f"{len(up)}곳", None, "down"),  # 카드 색은 증시 관행(상승=빨강)
+        (f"최근 {window} 내린 종목", f"{len(down)}곳", None, "up"),
+        ("종목 수", f"{len(rows)}곳", scope, "flat"),
+    ]), unsafe_allow_html=True)
+    span = sc.intraday_window_label(intra, bars)
+    st.caption(f"구간 변동 = {span} 사이의 변동률(구간 직전 봉 종가 대비). 등락률·최고·최저는 전일 종가 대비. 야후 5분봉(비공식)이라 15~20분 늦고 오차가 있을 수 있어요.")
+    table = pd.DataFrame([{
+        "종목": r["name"], "분류": labels.get(r["code"], ""), "현재가": f"{r['close']:,.0f}원", "등락률": px_pct(r["rate"], 2),
+        f"구간 변동({window})": px_pct(r["move"], 2), "오늘 최고": px_pct(r["high"], 2), "오늘 최저": px_pct(r["low"], 2),
+        "거래대금": px_val_text(r["val"]), "오늘 흐름": r["spark"],
+    } for r in rows])
+    lo = min((min(r["spark"]) for r in rows if r["spark"]), default=-1)
+    hi = max((max(r["spark"]) for r in rows if r["spark"]), default=1)
+    st.dataframe(table.style.map(price_style, subset=["등락률", f"구간 변동({window})", "오늘 최고", "오늘 최저"]), hide_index=True,
+                 column_config={"오늘 흐름": st.column_config.LineChartColumn("오늘 흐름 (등락률)", y_min=min(lo, 0), y_max=max(hi, 0), width="medium")},
+                 height=min(len(table) + 1, 20) * 35 + 3)
+    with st.expander("섹터 흐름 그래프"):
+        curve = sc.intraday_sector_curve(intra, data, sectors)
+        if not curve.empty:
+            px_line_chart(px_long({name: curve[name].dropna() for name in curve.columns}), "등락률(%)", zero=True, fmt="%H:%M", axis_fmt="%H:%M")
+            st.caption("섹터 기업 등락률의 단순 평균 (전일 종가 대비)")
+
+
 def render_stock():
     """탭: 주가 - 시세판 / 특징주 / 업계 비교 / 주가·이벤트 (KRX 일별 종가를 매일 쌓은 자료)"""
     data = get_prices()
@@ -9367,9 +9422,11 @@ def render_stock():
         return
     dates = sc.dates_of(data)
     st.caption("자료 기준", help=f"종가는 KRX 일별 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일, 평일 아침 갱신)  \n장중은 야후 파이낸스 5분봉(비공식)을 장중 30분마다 갱신")
-    mode = st.radio("보기", ["시세판", "특징주", "업계 비교", "주가·이벤트"], horizontal=True, key="px_mode", label_visibility="collapsed")
+    mode = st.radio("보기", ["시세판", "장중 현황", "특징주", "업계 비교", "주가·이벤트"], horizontal=True, key="px_mode", label_visibility="collapsed")
     if mode == "시세판":
         render_px_board(data)
+    elif mode == "장중 현황":
+        render_px_intraday_now(data)
     elif mode == "특징주":
         render_px_features(data)
     elif mode == "업계 비교":

@@ -242,3 +242,50 @@ def intraday_hourly(curve, marks):
     pick = curve[[s in set(marks) for s in stamp]].copy()
     pick.index = pick.index.strftime("%H:%M")
     return pick
+
+
+# ---- 장중 현황 (오늘 종목별 흐름·구간 변동) ----
+INTRADAY_WINDOWS = {"15분": 3, "30분": 6, "1시간": 12}  # 구간 이름 -> 5분봉 수
+
+
+def intraday_stock_rows(intra, data, window_bars=6, codes=None):
+    """오늘 장중 종목별 현황 -> [{code, name, close, rate, high, low, move, val, spark}]
+    rate: 전일 종가 대비 %, high/low: 오늘 5분봉 종가의 최고·최저 %, move: 최근 window_bars개 봉 동안의 변동 %(그 전 봉 종가 대비),
+    val: 누적 거래대금(억원, 추정), spark: 봉별 등락률 목록(그래프용). 전일 종가가 없는 종목은 뺀다"""
+    pos = _prev_pos(intra, data)
+    interval = intra.get("interval", 5)
+    rows = []
+    for code, s in intra["s"].items():
+        if codes is not None and code not in codes:
+            continue
+        base = data["s"].get(code)
+        prev = base["c"][pos] if base else None
+        if not prev:
+            continue
+        closes = list(s["c"])
+        filled, last = [], None
+        for c in closes:  # 빈 봉은 직전 값으로
+            last = c if c is not None else last
+            filled.append(last)
+        if last is None:
+            continue
+        spark = [None if c is None else round((c / prev - 1) * 100, 2) for c in filled]
+        have = [c for c in filled if c is not None]
+        k = len(filled)
+        ref = filled[k - window_bars - 1] if k > window_bars and filled[k - window_bars - 1] else (have[0] if k <= window_bars else None)
+        move = (last / ref - 1) * 100 if ref else None
+        val = sum(c * v for c, v in zip(closes, s["v"]) if c is not None and v is not None) / 1e8
+        rows.append({"code": code, "name": base["n"], "close": last, "rate": (last / prev - 1) * 100,
+                     "high": (max(have) / prev - 1) * 100, "low": (min(have) / prev - 1) * 100, "move": move, "val": val,
+                     "spark": [v for v in spark if v is not None]})
+    return rows
+
+
+def intraday_window_label(intra, window_bars):
+    """구간 설명: '10:00 → 10:30' (최근 window_bars개 봉)"""
+    t = intra["t"]
+    interval = intra.get("interval", 5)
+    if not t:
+        return ""
+    start = t[max(0, len(t) - window_bars)]
+    return f"{start[:2]}:{start[2:]} → {bar_end_text(t[-1], interval)}"
