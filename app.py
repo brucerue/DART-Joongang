@@ -437,7 +437,8 @@ PUBLISHERS = {
 # 텔레그램 알람 신청: 앱 맨 아래 '뉴스·공시 알람 받기'. 고른 섹터·종류를 t.me 링크의 start 값에 0/1로 담는다(순서를 바꾸면 news_digest.py의 해석도 달라지므로 끝에만 추가할 것)
 ALARM_BOT = "joongangbiz_bot"
 ALARM_SECTORS = ("자동차", "배터리", "중후장대", "정유·석화", "에너지", "반도체", "IT·통신", "전자", "항공", "재계")
-ALARM_MODES = ("통신", "단독", "공시")
+ALARM_MODES = ("통신", "단독", "일반", "공시")  # 텔레그램 알람 종류(순서대로). 기본 신청값은 ALARM_DEFAULT_MODES
+ALARM_DEFAULT_MODES = ("통신", "단독", "공시")  # 일반(단독 표기 없는 기사 전부)은 양이 많아 원하는 사람만 고른다
 # 팀 프리셋: 팀 버튼을 누르면 이 섹터들이 한꺼번에 선택된다(텔레그램 받는 사람 설정의 "teams"도 같은 목록을 쓴다). 팀을 늘리려면 여기에 한 줄 추가
 TEAM_PRESETS = {
     "차팀": ["자동차", "배터리", "중후장대", "정유·석화", "에너지"],
@@ -445,7 +446,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 19:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 22:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5444,7 +5445,7 @@ NEWS_ALIAS_LIMIT = 5  # 검색어가 이 수 이하일 때만 줄임말(별칭)�
 NEWS_KINDS = {  # 조회 방식 -> 검색 때 붙이는 말(None=단독), 보여줄 언론사 구분
     "통신": {"keyword": "", "need_exclusive": False},
     "단독": {"keyword": None, "need_exclusive": True},
-    "일반": {"keyword": "", "need_exclusive": False},  # 단독 모드에서 '단독' 필터만 뺀 것 (앱 화면 전용 — 텔레그램 알람 종류에는 없음)
+    "일반": {"keyword": "", "need_exclusive": False},  # 단독 모드에서 '단독' 필터만 뺀 것 (텔레그램 알람은 정각에만, 원하는 사람만)
 }
 
 
@@ -11506,7 +11507,7 @@ _COL_LOCK_JS = """
 run_js(_COL_LOCK_JS)
 
 def alarm_link(sectors, modes):
-    """고른 섹터·종류 -> 봇을 열면서 신청 내용을 넘기는 t.me 링크 (start 값: s + 섹터 0/1 아홉 칸 + m + 종류 0/1 세 칸)"""
+    """고른 섹터·종류 -> 봇을 열면서 신청 내용을 넘기는 t.me 링크 (start 값: s + 섹터 0/1 열 칸 + m + 종류 0/1 네 칸)"""
     sb = "".join("1" if x in sectors else "0" for x in ALARM_SECTORS)
     mb = "".join("1" if x in modes else "0" for x in ALARM_MODES)
     return f"https://t.me/{ALARM_BOT}?start=s{sb}m{mb}"
@@ -11517,7 +11518,8 @@ def render_alarm_signup():
         st.caption("원하는 섹터를 고르고 신청하면 텔레그램이 열려요. 아래 '시작(Start)'을 누르면 신청이 접수되고, 확인 후 알람이 시작돼요. 알람 받을 섹터, 종류는 추후 변경 가능해요.")
         team_buttons("alarm", ALARM_SECTORS, "alarm_sectors", label="받을 섹터")
         secs = st.multiselect("받을 섹터", list(ALARM_SECTORS), key="alarm_sectors", label_visibility="collapsed")
-        modes = st.multiselect("받을 종류", list(ALARM_MODES), default=list(ALARM_MODES), key="alarm_modes")
+        modes = st.multiselect("받을 종류", list(ALARM_MODES), default=list(ALARM_DEFAULT_MODES), key="alarm_modes",
+                               help="일반 = 단독 표기 없는 기사까지 전부(양이 많아요). 통신·일반·공시는 매시 정각, 단독과 잠정실적은 15분마다.")
         if secs and modes:
             st.link_button("신청하기 (텔레그램 열기)", alarm_link(secs, modes), type="primary")
         else:

@@ -20,7 +20,8 @@
 
 // ---- 기본값: 평소에는 GitHub가 동기화(sync)로 아래 값과 받는 사람 목록을 최신으로 덮어쓴다. 동기화가 한 번도 없었을 때만 쓰인다 ----
 var ALARM_SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지", "반도체", "IT·통신", "전자", "항공", "재계"];
-var ALARM_MODES = ["통신", "단독", "공시"];
+var ALARM_MODES = ["통신", "단독", "일반", "공시"];
+var DEFAULT_MODES = ["통신", "단독", "공시"];   // 종류를 안 적은 사람의 기본값. 일반(단독 표기 없는 기사 전부)은 양이 많아 직접 골라야 받는다
 var TEAM_PRESETS = { "차팀": ["자동차", "배터리", "중후장대", "정유·석화", "에너지"], "재계팀": ["반도체", "전자", "항공", "재계"] };
 var HEAVY_NAME = "중후장대", HEAVY_PARTS = ["조선·해운", "방산", "철강"];   // 옛 섹터 이름은 중후장대로 읽는다
 var SECTOR_RENAMES = { "에너지·소재": "에너지" };   // 이름을 바꾼 섹터: 옛 이름으로 저장된 설정은 새 이름으로 읽는다 (app.py와 같은 표)
@@ -34,7 +35,8 @@ function cfg_() {
     sectors: (c.sectors && c.sectors.length) ? c.sectors : ALARM_SECTORS,
     modes: (c.modes && c.modes.length) ? c.modes : ALARM_MODES,
     teams: c.teams || TEAM_PRESETS,
-    defaults: (c.defaults && c.defaults.length) ? c.defaults : DEFAULT_SECTORS
+    defaults: (c.defaults && c.defaults.length) ? c.defaults : DEFAULT_SECTORS,
+    defaultModes: (c.default_modes && c.default_modes.length) ? c.default_modes : DEFAULT_MODES
   };
 }
 
@@ -42,13 +44,13 @@ var HELP_TEXT =
   "알람 설정 명령어예요.\n" +
   "/설정 - 지금 설정 보기\n" +
   "/섹터 자동차 배터리 - 받을 섹터 바꾸기 (팀 이름 '차팀', '재계팀', '전체'도 돼요)\n" +
-  "/종류 통신 공시 - 받을 종류 바꾸기 (통신·단독·공시)\n" +
+  "/종류 통신 공시 - 받을 종류 바꾸기 (통신·단독·일반·공시. 일반은 단독 표기 없는 기사까지 전부라 양이 많아요)\n" +
   "/시간 8-18 - 받을 시간대 (기본 8~19시)\n" +
   "/요일 월-금 일 - 받을 요일 (기본 월~금)\n" +
   "/끄기 - 알람 잠시 멈추기\n" +
   "/켜기 - 다시 받기\n" +
   "/도움 - 이 안내 다시 보기\n" +
-  "통신·공시는 매시 정각, 단독과 잠정실적 공시는 15분마다 확인해요.\n" +
+  "통신·일반·공시는 매시 정각, 단독과 잠정실적 공시는 15분마다 확인해요.\n" +
   "새 기사나 공시가 없으면 메시지를 보내지 않아요.";
 
 // ---------------------------------------------------------------- 진입점
@@ -96,7 +98,7 @@ function handleSync_(u) {
       return { name: String(d.name || d.chat_id), chat_id: String(d.chat_id), sectors: d.sectors || [], modes: d.modes || [] };
     });
     props.setProperty("SUBSCRIBERS", JSON.stringify(subs));
-    props.setProperty("CONFIG", JSON.stringify({ sectors: u.sectors || [], modes: u.modes || [], teams: u.teams || {}, defaults: u.defaults || [] }));
+    props.setProperty("CONFIG", JSON.stringify({ sectors: u.sectors || [], modes: u.modes || [], teams: u.teams || {}, defaults: u.defaults || [], default_modes: u.default_modes || [] }));
     setCommandMenu_();  // 매 동기화마다 메뉴를 최신으로 (바뀐 게 없어도 무해)
     ensureButtonUpdates_();  // 승인 버튼 누름이 Worker로 오도록 웹훅 설정을 맞춘다
     props.setProperty("LAST_SYNC", String(nowMs_()));
@@ -608,10 +610,10 @@ function runCommand_(text, sub, prefs, cid) {
     return "✅ 받는 시간을 " + nums[0] + "~" + nums[1] + "시로 바꿨어요. 이 시간 밖에 나온 기사는 시작 시각 기준 12시간 안에 나온 것만 와요.\n\n" + describe_(sub, mine);
   }
   if (["종류", "modes", "mode"].indexOf(cmd) >= 0) {
-    var r2 = parseChoice_(rest, cfg_().modes, { "전체": cfg_().modes });
+    var r2 = parseChoice_(rest, cfg_().modes, { "전체": cfg_().defaultModes });   // '전체'는 전부터 쓰던 뜻 그대로 통신·단독·공시 (일반은 따로 적어야 받는다)
     if (r2.bad.length || !r2.chosen.length) {
       return (r2.bad.length ? "알아듣지 못한 말: " + r2.bad.join(", ") : "받을 종류를 같이 보내주세요. 예: /종류 통신 공시") +
-        "\n\n가능한 종류: " + cfg_().modes.join(", ") + " / 전체";
+        "\n\n가능한 종류: " + cfg_().modes.join(", ") + " / 전체(통신·단독·공시)";
     }
     mine.modes = r2.chosen;
     sub.modes = r2.chosen;
@@ -679,7 +681,7 @@ function loadSubscribers_() {
     return {
       name: d.name || String(d.chat_id), chat_id: String(d.chat_id),
       sectors: sectors.length ? sectors : C.defaults.slice(),
-      modes: (d.modes && d.modes.length) ? d.modes : C.modes.slice()
+      modes: (d.modes && d.modes.length) ? d.modes : C.defaultModes.slice()
     };
   });
 }
@@ -765,7 +767,7 @@ function setCommandMenu_() {
   return tg_("setMyCommands", { commands: [
     { command: "status", description: "지금 설정 보기 (/설정)" },
     { command: "sectors", description: "받을 섹터 바꾸기 (/섹터)" },
-    { command: "modes", description: "받을 종류 바꾸기: 통신·단독·공시 (/종류)" },
+    { command: "modes", description: "받을 종류 바꾸기: 통신·단독·일반·공시 (/종류)" },
     { command: "hours", description: "받을 시간대 (/시간, 기본 8~19시)" },
     { command: "days", description: "받을 요일 (/요일, 기본 월~금)" },
     { command: "off", description: "알람 잠시 멈추기 (/끄기)" },

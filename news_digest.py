@@ -46,7 +46,8 @@ PREFS_FILE = os.path.join(HERE, "digest_prefs.json")  # 받는 사람이 봇 명
 
 # ---------- 설정: 받고 싶은 섹터·조회 방식 ----------
 SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지"]
-MODES = ["통신", "단독", "공시"]
+MODES = ["통신", "단독", "일반", "공시"]  # 알람 종류(순서대로)
+DEFAULT_MODES = ["통신", "단독", "공시"]  # 종류를 안 적은 사람의 기본값. 일반(단독 표기 없는 기사 전부)은 양이 많아 직접 골라야 받는다
 LOOKBACK_HOURS = 12  # 발송 시각 기준 이 시간 안에 올라온 기사만 (쉬는 요일·시간 뒤에 다시 받을 때도 같은 기준. 이미 보낸 기사는 기록으로 걸러냄)
 MAX_PER_SECTOR = 100  # 섹터마다 메시지에 싣는 최대 묶음 수 (넘으면 '외 N건'). 길면 텔레그램 메시지가 여러 통으로 나뉨
 USE_NAVER = os.environ.get("USE_NAVER", "1").strip().lower() in ("1", "true", "yes", "on")  # 기본은 켜짐(네이버 키가 있을 때만 실제로 사용). 끄려면 환경변수 USE_NAVER=0
@@ -70,7 +71,7 @@ def load_app_data():
     tree = ast.parse(src)
     consts, funcs = {}, {}
     want_consts = {"LETTER_NAMES", "WORD_READINGS", "PUBLISHERS", "SIMILAR_TITLE", "NEWS_ALIASES", "NAME_READINGS",
-                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "TEAM_PRESETS", "HEAVY_NAME", "HEAVY_PARTS", "SECTOR_RENAMES",
+                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "ALARM_DEFAULT_MODES", "TEAM_PRESETS", "HEAVY_NAME", "HEAVY_PARTS", "SECTOR_RENAMES",
                    "PROV_REV_LABELS", "PROV_OP_LABELS", "SPORTS_WORDS", "NEWS_BLOCK_TERMS"}
     want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "news_tokens", "same_news_event", "disclosure_key",
                   "parse_amount_cell", "parse_provisional", "doc_text_from_zip", "is_sports", "is_blocked", "key_in_title"}  # 뒤의 셋: 잠정실적 원문 읽기 (앱 '재무 조회'와 같은 규칙)
@@ -561,7 +562,18 @@ SPORTS_RSS_URLS = ("https://www.yna.co.kr/rss/sports.xml", "https://www.yna.co.k
 SPORTS_TITLES_URL = "https://raw.githubusercontent.com/brucerue/DART-Joongang/sports-titles/sports_titles.json"  # 매시간 모아 둔 스포츠·전국 RSS 제목(30일)
 
 
+_SPORTS_KEYS = []  # 한 번 읽은 결과를 같은 실행 안에서 다시 쓴다 (섹터·종류마다 RSS를 되풀이해 읽지 않게)
+
+
 def sports_feed_keys():
+    if _SPORTS_KEYS:
+        return _SPORTS_KEYS[0]
+    keys = _sports_feed_keys()
+    _SPORTS_KEYS.append(keys)
+    return keys
+
+
+def _sports_feed_keys():
     """연합뉴스 스포츠·전국 기사 제목 -> 비교용 글자 목록. 두 곳을 합친다: ① RSS를 지금 바로 읽은 것(가장 새 기사까지, 서버가 늦으면 두 번 더 시도),
     ② GitHub에 매시간 모아 둔 30일치 목록(①이 실패했을 때의 보험). 둘 다 못 읽으면 빈 목록(낱말 목록만 쓴다)."""
     keys = []
@@ -597,6 +609,12 @@ def collect(mode, sector, cutoff, google=None):
             raise RuntimeError(f"구글 뉴스 오류: {err}")
         sports_keys = sports_feed_keys()  # 연합뉴스 스포츠 RSS의 제목 (낱말 목록과 함께 스포츠 기사를 뺀다)
         items = [i for i in items if i["category"] == "통신사" and i["publisher"] == "연합뉴스" and not A["is_sports"](i["title"], sports_keys)]
+    elif mode == "일반":  # 단독 표기와 상관없이 목록에 있는 언론사 기사 전부 (연합뉴스 기사는 통신과 같은 스포츠·지방 거르기)
+        items, err = google(search, list(A["PUBLISHERS"]), "", cutoff)
+        if err:
+            raise RuntimeError(f"구글 뉴스 오류: {err}")
+        sports_keys = sports_feed_keys()
+        items = [i for i in items if i["category"] and not (i["category"] == "통신사" and A["is_sports"](i["title"], sports_keys))]
     else:
         items, err = google(search, list(A["PUBLISHERS"]), "단독", cutoff)
         if USE_NAVER and os.environ.get("NAVER_CLIENT_ID"):  # 구글 뉴스에 네이버 뉴스를 항상 합친다(구글이 늦게 반영하는 기사를 네이버가 메움)
@@ -669,7 +687,7 @@ def combine_messages(now, parts, earn_only=False):
     합친 글은 간략하게 보이도록 섹터 제목 없이 기사만 모아 보여 준다(같은 기사가 여러 섹터에 걸리면 한 번만)."""
     if len(parts) < 2:
         return None
-    names = {"통신": "통신", "단독": "단독", "공시": "📊 잠정실적" if earn_only else "📋 주요 공시"}
+    names = {"통신": "통신", "단독": "단독", "일반": "일반", "공시": "📊 잠정실적" if earn_only else "📋 주요 공시"}
     bodies = []
     for mode, sections, _ in parts:
         lines, seen_urls, hidden = [], set(), 0
@@ -752,7 +770,7 @@ def merge_approved(subs, approved):
         if not cid or cid in have:
             continue
         sectors = [x for x in (d.get("sectors") or []) if x in A["NEWS_SECTORS"]] or list(SECTORS)
-        modes = [m for m in (d.get("modes") or []) if m in MODES] or list(MODES)
+        modes = [m for m in (d.get("modes") or []) if m in MODES] or list(DEFAULT_MODES)
         out.append({"name": str(d.get("name") or cid), "chat_id": cid, "sectors": sectors, "modes": modes})
         have.add(cid)
     return out
@@ -778,7 +796,7 @@ def sync_to_script(subs):
     payload = {
         "sync": True,
         "subscribers": [{"name": x["name"], "chat_id": x["chat_id"], "sectors": x["sectors"], "modes": x["modes"]} for x in subs],
-        "sectors": list(A.get("ALARM_SECTORS") or []), "modes": list(A.get("ALARM_MODES") or MODES),
+        "sectors": list(A.get("ALARM_SECTORS") or []), "modes": list(A.get("ALARM_MODES") or MODES), "default_modes": list(A.get("ALARM_DEFAULT_MODES") or DEFAULT_MODES),
         "teams": {k: list(v) for k, v in (A.get("TEAM_PRESETS") or {}).items()}, "defaults": list(SECTORS),
     }
     for attempt in range(3):  # 구글 스크립트가 가끔 늦게 응답해서 몇 번 다시 시도한다
@@ -836,13 +854,13 @@ HELP_TEXT = (
     "알람 설정 명령어예요.\n"
     "/설정 - 지금 설정 보기\n"
     "/섹터 자동차 배터리 - 받을 섹터 바꾸기 (팀 이름 '차팀', '재계팀', '전체'도 돼요)\n"
-    "/종류 통신 공시 - 받을 종류 바꾸기 (통신·단독·공시)\n"
+    "/종류 통신 공시 - 받을 종류 바꾸기 (통신·단독·일반·공시. 일반은 단독 표기 없는 기사까지 전부라 양이 많아요)\n"
     "/시간 8-18 - 받을 시간대 (기본 8~19시)\n"
     "/요일 월-금 일 - 받을 요일 (기본 월~금)\n"
     "/끄기 - 알람 잠시 멈추기\n"
     "/켜기 - 다시 받기\n"
     "/도움 - 이 안내 다시 보기\n"
-    "통신·공시는 매시 정각, 단독과 잠정실적 공시는 15분마다 확인해요.\n"
+    "통신·일반·공시는 매시 정각, 단독과 잠정실적 공시는 15분마다 확인해요.\n"
     "새 기사나 공시가 없으면 메시지를 보내지 않아요."
 )
 
@@ -1002,10 +1020,10 @@ def run_command(text, sub, prefs):
         mine["hours"] = list(h)
         return f"받는 시간을 {h[0]}~{h[1]}시로 바꿨어요. 이 시간 밖에 나온 기사는 시작 시각에 한꺼번에 와요."
     if cmd in ("종류", "modes", "mode"):
-        chosen, bad = parse_choice(rest, list(MODES), {"전체": list(MODES)})
+        chosen, bad = parse_choice(rest, list(MODES), {"전체": list(DEFAULT_MODES)})  # '전체'는 전부터 쓰던 뜻 그대로 통신·단독·공시 (일반은 따로 적어야 받는다)
         if bad or not chosen:
             head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 종류를 같이 보내주세요. 예: /종류 통신 공시"
-            return f"{head}\n\n가능한 종류: {', '.join(MODES)} / 전체"
+            return f"{head}\n\n가능한 종류: {', '.join(MODES)} / 전체(통신·단독·공시)"
         mine["modes"] = chosen
         sub["modes"] = chosen
         return "받을 종류를 바꿨어요: " + ", ".join(chosen)
@@ -1161,7 +1179,7 @@ def load_seen():
 def load_subscribers():
     """받는 사람 목록. 우선순위: 환경변수 DIGEST_SUBSCRIBERS(JSON) > subscribers.json 파일 > TELEGRAM_CHAT_ID 한 명.
     각 항목: {"name": "이름", "chat_id": "123", "sectors": ["자동차", ...], "teams": ["차팀"], "modes": ["통신", "단독"]}
-    teams는 앱의 팀 프리셋(TEAM_PRESETS)에 든 섹터를 한꺼번에 더한다(sectors와 합쳐짐). sectors·teams·modes를 생략하면 SECTORS·MODES 전부를 받는다."""
+    teams는 앱의 팀 프리셋(TEAM_PRESETS)에 든 섹터를 한꺼번에 더한다(sectors와 합쳐짐). sectors·teams·modes를 생략하면 SECTORS·DEFAULT_MODES(통신·단독·공시)를 받는다."""
     raw = os.environ.get("DIGEST_SUBSCRIBERS", "").strip()
     path = os.path.join(HERE, "subscribers.json")
     if not raw and os.path.exists(path):
@@ -1189,7 +1207,7 @@ def load_subscribers():
         explicit, partial = migrate_sectors(d.get("sectors") or [])  # 옛 이름(조선·해운·방산·철강)은 중후장대로
         partial = partial and A["HEAVY_NAME"] not in team_sectors
         sectors = list(dict.fromkeys(explicit + team_sectors)) or SECTORS  # 팀 + 개별 섹터를 합쳐서, 둘 다 없으면 전부
-        modes = d.get("modes") or MODES
+        modes = d.get("modes") or DEFAULT_MODES
         bad = [x for x in sectors if x not in A["NEWS_SECTORS"]] + [m for m in modes if m not in MODES]
         if bad:
             raise SystemExit(f"{d.get('name', d.get('chat_id'))}: 알 수 없는 섹터/모드 {bad}")
@@ -1339,6 +1357,7 @@ def main():
         base_key = f"migrate|heavy|{chat}"
         baseline = bool(sub.get("heavy_partial")) and base_key not in seen and not dry and not args.force and not args.only
         quiet_keys = []  # 중후장대로 묶이기 전 일부만 받던 사람: 넓어진 범위의 기존 기사는 보내지 않고 '받은 것으로만' 기록
+        placed_all = set()  # 이 사람에게 이번 회차에 들어간 기사 (모든 종류)
         for mode in sub["modes"]:
             sections, placed, new_keys = [], set(), []
             for sector in sub["sectors"]:
@@ -1354,7 +1373,12 @@ def main():
                     ks = sent_keys(chat, mode, i)
                     if any(k in seen or k in placed for k in ks):
                         continue
+                    if mode == "일반" and any(k in seen or k in placed_all for m in ("통신", "단독") for k in sent_keys(chat, m, i)):
+                        placed.update(ks)  # 통신·단독으로 이미 받았거나 이번에 받는 기사는 일반에서 되풀이하지 않는다 (기록만 남긴다)
+                        new_keys += ks
+                        continue
                     placed.update(ks)
+                    placed_all.update(ks)
                     fresh.append(i)
                 clusters = [{"rep": i, "others": []} for i in fresh] if mode == "공시" else cluster_news(fresh)
                 if baseline and sector == A["HEAVY_NAME"]:
