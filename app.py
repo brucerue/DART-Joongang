@@ -433,7 +433,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 10:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 11:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9372,10 +9372,10 @@ def run_js(code):
 # 수출 (관세청 수출입 통계: GitHub 'trade' 브랜치의 trade.json, trade_data.py가 매일 모아 둠)
 # ------------------------------------------------------------
 TRADE_BRANCH = "trade"
-TRADE_VIEWS = ["검색", "월간 현황", "10일 단위 속보", "국가·경제권"]
+TRADE_VIEWS = ["AI 무역 분석", "검색", "월간 현황", "10일 단위", "국가"]  # AI 검색을 맨 앞 보기로 (검색 안 종류에서 꺼냄)
 CUSTOMS_KEY = load_secret("CUSTOMS_API_KEY")  # 공공데이터포털 일반 인증키 (검색 화면이 품목별 국가별 수출입실적 API를 직접 부른다)
 TRADE_ITEM_URL = "https://apis.data.go.kr/1220000/" + tc.ITEM_API_PATH
-TRADE_KINDS = ["일반", "국가별", "품목별", "AI검색"]
+TRADE_KINDS = ["일반", "국가별", "품목별"]
 TRADE_ITEM_MODES = ["전체", "20대", "HS코드", "MTI코드"]
 TRADE_REGION_MODES = ["전체", "국가", "경제권", "대륙"]
 MTI_FILE = "mti_map.json"  # mti_build.py가 무역협회 HSK-MTI 연계표(엑셀)로 만든 파일 (앱과 같은 폴더)
@@ -10517,9 +10517,6 @@ def render_trade_search(data):
     """검색: 무엇을(품목: 전체·HS·산업부 MTI) × 어디서(지역: 전체·국가·경제권) -> 기간 -> 지표를 고르면 바로 보여준다. 시도·세관은 따로."""
     months = data["months"]
     kind = st.radio("종류", TRADE_KINDS, horizontal=True, key="tr_s_kind")
-    if kind == "AI검색":
-        render_trade_ai(data)
-        return
     if kind == "국가별":
         render_trade_rank_country(data)
         return
@@ -10738,7 +10735,7 @@ def render_trade_country(data):
 
 
 def render_trade():
-    """탭: 수출입 분석 - 관세청 수출입 통계(검색·월간 현황·10일 단위 속보·국가·경제권)"""
+    """탭: 무역 통계 - 관세청 수출입 통계(AI 무역 분석·검색·월간 현황·10일 단위·국가)"""
     data = get_trade()
     if data is None:
         st.info("수출입 자료를 아직 불러오지 못했어요. 처음이라면 GitHub Actions의 '수출입 통계 모으기'를 한 번 실행해 주세요.")
@@ -10750,7 +10747,7 @@ def render_trade():
                    f"월별 자료 {months[0].replace('-', '.')} ~ {months[-1].replace('-', '.')} · 자료 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}  \n"
                    "증감은 전년 같은 달 대비이고, 파랑은 늘어난 것·빨강은 줄어든 것이에요.")
         view = st.radio("보기", TRADE_VIEWS, horizontal=True, key="tr_view", label_visibility="collapsed")
-        {"검색": render_trade_search, "월간 현황": render_trade_monthly, "10일 단위 속보": render_trade_tenday, "국가·경제권": render_trade_country}[view](data)
+        {"AI 무역 분석": render_trade_ai, "검색": render_trade_search, "월간 현황": render_trade_monthly, "10일 단위": render_trade_tenday, "국가": render_trade_country}[view](data)
 
 
 # ------------------------------------------------------------
