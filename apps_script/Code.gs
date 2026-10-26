@@ -435,18 +435,28 @@ function handleCallback_(cb) {
   }
 }
 
-// 관리자 전용 명령: /명단, /삭제 이름
+// 관리자 전용 명령: /명단, /명단 이름, /삭제 이름
 function handleAdminCommand_(body, cid) {
   var m = body.match(/^\/(명단|list|삭제|remove|이름|rename|대기|pending|점검|health|백업|backup)(?:@\w+)?(?:\s+(.*))?$/i);
   if (!m) return false;
   var cmd = m[1].toLowerCase(), arg = (m[2] || "").trim();
   var gh = []; try { gh = JSON.parse(PropertiesService.getScriptProperties().getProperty("SUBSCRIBERS") || "[]"); } catch (e) {}
   var ap = loadApproved_();
+  if ((cmd === "명단" || cmd === "list") && arg) {   // /명단 이름 (또는 chat_id): 그 사람의 지금 설정 (섹터·종류·시간·요일·멈춤 여부)
+    var subs = loadSubscribers_(), key = plainName_(arg).toLowerCase();
+    var who = subs.filter(function (d) { return String(d.chat_id) === arg || plainName_(d.name).toLowerCase() === key; });
+    if (!who.length) who = subs.filter(function (d) { return key.length >= 2 && plainName_(d.name).toLowerCase().indexOf(key) >= 0; });
+    if (!who.length) { send_(cid, "'" + arg + "'을(를) 받는 사람 명단에서 찾지 못했어요. /명단 으로 이름을 확인해 보세요."); return true; }
+    if (who.length > 1) { send_(cid, "여러 명이 걸려요: " + who.map(function (d) { return d.name + " (" + d.chat_id + ")"; }).join(", ") + "\nchat_id로 다시 보내 주세요."); return true; }
+    var allPrefs = loadPrefs_();
+    send_(cid, who[0].name + " (" + who[0].chat_id + ")의 지금 설정이에요.\n" + describe_(applyPrefs_(who[0], allPrefs), allPrefs[who[0].chat_id] || {}));
+    return true;
+  }
   if (cmd === "명단" || cmd === "list") {
     send_(cid, "받는 사람 " + (gh.length + ap.length) + "명\n\n[GitHub 명단 " + gh.length + "]\n" +
       (gh.map(function (d) { return "· " + (d.name || d.chat_id) + " (" + d.chat_id + ")"; }).join("\n") || "-") + "\n\n[앱 신청·승인 " + ap.length + "]\n" +
       (ap.map(function (d) { return "· " + d.name + " (" + d.chat_id + ")"; }).join("\n") || "-") + (Object.keys(loadPending_()).length ? "\n\n[승인 대기·보류 " + Object.keys(loadPending_()).length + "] /대기 로 확인" : "") +
-      "\n\n이름 바꾸기: /이름 chat_id 새이름\n지우기: /삭제 이름");
+      "\n\n한 사람 설정 보기: /명단 이름\n이름 바꾸기: /이름 chat_id 새이름\n지우기: /삭제 이름");
     return true;
   }
   if (cmd === "점검" || cmd === "health") { send_(cid, statusText_()); return true; }
