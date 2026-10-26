@@ -9,13 +9,19 @@ on:
         description: "공시를 채울 기간(일, 0이면 건너뜀)"
         default: "183"
       news_days:
-        description: "기사를 채울 기간(일, 0이면 건너뜀)"
+        description: "단독 기사를 채울 기간(일, 0이면 건너뜀)"
         default: "45"
       news_sectors:
-        description: "기사를 채울 섹터(쉼표로)"
+        description: "기사를 채울 섹터(쉼표로, '전체'면 모든 섹터)"
         default: "반도체,자동차"
       news_step:
-        description: "기사 검색을 쪼개는 기간(일)"
+        description: "단독 기사 검색을 쪼개는 기간(일)"
+        default: "7"
+      wire_days:
+        description: "통신 기사를 채울 기간(일, 0이면 건너뜀)"
+        default: "45"
+      wire_step:
+        description: "통신 기사 검색을 쪼개는 기간(일)"
         default: "7"
 
 permissions:
@@ -43,7 +49,8 @@ jobs:
       - name: 과거 채우기
         run: |
           python backfill_data.py --out data --disc-days "${{ inputs.disc_days }}" --news-days "${{ inputs.news_days }}" \
-            --news-sectors "${{ inputs.news_sectors }}" --news-step "${{ inputs.news_step }}" 2>&1 | tee backfill.log
+            --news-sectors "${{ inputs.news_sectors }}" --news-step "${{ inputs.news_step }}" \
+            --wire-days "${{ inputs.wire_days }}" --wire-step "${{ inputs.wire_step }}" 2>&1 | tee backfill.log
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}

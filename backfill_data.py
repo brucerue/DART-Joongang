@@ -4,7 +4,8 @@
 - 기사: 구글 뉴스 검색의 after:/before: 로 기간을 쪼개 받는다(구글이 막으면 일부가 빠질 수 있음). 단독은 네이버(최신순 최대 300건)도 함께 쓴다.
   걸러내는 규칙은 알람·수집과 같다(news_digest.collect를 그대로 부름: 검색어·언론사·스포츠 제외·차단어).
 - 이미 있는 자료와 합친다(같은 주소는 한 번만, 섹터는 합침). 결과는 워크플로(.github/workflows/backfill_data.yml)가 'data' 브랜치에 올린다.
-사용: python backfill_data.py [--out data] [--disc-days 183] [--news-days 45] [--news-sectors 반도체,자동차] [--news-step 7]
+사용: python backfill_data.py [--out data] [--disc-days 365] [--news-days 365] [--news-step 60] [--wire-days 90] [--wire-step 7] [--news-sectors 전체]
+  news-*: 단독 기사(양이 적어 긴 간격으로 멀리까지), wire-*: 통신 기사(양이 많아 짧은 간격으로 최근만). --news-sectors 전체 = 모든 뉴스 섹터
 필요한 환경변수: DART_API_KEY (공시용), NAVER_CLIENT_ID/NAVER_CLIENT_SECRET (선택)
 """
 import argparse
@@ -140,9 +141,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data")
     ap.add_argument("--disc-days", type=int, default=183, help="공시를 채울 기간(일). 0이면 건너뜀")
-    ap.add_argument("--news-days", type=int, default=45, help="기사를 채울 기간(일). 0이면 건너뜀")
-    ap.add_argument("--news-sectors", default="반도체,자동차", help="기사를 채울 섹터(쉼표)")
-    ap.add_argument("--news-step", type=int, default=7, help="기사 검색을 쪼개는 기간(일)")
+    ap.add_argument("--news-days", type=int, default=45, help="단독 기사를 채울 기간(일). 0이면 건너뜀")
+    ap.add_argument("--news-sectors", default="반도체,자동차", help="기사를 채울 섹터(쉼표). '전체'면 모든 뉴스 섹터")
+    ap.add_argument("--news-step", type=int, default=7, help="단독 기사 검색을 쪼개는 기간(일)")
+    ap.add_argument("--wire-days", type=int, default=None, help="통신 기사를 채울 기간(일). 안 주면 --news-days와 같게, 0이면 건너뜀")
+    ap.add_argument("--wire-step", type=int, default=None, help="통신 기사 검색을 쪼개는 기간(일). 안 주면 --news-step과 같게")
     ap.add_argument("--keep-days", type=int, default=cd.KEEP_DAYS)
     args = ap.parse_args()
     now = datetime.now(KST)
@@ -151,6 +154,8 @@ def main():
     store = {r["u"]: r for r in cd.load_json(path).get("items", [])}
     before = len(store)
     news_sectors = [x.strip() for x in args.news_sectors.split(",") if x.strip()]
+    if news_sectors == ["전체"]:
+        news_sectors = list(nd.A["NEWS_SECTORS"])
     for sec in news_sectors:
         if sec not in nd.A["NEWS_SECTORS"]:
             raise SystemExit(f"없는 섹터: {sec}")
@@ -165,15 +170,21 @@ def main():
             print(f"공시: 최근 {args.disc_days}일, 섹터 {sectors}, 새로 {added}건, 실패한 날 {len(failed)}곳")
             errors += [f"공시 {f}" for f in failed[:10]]
 
-    if args.news_days > 0:
+    wire_days = args.news_days if args.wire_days is None else args.wire_days
+    wire_step = args.news_step if args.wire_step is None else args.wire_step
+    plan = {"통신": (wire_days, wire_step), "단독": (args.news_days, args.news_step)}  # 종류마다 기간·간격 따로
+    if any(d > 0 for d, _ in plan.values()):
         end = (now + timedelta(days=1)).date()
-        start = (now - timedelta(days=args.news_days)).date()
-        cutoff = datetime(start.year, start.month, start.day, tzinfo=KST)
         for sector in news_sectors:
             for mode in ("통신", "단독"):
+                days, step = plan[mode]
+                if days <= 0:
+                    continue
+                start = (now - timedelta(days=days)).date()
+                cutoff = datetime(start.year, start.month, start.day, tzinfo=KST)
                 stats = {"jobs": 0, "fail": 0}
                 try:
-                    items = nd.collect(mode, sector, cutoff, google=make_range_search(start, end, args.news_step, stats))
+                    items = nd.collect(mode, sector, cutoff, google=make_range_search(start, end, step, stats))
                 except Exception as e:
                     errors.append(f"기사 {sector}/{mode}: {e}")
                     print(f"기사 {sector}/{mode}: 실패 — {e} (요청 {stats['jobs']}, 실패 {stats['fail']})")

@@ -1,11 +1,11 @@
-"""기사·공시를 미리 모아 두는 수집기: 앱이 빠르게 보여주고, 6개월치를 쌓아 '이슈 타임라인'에 쓴다.
+"""기사·공시를 미리 모아 두는 수집기: 앱이 빠르게 보여주고, 1년치를 쌓아 '타임라인'에 쓴다.
 
 - GitHub Actions(.github/workflows/collect_data.yml)가 매시간 실행한다.
-- 모든 섹터의 통신·단독 기사와 주요 공시를 모아 data/archive.json(6개월치)과 data/recent.json(최근 7일)에 쓴다.
+- 모든 섹터의 통신·단독 기사와 주요 공시를 모아 data/archive.json(1년치)과 data/recent.json(최근 7일)에 쓴다.
 - 결과 파일은 워크플로가 저장소의 별도 'data' 브랜치에 올린다(앱이 올라간 main 브랜치는 건드리지 않아 앱이 다시 배포되지 않는다).
 - 섹터·기업·언론사 같은 데이터는 news_digest.py(→ app.py)를 그대로 써서 알람과 같은 기준으로 모은다.
 필요한 환경변수: DART_API_KEY (공시용, 없으면 기사만), NAVER_CLIENT_ID/NAVER_CLIENT_SECRET (선택)
-사용: python collect_data.py [--out data] [--days 183]
+사용: python collect_data.py [--out data] [--days 365]
 """
 import argparse
 import json
@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 import news_digest as nd
 
 KST = nd.KST
-KEEP_DAYS = 183  # 6개월
+KEEP_DAYS = 365  # 1년
 RECENT_DAYS = 7
 SECTORS = list(nd.SECTORS) + ["반도체", "전자", "항공", "재계"]  # 텔레그램 기본 알람 섹터 + 타임라인·오늘의 현황에만 쓰는 섹터
 LOOKBACK_HOURS = 48  # 매시간 돌지만, 실패한 회차가 있어도 메워지도록 이틀 전까지 훑는다
