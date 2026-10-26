@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 00:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 00:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -2357,6 +2357,11 @@ def ai_summary(rcept_no, title):
 
 
 
+def md_safe(text):
+    """AI 글을 화면(마크다운)에 그대로 보이게: 물결표(~) 두 개 사이가 취소선으로 그려지지 않게 한다 ('1~12월 … 10~12월')."""
+    return re.sub(r"(?<!\\)~", r"\\~", str(text or ""))
+
+
 def ai_generate(prompt, system=None, json_mode=False):
     """AI로 글을 받는다. Gemini를 먼저 쓰고, 실패하면(한도 소진·서버 혼잡·응답 없음 등) Claude 키가 있을 때 조용히 Claude로 넘어간다.
     한도에 걸린 뒤 GEMINI_REST_SEC 동안은 Gemini를 건너뛴다. -> (글, 쓴 모델) — 쓴 모델은 내부 기록용, 화면에는 보여 주지 않는다"""
@@ -4063,7 +4068,7 @@ def render_fin_ai(result):
                 st.session_state["fin_ai"] = {"sig": prompt_sig, "text": text, "model": used}
     saved = st.session_state.get("fin_ai")
     if saved and saved["sig"] == prompt_sig:
-        st.markdown(saved["text"])
+        st.markdown(md_safe(saved["text"]))
         st.caption(f"AI 분석 · 위 표의 숫자만 근거로 한 해석이에요. 원인·배경은 취재로 확인하세요")
     else:
         st.caption("누르면 위 표(실적·재무상태)를 종합해 흑자·적자 흐름, 수익성, 재무 건전성의 핵심 포인트를 정리해 줘요.")
@@ -4443,7 +4448,7 @@ def render_ai_summary(rows, prefix, all_rows=None):
                     saved = {"rcept_no": rno, "summary": summary, "truncated": truncated, "model": used}
                     st.session_state[f"{prefix}_ai"] = saved
         if saved and saved["rcept_no"] == rno:
-            st.markdown(saved["summary"])
+            st.markdown(md_safe(saved["summary"]))
             notes = ["AI 요약 · 숫자는 반드시 원문으로 확인하세요"]
             if saved["truncated"]:
                 notes.append(f"원문이 길어 앞부분 {MAX_DOC_CHARS:,}자만 요약했어요")
@@ -4466,7 +4471,7 @@ def render_ai_summary(rows, prefix, all_rows=None):
                         st.session_state[f"{prefix}_fix"] = fsaved
             if fsaved and fsaved["rcept_no"] == rno:
                 st.markdown("**정정 전후 비교**")
-                st.markdown(fsaved["text"])
+                st.markdown(md_safe(fsaved["text"]))
                 st.caption(f"AI 비교 · 정정 전: {fsaved['prev_title']} · 숫자는 반드시 원문으로 확인하세요")
                 st.markdown(f"[정정 전 원문]({DART_VIEW_URL.format(fsaved['prev'])})")
 
@@ -4485,7 +4490,7 @@ def render_ai_summary(rows, prefix, all_rows=None):
                         qsaved = {"rcept_no": rno, "q": q.strip(), "text": text, "model": used}
                         st.session_state[f"{prefix}_qa"] = qsaved
         if qsaved and qsaved["rcept_no"] == rno and qsaved["q"] == q.strip():
-            st.markdown(qsaved["text"])
+            st.markdown(md_safe(qsaved["text"]))
             st.caption(f"AI 답변 · 근거 문장을 원문에서 확인하세요")
         st.markdown(f"[DART 원문 보기]({DART_VIEW_URL.format(rno)})")
 
@@ -8037,7 +8042,7 @@ def render_report_ai():
         if res["excerpt"].strip():
             st.text(res["excerpt"][:1500])
     else:
-        st.markdown(res["text"])
+        st.markdown(md_safe(res["text"]))
     notes = []
     if res["model"]:
         notes.append(f"AI 분석 · 숫자는 반드시 원문으로 확인하세요")
@@ -8393,7 +8398,7 @@ def render_brief_overview(b):
                 st.error(str(last_err))
     saved = st.session_state.get("brief_ov")
     if saved and saved["rno"] == rno:
-        st.markdown(saved["text"])
+        st.markdown(md_safe(saved["text"]))
         st.caption(f"AI 요약 · [{saved['name']}]({DART_VIEW_URL.format(saved['used_rno'])}) 발췌만 근거 · 읽은 부분: {', '.join(saved['read'])}")
     else:
         st.caption(f"누르면 {strip_correction(row.get('report_nm'))}의 '사업의 내용'을 읽어 회사 소개·주력 제품·부문별 매출 비중을 정리해 줘요.")
@@ -8425,7 +8430,7 @@ def render_brief_trend(b):
         if b["errors"].get(key):
             st.caption(f"{label}를 불러오지 못해 빼고 정리해요: {b['errors'][key]}")
     if saved and saved["sig"] == sig:
-        st.markdown(brief_trend_linkify(saved["text"], brief_trend_sources(b)))
+        st.markdown(brief_trend_linkify(md_safe(saved["text"]), brief_trend_sources(b)))
         st.caption(f"AI 분석 · 공시 제목과 기사 제목만 보고 정리한 것이에요. 본문은 읽지 않았으니 원문 확인이 필요해요")
     else:
         st.caption(f"누르면 최근 주요 공시 {0 if not has_disc else len(b['disc'])}건과 기사 {n_news}묶음의 제목을 종합해 이슈를 정리해 줘요. (기사는 최근 1주일 단독·통신 기사와 일반 기사 중 주요 언론사 것만 봐요. 통신 기사는 브리핑 화면에는 보이지 않아요)")
@@ -8695,7 +8700,7 @@ def render_brief_result(b):
                     st.session_state["brief_ai"] = {"sig": sig, "text": text, "model": used}
         saved = st.session_state.get("brief_ai")
         if saved and saved["sig"] == sig:
-            st.markdown(saved["text"])
+            st.markdown(md_safe(saved["text"]))
             st.caption(f"AI 분석 · 위 실적·공시 자료만 근거로 한 해석이에요. 공시는 제목만 보고 판단한 것이라 원문 확인이 필요해요")
         else:
             st.caption("누르면 위 실적·공시 자료를 종합해 취재 포인트와 확인할 질문을 정리해 줘요. (뉴스는 포함하지 않아요)")
@@ -10058,7 +10063,7 @@ def render_trade_ai(data):
         return
     st.warning("AI가 제안한 코드와 조건이에요. 틀릴 수 있으니 아래 근거·관세청 품목명을 확인하고, 중요한 숫자는 관세청·산업부 자료로 다시 확인하세요.", icon="⚠️")
     if spec["summary"]:
-        st.markdown(f"**AI가 이해한 내용** · {spec['summary']}")
+        st.markdown(f"**AI가 이해한 내용** · {md_safe(spec['summary'])}")
     arts = spec.get("articles") or []
     picked = []
     if spec["items"]:
@@ -10069,7 +10074,7 @@ def render_trade_ai(data):
             noted = [n["code"] for ch in it.get("children", []) for n in [ch] + ch["sub"] if n["code"] in HS_NOTES]  # 관세청이 확인해 준 하위 코드가 있으면 그걸 기본으로 고른다
             if st.checkbox(f"{it['label']}  ·  확신 {tag}", value=it["confidence"] != "낮음" and not noted, key=f"tr_ai_item_{st.session_state.get('tr_ai_n', 0)}_{i}"):
                 picked.append(it["key"])
-            bits = [it["reason"]] if it["reason"] else []
+            bits = [md_safe(it["reason"])] if it["reason"] else []
             if checked:
                 bits.append(f"관세청 품목명: {checked}")
             elif checked == "":
@@ -10096,7 +10101,7 @@ def render_trade_ai(data):
     reg = " · ".join(f"{n}" for _, n, _ in spec["regions"]) or "전체"
     st.caption(f"지역: {reg}  |  기간: {spec['start'].replace('-', '.')} ~ {spec['end'].replace('-', '.')}  |  지표: {', '.join(spec['metrics'])}")
     if spec["notes"]:
-        st.caption("메모: " + spec["notes"])
+        st.caption("메모: " + md_safe(spec["notes"]))
     for w in spec["warnings"]:
         st.caption("• " + w)
     with st.expander("참고 기사·사이트"):
@@ -11051,9 +11056,9 @@ def ai_missing_note(missing):
 def ai_understood(spec):
     st.warning("AI가 질문을 조건으로 바꾼 결과예요. 아래 조건이 맞는지 확인하고 조회하세요. 숫자는 AI가 아니라 DART 자료·원문에서 나와요.")
     if spec.get("summary"):
-        st.markdown(f"**AI가 이해한 내용** · {spec['summary']}")
+        st.markdown(f"**AI가 이해한 내용** · {md_safe(spec['summary'])}")
     if spec.get("note"):
-        st.caption(f"조건으로 바꾸지 못한 부분: {spec['note']}")
+        st.caption(f"조건으로 바꾸지 못한 부분: {md_safe(spec['note'])}")
 
 
 # --- 1) 재무 분석 AI 검색 ---
