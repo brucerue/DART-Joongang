@@ -433,7 +433,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.26 10:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.26 10:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5362,7 +5362,7 @@ def render_global_news():
 
 
 NEWS_ALWAYS_SEARCH = {"엘에스일렉트릭": ["LS일렉트릭"]}
-MAX_NEWS_TERMS = {"통신": 100, "단독": 100, "일반": 30}  # 일반은 단독 표기 없는 기사를 모두 찾아 결과가 많으므로 검색어를 적게  # 검색어 칸에 넣을 수 있는 검색어 수 (섹터를 여러 개 고르면 많아짐). 통신은 구글 뉴스라 한도가 넉넉함
+MAX_NEWS_TERMS = {"통신": 100, "단독": 100, "일반": 35}  # 일반은 단독 표기 없는 기사를 모두 찾아 결과가 많으므로 섹터를 하나씩만(가장 큰 섹터 33개가 들어가는 수)  # 검색어 칸에 넣을 수 있는 검색어 수 (섹터를 여러 개 고르면 많아짐). 통신은 구글 뉴스라 한도가 넉넉함
 NEWS_ALIAS_LIMIT = 5  # 검색어가 이 수 이하일 때만 줄임말(별칭)도 따로 검색 (그 이상이면 호출이 너무 많아져 제목 확인에만 씀)
 NEWS_KINDS = {  # 조회 방식 -> 검색 때 붙이는 말(None=단독), 보여줄 언론사 구분
     "통신": {"keyword": "", "need_exclusive": False},
@@ -5371,10 +5371,16 @@ NEWS_KINDS = {  # 조회 방식 -> 검색 때 붙이는 말(None=단독), 보여
 }
 
 
+def news_groups_of(kind):
+    """고른 섹터 목록. 일반 모드는 하나만 고르는 알약이라 값이 글자 하나로 오므로 목록으로 맞춘다"""
+    v = st.session_state.get(f"nw_{kind}_groups")
+    return [v] if isinstance(v, str) else list(v or [])
+
+
 def fill_news_terms(kind):
     """고른 섹터들의 기업·키워드를 중복 없이 검색어 칸에 채운다 (그 뒤에 자유롭게 고칠 수 있다)."""
     terms, skip = [], set()
-    for g in st.session_state.get(f"nw_{kind}_groups") or []:
+    for g in news_groups_of(kind):
         for f in NEWS_SECTORS[g]["기업"]:
             if name_key(f) in skip or f in terms:  # 앞에서 검색하는 기업의 줄임말이면 건너뜀
                 continue
@@ -5386,7 +5392,7 @@ def fill_news_terms(kind):
 
 def news_groups_changed(kind):
     """섹터를 고르면 검색어를 채우고, 선택을 기억해 둔다 (통신↔단독으로 옮겨도 같은 섹터가 선택되도록)."""
-    st.session_state["nw_sel"] = list(st.session_state.get(f"nw_{kind}_groups") or [])
+    st.session_state["nw_sel"] = news_groups_of(kind)
     fill_news_terms(kind)
 
 
@@ -5549,12 +5555,18 @@ def render_news_search(kind):
     st.session_state.setdefault(f"{k}_terms", "")  # 처음엔 섹터도 검색어도 비워 둔다
     if f"{k}_groups" not in st.session_state:  # 다른 모드(통신↔단독)에서 옮겨 왔으면 거기서 고른 섹터를 이어받는다
         carried = [g for g in st.session_state.get("nw_sel") or [] if g in NEWS_SECTORS]
-        st.session_state[f"{k}_groups"] = carried
+        if kind == "일반":  # 일반은 섹터를 하나만 고른다 (결과가 많아서). 다른 모드에서 여러 개 골라 왔으면 첫 것만
+            carried = carried[:1]
+        st.session_state[f"{k}_groups"] = (carried[0] if carried else None) if kind == "일반" else carried
         if carried:
             fill_news_terms(kind)
-    team_buttons(k, NEWS_SECTORS, f"{k}_groups", after=lambda: news_groups_changed(kind))
-    st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key=f"{k}_groups", label_visibility="collapsed",
-             on_change=news_groups_changed, args=(kind,))
+    if kind == "일반":
+        st.pills("섹터 (하나만)", list(NEWS_SECTORS), selection_mode="single", key=f"{k}_groups", label_visibility="collapsed",
+                 on_change=news_groups_changed, args=(kind,))
+    else:
+        team_buttons(k, NEWS_SECTORS, f"{k}_groups", after=lambda: news_groups_changed(kind))
+        st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key=f"{k}_groups", label_visibility="collapsed",
+                 on_change=news_groups_changed, args=(kind,))
     with st.form(f"{k}_form"):
         text = st.text_input(
             "검색어 (쉼표로 구분)", key=f"{k}_terms", placeholder="예: 삼성전자, SK하이닉스, HBM",
