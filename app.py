@@ -7581,7 +7581,8 @@ h1 { font-size: 2.15rem !important; font-weight: 800 !important; letter-spacing:
 .st-key-alarm_top button * { overflow: visible !important; text-overflow: clip !important; max-width: none !important; }
 .st-key-alarm_top > div, .st-key-alarm_top [data-testid="stPopover"] { width: auto !important; min-width: 0 !important; }
 .st-key-alarm_top button:hover { border-color: #1c7ed6 !important; color: #1c7ed6 !important; }
-.lab-lbl { margin: 1.2rem 0 0.2rem; font-size: 0.78rem; font-weight: 700; color: #7a8699; letter-spacing: 0.06em; }  /* 관리자 탭 제목 */
+.lab-line { border: 0; border-top: 3px solid #c3ccd8; margin: 1.4rem 0 0.6rem; }  /* 굵은 선: 이 아래는 관리자만 */
+.lab-lbl { margin: 0.2rem 0 0.2rem; font-size: 0.78rem; font-weight: 700; color: #7a8699; letter-spacing: 0.06em; }  /* 관리자 탭 제목 */
 .st-key-bottom_bar { flex-wrap: wrap !important; }
 .st-key-bottom_bar > div, .st-key-bottom_bar [data-testid="stPopover"] { width: auto !important; flex: 0 0 auto !important; }  /* 맨 아래 버튼 세 개: 글자 폭만큼만 (창 자체는 넓게) */
 .st-key-bottom_bar [data-testid="stPopover"] > button { width: auto !important; }
@@ -11660,11 +11661,11 @@ with st.container(key="alarm_top"):  # 코드는 맨 아래지만 CSS로 제목 
     render_calculator()
 with st.container(key="bottom_bar", horizontal=True, gap="small"):  # 맨 아래: 알람 받기
     render_alarm_signup()
-if SHOW_LAB:  # 관리자 주소(?lab=1): 위 탭 줄은 일반 사용자와 똑같이 두고, 관리자용 탭은 맨 아래에 따로 (내용은 보통 탭처럼 펼쳐짐)
-    st.markdown('<div class="lab-lbl">관리자</div>', unsafe_allow_html=True)
+st.caption(f"updated {LAST_UPDATED}")  # 일반 사용자에게는 여기가 맨 아래
+if SHOW_LAB:  # 관리자 주소(?lab=1): 위 탭 줄은 일반 사용자와 똑같이 두고, 굵은 선 아래부터 관리자용 (내용은 보통 탭처럼 펼쳐짐)
+    st.markdown('<hr class="lab-line"><div class="lab-lbl">관리자</div>', unsafe_allow_html=True)
     lab_use, lab_tl = st.tabs(["사용 통계", "타임라인"])  # 사용 통계가 먼저 열림
     with lab_use:
         render_usage_stats()
     with lab_tl:
         render_timeline()
-st.caption(f"updated {LAST_UPDATED}")  # 맨 아래
