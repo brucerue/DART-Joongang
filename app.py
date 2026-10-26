@@ -9426,7 +9426,9 @@ def render_px_intraday_now(data):
     track_choice("px_now_groups", "장중 현황 섹터")
     picked = [g for g in (st.session_state.get("px_now_groups") or []) if g in sectors]
     c2, c3 = st.columns([2, 3])
-    window = c2.radio("최근 구간", list(sc.INTRADAY_WINDOWS), index=1, horizontal=True, key="px_now_window")
+    window = c2.radio("최근 구간", list(sc.INTRADAY_WINDOWS), index=1, horizontal=True, key="px_now_window",
+                      help="마지막으로 받은 시세를 그 구간 직전 가격과 비교한 등락률이에요. 예: 30분이면 14:30 시세를 14:00 가격과 비교해요. "
+                           "방금 갑자기 튄 종목을 찾을 때 쓰고, 오늘 하루 흐름은 '등락률'을 보세요. 야후 시세라 실제보다 15~20분 늦어요.")
     order = c3.radio("정렬", ["구간 변동", "등락률", "거래대금"], horizontal=True, key="px_now_order")
     bars = sc.INTRADAY_WINDOWS[window]
     scope = ", ".join(picked) if picked else "섹터 기업 전체"
