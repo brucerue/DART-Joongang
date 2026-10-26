@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 00:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 01:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8754,7 +8754,6 @@ MAX_CAL_CORPS = 100
 WEEKDAYS = "월화수목금토일"
 CAL_KINDS_HELP = (
     "**IR 개최**: 기업이 공시한 IR(기업설명회) 개최 예정 일정. 원문에서 날짜를 읽어 와요. 이미 발표한 잠정실적 공시는 넣지 않아요\n\n"
-    "**전년 기준 예상**: 작년 같은 시기 잠정실적 공시일을 올해로 옮긴 추정이에요. 확정이 아니에요\n\n"
     "**법정 제출기한**: 분기·반기보고서는 결산 후 45일, 사업보고서는 90일이에요. 잠정실적은 보통 이보다 먼저 나와요"
 )
 IR_DATE_RE = re.compile(r"(20\d\d)\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})")
@@ -8835,16 +8834,12 @@ def cal_ir_info(session, store, rcept_no):
     return held, (purpose or None)
 
 
-def cal_move_weekday(d):
-    return d + timedelta(days=(7 - d.weekday()) if d.weekday() >= 5 else 0)  # 주말이면 다음 월요일
-
-
 def cal_company(session, store, name, code, ws, we, today):
     """회사 하나의 일정 -> {"events": [...], "deadlines": [...], "unread": [...]}"""
     fy = cal_fiscal_month(session, store, code)
     events, unread = [], []
     recent = cal_list_rows(session, store, code, min(ws, today) - timedelta(days=30), today)
-    actual, irs = [], []
+    irs = []
     for r in recent:
         key = disclosure_key(r.get("report_nm", ""))
         if "정정" in key:
@@ -8853,35 +8848,14 @@ def cal_company(session, store, name, code, ws, we, today):
             d = datetime.strptime(str(r.get("rcept_dt", "")), "%Y%m%d").date()
         except ValueError:
             continue
-        if "잠정" in key and "실적" in key:
-            actual.append(d)
-        elif "기업설명회" in key:
+        if "기업설명회" in key:
             irs.append((d, r))
-    ir_days = []
     for filed, r in sorted(irs, key=lambda x: x[0], reverse=True)[:3]:
         held, purpose = cal_ir_info(session, store, r["rcept_no"])
         if held is None:
             unread.append((name, filed, r.get("rcept_no")))
         elif ws <= held <= we:
-            ir_days.append(held)
             events.append({"date": held, "corp": name, "kind": "IR 개최", "purpose": purpose or "", "text": f"기업설명회(IR) 개최 · {filed.month}/{filed.day} 공시", "no": r.get("rcept_no")})
-    if we >= today:  # 앞으로의 날짜: 작년 같은 시기 발표일을 올해로 옮겨 예상
-        for r in cal_list_rows(session, store, code, ws - timedelta(days=372), we - timedelta(days=357)):
-            key = disclosure_key(r.get("report_nm", ""))
-            if "정정" in key or not ("잠정" in key and "실적" in key):
-                continue
-            try:
-                last = datetime.strptime(str(r.get("rcept_dt", "")), "%Y%m%d").date()
-            except ValueError:
-                continue
-            est = cal_move_weekday(last + timedelta(days=364))
-            if not (max(ws, today) <= est <= we):
-                continue
-            if any(abs((est - a).days) <= 45 for a in actual) or any(abs((est - h).days) <= 5 for h in ir_days):
-                continue  # 올해 이미 발표했거나 IR 일정이 잡힌 회차
-            if any(e["corp"] == name and e["kind"] == "전년 기준 예상" and e["date"] == est for e in events):
-                continue
-            events.append({"date": est, "corp": name, "kind": "전년 기준 예상", "text": f"전년 {last.month}/{last.day} 발표", "no": None})
     return {"events": events, "deadlines": cal_deadlines(fy, ws, we), "unread": unread}
 
 
@@ -8897,8 +8871,7 @@ def collect_calendar(corps, ws, we):
         out["unread"].extend(res["unread"])
         for key in res["deadlines"]:
             out["deadlines"].setdefault(key, []).append(name)
-    kind_order = {"IR 개최": 1, "전년 기준 예상": 2}
-    out["events"].sort(key=lambda e: (e["date"], kind_order[e["kind"]], e["corp"]))
+    out["events"].sort(key=lambda e: (e["date"], e["corp"]))
     return out
 
 
@@ -8971,15 +8944,10 @@ def render_calendar():
         return
     data, ws, we = res["data"], res["ws"], res["we"]
     st.caption(f"{ws.month}/{ws.day}~{we.month}/{we.day} · {res['n']}개 기업 · DART 공시 기준")
-    est_n = sum(e["kind"] == "전년 기준 예상" for e in data["events"])
-    show_est = False
-    if est_n:  # 확정이 아닌 예상은 눌러야 보인다 (기사에 확정 일정처럼 쓰이는 것을 막기 위해)
-        show_est = st.toggle(f"전년 기준 예상 일정도 보기 ({est_n}건)", key="cal_est",
-                             help="작년 같은 시기 잠정실적 공시일을 올해로 옮긴 추정이에요. 확정된 일정이 아니고, 표에서 기업명 뒤에 *가 붙어요.")
-    events = [e for e in data["events"] if show_est or e["kind"] != "전년 기준 예상"]
+    events = data["events"]
     if events:
         table = pd.DataFrame([{
-            "날짜": cal_day(e["date"]), "기업": e["corp"] + ("*" if e["kind"] == "전년 기준 예상" else ""), "개최 목적": e.get("purpose") or "-", "내용": e["text"],
+            "날짜": cal_day(e["date"]), "기업": e["corp"], "개최 목적": e.get("purpose") or "-", "내용": e["text"],
             "원문": DART_VIEW_URL.format(e["no"]) if e.get("no") else None,
         } for e in events])
         st.dataframe(table, hide_index=True, height=(len(table) + 1) * 35 + 3,
@@ -8988,7 +8956,7 @@ def render_calendar():
                                     "원문": LINK_COLUMN})
         copy_table_box(table, "cal_copy")
     else:
-        st.info("이 기간에 확인된 실적 일정이 없어요. 기업이 IR 일정을 공시하면 나타나요." + (" 위 스위치를 켜면 전년 기준 예상을 볼 수 있어요." if est_n else ""))
+        st.info("이 기간에 확인된 실적 일정이 없어요. 기업이 IR 일정을 공시하면 나타나요.")
     for (deadline, label), who in sorted(data["deadlines"].items()):
         names = who[0] if len(who) == 1 else f"{who[0]} 외 {len(who) - 1}곳"
         st.caption(f"법정 제출기한 · {cal_day(deadline)} {label} — {names}")
@@ -10925,7 +10893,7 @@ def today_earnings(sector, day_str):
         data = collect_calendar(corps, day, day + timedelta(days=TODAY_EARN_DAYS))
     except Exception:
         return None
-    return [e for e in data["events"] if e["kind"] != "전년 기준 예상"]  # 확정된 IR 일정만 (전년 기준 예상은 뺌)
+    return data["events"]  # 공시로 확정된 IR 일정만
 
 
 def earnings_html(events):
