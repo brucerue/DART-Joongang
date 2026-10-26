@@ -3670,10 +3670,16 @@ def name_key(name, words=False, keep_space=False):
     return re.sub(r"[\s\-.,&·()/]", "", text)
 
 
+NEWS_NOT_MATCH = {"인텔": ("인텔리전", "인텔리")}  # 검색어가 다른 낱말의 일부로 들어가는 경우: 그 낱말은 지우고 비교한다 (인텔 ≠ 인텔리전스)
+
+
 def key_in_title(k, tk, title):
     """검색어 키 k(name_key 결과)가 제목에 들어 있는지. tk는 name_key(title).
     띄어쓰기를 지우고 비교하다 보니 '개원 전'이 '원전'과 일치하는 식으로 두 단어가 우연히 이어 붙을 수 있어서,
     짧은 한글 낱말(3글자 이하)은 띄어쓰기를 지킨 제목에서도 한 번 더 확인한다."""
+    for w in NEWS_NOT_MATCH.get(k, ()):
+        if w in tk:
+            tk, title = tk.replace(w, ""), str(title).replace(w, "")
     if k not in tk:
         return False
     if len(k) <= 3 and re.fullmatch(r"[가-힣]+", k):

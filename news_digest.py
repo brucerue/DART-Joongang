@@ -72,7 +72,7 @@ def load_app_data():
     consts, funcs = {}, {}
     want_consts = {"LETTER_NAMES", "WORD_READINGS", "PUBLISHERS", "SIMILAR_TITLE", "NEWS_ALIASES", "NAME_READINGS",
                    "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "ALARM_DEFAULT_MODES", "TEAM_PRESETS", "HEAVY_NAME", "HEAVY_PARTS", "SECTOR_RENAMES",
-                   "PROV_REV_LABELS", "PROV_OP_LABELS", "SPORTS_WORDS", "NEWS_BLOCK_TERMS"}
+                   "PROV_REV_LABELS", "PROV_OP_LABELS", "SPORTS_WORDS", "NEWS_BLOCK_TERMS", "NEWS_NOT_MATCH"}
     want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "news_tokens", "same_news_event", "disclosure_key",
                   "parse_amount_cell", "parse_provisional", "doc_text_from_zip", "is_sports", "is_blocked", "key_in_title"}  # 뒤의 셋: 잠정실적 원문 읽기 (앱 '재무 조회'와 같은 규칙)
     for node in tree.body:
