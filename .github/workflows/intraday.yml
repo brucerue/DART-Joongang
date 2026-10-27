@@ -33,6 +33,7 @@ jobs:
       - name: 오늘 5분봉 받기
         run: python intraday.py --prices prices.json --out intraday.json
       - name: intraday 브랜치에 올리기 (기록을 남기지 않고 한 커밋으로 덮어씀)
+        if: hashFiles('intraday.json') != ''  # 장 초반이라 아직 시세가 없으면(파일 없음) 건너뛴다
         run: |
           mkdir -p out && cp intraday.json out/
           cd out

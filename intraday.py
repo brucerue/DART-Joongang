@@ -21,6 +21,11 @@ CHUNK = 80  # 한 번에 요청할 종목 수
 CLOSE_FIX_AFTER = (15, 40)  # 이 시각(한국시간) 이후 실행에서는 일봉 종가로 마지막 구간(15:00~15:30)을 채운다
 CLOSE_BAR = "1525"  # 채워 넣는 마지막 봉의 시작 시각 (5분봉이라 끝은 15:30)
 MIN_COVERAGE = 0.3  # 이 비율보다 적은 종목만 받아지면 이상한 응답으로 보고 파일을 만들지 않는다
+EARLY_UNTIL = (9, 45)  # 장 초반: 야후 시세가 15~20분 늦게 들어와 9시대 첫 회차엔 오늘 봉이 아직 없다. 이 시각 전에 못 받으면 실패가 아니라 '아직 없음'
+
+
+class NotYet(Exception):
+    """장 초반이라 야후에 오늘 시세가 아직 없음 (실패 아님)"""
 
 
 def yahoo_ticker(code, market):
@@ -89,6 +94,8 @@ def build(prices, download=default_download, now=None, daily_download=default_da
                 got[c] = bars
         time.sleep(1)
     if len(got) < max(1, int(len(codes) * MIN_COVERAGE)):
+        if (now.hour, now.minute) < EARLY_UNTIL:
+            raise NotYet(f"{now:%H:%M} 아직 야후에 오늘 시세가 없어요({len(got)}/{len(codes)}곳). 장 초반 지연이라 다음 회차에 받아요.")
         raise SystemExit(f"받아진 종목이 {len(got)}/{len(codes)}곳뿐이라 파일을 만들지 않았어요 (야후 응답을 확인하세요).")
     day = max(b[0] for bars in got.values() for b in bars)  # 가장 최근 거래일
     times = sorted({b[1] for bars in got.values() for b in bars if b[0] == day})
@@ -145,7 +152,11 @@ def main():
     args = ap.parse_args()
     with open(args.prices, encoding="utf-8") as f:
         prices = json.load(f)
-    out = build(prices)
+    try:
+        out = build(prices)
+    except NotYet as e:  # 파일을 만들지 않고 정상 종료 -> 워크플로는 올리기를 건너뛰고 실패 알림도 보내지 않는다
+        print(e)
+        return 0
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, separators=(",", ":"))
     print(f"{out['date']} 봉 {len(out['t'])}개({out['t'][0]}~{out['t'][-1]}), 종목 {len(out['s'])}/{len(prices['s'])}곳, {os.path.getsize(args.out) / 1e3:.0f}KB")

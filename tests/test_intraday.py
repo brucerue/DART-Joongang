@@ -38,9 +38,16 @@ out2 = it.build(big, flaky, None)
 check(n["k"] == 3 and len(out2["s"]) == 90, f"3묶음 중 1묶음 실패해도 나머지 저장: {len(out2['s'])}곳")
 # 3) 거의 못 받으면 파일을 만들지 않음
 try:
-    it.build(big, lambda t: frame(t[:3]), None); check(False, "너무 적게 받으면 중단해야 함")
+    it.build(big, lambda t: frame(t[:3]), datetime(2026, 10, 23, 11, 0, tzinfo=it.KST)); check(False, "너무 적게 받으면 중단해야 함")
 except SystemExit as e:
     check("만들지 않았어요" in str(e), "너무 적게 받으면 중단: " + str(e)[:28])
+# 3-1) 장 초반(09:15)에 하나도 못 받으면 실패가 아니라 '아직 없음' (야후 지연)
+try:
+    it.build(big, lambda t: frame([]), datetime(2026, 10, 27, 9, 15, tzinfo=it.KST)); check(False, "장 초반은 NotYet이어야 함")
+except it.NotYet as e:
+    check("다음 회차" in str(e), "09:15에 시세 없음 -> 아직 없음(실패 아님): " + str(e)[:30])
+except SystemExit:
+    check(False, "09:15에 시세 없음이 실패로 처리됨")
 # 4) 날짜가 섞이면 가장 최근 날만
 idx2 = list(pd.date_range("2026-10-22 15:20", periods=2, freq="5min", tz="Asia/Seoul")) + list(idx[:2])
 df = pd.DataFrame({("005930.KS", "Close"): [1.0, 2.0, 3.0, 4.0], ("005930.KS", "Volume"): [1.0, 1.0, 1.0, 1.0]}, index=pd.DatetimeIndex(idx2))
