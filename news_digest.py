@@ -382,7 +382,10 @@ EARN_WORDS = ("흑자전환", "적자전환", "적자지속", "흑자지속", "�
 
 def parse_earnings(text):
     """잠정실적 원문 표 -> {"rev": {"cur", "prev", "qoq", "prev_y", "yoy"}, ...} (금액은 원). 못 읽으면 None.
-    표 모양(거래소 양식): 구분 | 당해실적 | 전기실적 | 전기대비증감율 | 전년동기실적 | 전년동기대비증감율"""
+    표 모양(거래소 양식) 두 가지:
+      5칸: 구분 | 당해실적 | 전기실적 | 전기대비증감율 | 전년동기실적 | 전년동기대비증감율
+      7칸(2026.10 확인): … | 전기대비증감율 | 흑자적자전환여부 | 전년동기실적 | 전년동기대비증감율 | 흑자적자전환여부"""
+    seven = "흑자적자전환" in text.replace(" ", "")  # 증감율 뒤에 '흑자적자전환여부' 칸이 있는 양식
     mult = None
     for m in re.finditer(r"단위\s*[:：]?[\s|(]*([가-힣]+)", text):
         if m.group(1) in A["PROV_UNITS"]:
@@ -394,7 +397,7 @@ def parse_earnings(text):
 
     def row_from(cells):
         """라벨 다음 칸들 -> 한 줄 수치 (당해·전기·전기대비·전년동기·전년동기대비). 당해 금액이 없으면 None"""
-        cells = [c for c in cells if c.replace(" ", "") not in ("당해실적", "당기실적")][:5]
+        cells = [c for c in cells if c.replace(" ", "") not in ("당해실적", "당기실적")][:7 if seven else 5]
         if any(c.replace(" ", "") in stop for c in cells):
             cells = cells[:[c.replace(" ", "") in stop for c in cells].index(True)]
         cur = A["parse_amount_cell"](cells[0]) if cells else None
@@ -402,12 +405,20 @@ def parse_earnings(text):
             return None
         num = lambda k: A["parse_amount_cell"](cells[k]) if len(cells) > k else None
         row = {"cur": cur * mult, "prev": None, "qoq": None, "prev_y": None, "yoy": None}
-        if len(cells) >= 5:  # 전기·전년동기 칸까지 있는 표
-            row["prev"] = num(1) * mult if num(1) is not None else None
-            row["prev_y"] = num(3) * mult if num(3) is not None else None
-            for k, col in (("qoq", 2), ("yoy", 4)):  # 회사가 적은 증감율을 우선 쓰고, 비어 있으면 금액으로 계산
-                w = cells[col].replace(" ", "")
-                row[k] = w if w in EARN_WORDS else num(col)
+        if seven and len(cells) >= 7:  # 7칸: 전기 1, 전기대비 2(전환여부 3), 전년동기 4, 전년동기대비 5(전환여부 6)
+            cols = {"prev": 1, "prev_y": 4, "qoq": (2, 3), "yoy": (5, 6)}
+        elif len(cells) >= 5:  # 5칸: 전기 1, 전기대비 2, 전년동기 3, 전년동기대비 4
+            cols = {"prev": 1, "prev_y": 3, "qoq": (2, 2), "yoy": (4, 4)}
+        else:
+            cols = None
+        if cols:  # 전기·전년동기 칸까지 있는 표
+            for k in ("prev", "prev_y"):
+                row[k] = num(cols[k]) * mult if num(cols[k]) is not None else None
+            for k in ("qoq", "yoy"):  # 회사가 적은 증감율(또는 흑자·적자 전환 표시)을 우선 쓰고, 비어 있으면 금액으로 계산
+                rate_col, flag_col = cols[k]
+                flag = cells[flag_col].replace(" ", "")
+                w = cells[rate_col].replace(" ", "")
+                row[k] = flag if flag in EARN_WORDS else (w if w in EARN_WORDS else num(rate_col))
         return row
 
     def which(cell):
