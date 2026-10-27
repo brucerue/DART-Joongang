@@ -1,0 +1,41 @@
+name: 임시 - 잠정실적 원문 읽기 점검
+
+# 알림의 증감률(전년비·전분기비)이 빠지는 원인을 찾으려고 잠깐 두는 작업 (끝나면 지운다). 수치와 표 모양만 출력한다.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 점검
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: |
+          python - <<'PY'
+          import os, re, news_digest as nd
+          from datetime import datetime
+          now = datetime.now(nd.KST)
+          feed = nd.fetch_dart_feed(now, earn_only=True)
+          rows = [r for r in feed if "잠정" in r.get("report_nm", "") and "실적" in r.get("report_nm", "")]
+          print(f"::notice::오늘 잠정실적 공시 {len(rows)}건")
+          for r in rows[:8]:
+              no = r["rcept_no"]
+              try:
+                  text = nd.fetch_doc_text(nd.dart_key(), no)
+              except Exception as e:
+                  print(f"::notice::{r['corp_name']} {no}: 원문 못 읽음 {e}"); continue
+              got = nd.parse_earnings(text) or {}
+              brief = {k: {kk: (round(v / 1e8) if isinstance(v, (int, float)) and kk in ('cur', 'prev', 'prev_y') else v) for kk, v in d.items()} for k, d in got.items()}
+              line = next((l for l in text.splitlines() if "매출액" in l and "|" in l), "")
+              head = next((l for l in text.splitlines() if "당해" in l and "|" in l), "")
+              print(f"::notice::{r['corp_name']} {r['report_nm'].strip()} {no} 읽은값(억원) {brief}")
+              print(f"::notice::{r['corp_name']} 머리줄: {head[:300]}")
+              print(f"::notice::{r['corp_name']} 매출줄: {line[:300]}")
+          PY
