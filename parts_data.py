@@ -433,7 +433,9 @@ def main(argv=None, session=None):
     listed = load_listed(args.corp_csv)
     if len(listed) < 1500:
         raise SystemExit(f"상장사 목록이 {len(listed)}곳뿐이라 멈춥니다(정상 2,500곳 이상).")
-    info, corps, missing, stopped = screen(dart, listed, prev.get("screen"), KSIC_PREFIXES, args.extra.split(","), print)
+    # 지난번에 직접 추가한 회사는 이번에 입력하지 않아도 그대로 이어받는다 (빠뜨려서 자료가 사라지지 않게)
+    extra = args.extra.split(",") + [c["name"] for c in prev.get("corps", []) if c.get("picked_by") == "직접 추가"]
+    info, corps, missing, stopped = screen(dart, listed, prev.get("screen"), KSIC_PREFIXES, extra, print)
     if stopped:  # 업종 확인이 덜 끝남 -> 확인 결과만 저장하고, 기업 자료는 지난 것을 그대로 둔다
         data = prev.get("corps", [])
     else:

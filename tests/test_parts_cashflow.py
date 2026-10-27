@@ -97,4 +97,18 @@ f3 = Fake()
 P.main([x for x in base if x != "--cashflow"] + ["--out", os.path.join(tmp, "c.json"), "--csv", os.path.join(tmp, "c.csv"),
                                                  "--prev", prev_path], session=f3)
 assert f3.calls == [] and json.load(open(os.path.join(tmp, "c.json"), encoding="utf-8"))["complete"]
+# 5) 지난번 '직접 추가' 회사는 --extra 없이 돌려도 빠지지 않음
+with open(corp_csv, "a", encoding="utf-8", newline="") as f:
+    csv.writer(f).writerow(["C", "다사", "900003"])
+prev2 = json.loads(json.dumps(prev))
+prev2["screen"]["C"] = {"induty": "289", "cls": "Y", "est": ""}
+prev2["corps"].append({"corp_code": "C", "name": "다사", "stock_code": "900003", "induty": "289", "market": "코스피",
+                       "picked_by": "직접 추가", "years": json.loads(json.dumps(years)), "docs": {"2025": {"none": "x"}}})
+p2 = os.path.join(tmp, "prev2.json")
+json.dump(prev2, open(p2, "w", encoding="utf-8"), ensure_ascii=False)
+P.main([x for x in base if x != "--cashflow"] + ["--out", os.path.join(tmp, "d.json"), "--csv", os.path.join(tmp, "d.csv"),
+                                                 "--prev", p2], session=Fake())
+d = json.load(open(os.path.join(tmp, "d.json"), encoding="utf-8"))
+names = {c["name"]: c for c in d["corps"]}
+assert "다사" in names and names["다사"]["picked_by"] == "직접 추가" and names["다사"]["years"]["2025"]["emp"] == 10, names.keys()
 print("현금흐름 시험 통과")
