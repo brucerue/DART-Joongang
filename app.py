@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 09:45"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 10:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -11495,7 +11495,7 @@ def render_usage_stats():
     if not APPS_SCRIPT_URL:
         st.info("Streamlit Secrets에 APPS_SCRIPT_URL(Apps Script 웹앱 주소 + ?key=…)을 넣으면 기능 사용이 구글 시트에 기록되고 여기에 집계가 보여요.")
         return
-    days = st.radio("기간", [0, 7, 30, 90], index=2, horizontal=True, key="use_days", format_func=lambda d: "오늘" if d == 0 else f"최근 {d}일")
+    days = st.radio("기간", [0, 7, 30, 90], index=0, horizontal=True, key="use_days", format_func=lambda d: "오늘" if d == 0 else f"최근 {d}일")
     span = "오늘" if days == 0 else f"최근 {days}일"
     exclude_me = st.toggle("내 사용(?lab=1 또는 ?me=1로 연 세션) 빼고 보기", value=True, key="use_exclude_me")
     try:
