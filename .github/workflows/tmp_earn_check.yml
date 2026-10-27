@@ -25,17 +25,22 @@ jobs:
           feed = nd.fetch_dart_feed(now, earn_only=True)
           rows = [r for r in feed if "잠정" in r.get("report_nm", "") and "실적" in r.get("report_nm", "")]
           print(f"::notice::오늘 잠정실적 공시 {len(rows)}건")
-          for r in rows[:8]:
+          seen = set()
+          for r in rows:
               no = r["rcept_no"]
               try:
                   text = nd.fetch_doc_text(nd.dart_key(), no)
               except Exception as e:
-                  print(f"::notice::{r['corp_name']} {no}: 원문 못 읽음 {e}"); continue
+                  print(f"::notice::{r['corp_name']} {no}: 원문 아직 없음"); continue
               got = nd.parse_earnings(text) or {}
-              brief = {k: {kk: (round(v / 1e8) if isinstance(v, (int, float)) and kk in ('cur', 'prev', 'prev_y') else v) for kk, v in d.items()} for k, d in got.items()}
-              line = next((l for l in text.splitlines() if "매출액" in l and "|" in l), "")
-              head = next((l for l in text.splitlines() if "당해" in l and "|" in l), "")
-              print(f"::notice::{r['corp_name']} {r['report_nm'].strip()} {no} 읽은값(억원) {brief}")
-              print(f"::notice::{r['corp_name']} 머리줄: {head[:300]}")
-              print(f"::notice::{r['corp_name']} 매출줄: {line[:300]}")
+              rv = got.get("rev") or got.get("op") or {}
+              ok = rv.get("prev_y") is not None
+              print(f"::notice::{r['corp_name']} {no} 전년동기 {'읽음' if ok else '못 읽음'} | rev={ {k: v for k, v in (got.get('rev') or {}).items()} }")
+              if not ok and r["corp_name"] not in seen:
+                  seen.add(r["corp_name"])
+                  ls = text.splitlines()
+                  k = next((i for i, l in enumerate(ls) if "당해" in l), 0)
+                  blk = " / ".join(x.strip() for x in ls[max(0, k - 3):k + 40])
+                  for j in range(0, min(len(blk), 2700), 900):
+                      print(f"::notice::{r['corp_name']} 원문{j // 900 + 1}: {blk[j:j + 900]}")
           PY
