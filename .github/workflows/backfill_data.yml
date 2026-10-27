@@ -45,7 +45,7 @@ jobs:
         run: |
           mkdir -p data
           git fetch origin data --depth=1 || true
-          git show origin/data:archive.json > data/archive.json 2>/dev/null || rm -f data/archive.json
+          git --work-tree=data checkout origin/data -- . 2>/dev/null || true  # archive.json·recent.json·general/(일반 기사) 모두
       - name: 과거 채우기
         run: |
           python backfill_data.py --out data --disc-days "${{ inputs.disc_days }}" --news-days "${{ inputs.news_days }}" \
@@ -68,7 +68,7 @@ jobs:
           git init -q -b data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add archive.json recent.json
+          git add -A  # archive.json, recent.json, general/*.json (덮어써도 '일반' 파일이 지워지지 않게 모두)
           git commit -q -m "data backfill $(date -u +%Y-%m-%dT%H:%MZ)"
           git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
         env:

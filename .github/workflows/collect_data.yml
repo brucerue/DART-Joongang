@@ -1,10 +1,11 @@
 name: 기사·공시 모아두기
 
-# 매시간 모든 섹터의 기사·공시를 모아 'data' 브랜치에 저장합니다(6개월 보관).
-# 앱이 이 파일을 읽어 '빠르게 보기'와 '이슈 타임라인'을 보여줍니다.
+# 매시간 모든 섹터의 기사·공시를 모아 'data' 브랜치에 저장합니다(통신·단독·공시 1년, '일반'은 섹터별 3일).
+# 앱의 산업 뉴스·오늘의 현황·타임라인이 이 파일을 읽습니다.
+# 실행은 Cloudflare Worker(apps_script/worker.js)가 매시 정각에 부릅니다. GitHub 자체 예약은 늦거나 빠져서 3시간마다 예비로만 둡니다.
 on:
   schedule:
-    - cron: "40 * * * *"
+    - cron: "40 */3 * * *"
   workflow_dispatch:
 
 permissions:
@@ -17,7 +18,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-24.04  # Ubuntu 26 자동 전환을 피하려고 고정 (2026.10)
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -28,7 +29,7 @@ jobs:
         run: |
           mkdir -p data
           git fetch origin data --depth=1 || true
-          git show origin/data:archive.json > data/archive.json 2>/dev/null || rm -f data/archive.json
+          git --work-tree=data checkout origin/data -- . 2>/dev/null || true  # archive.json·recent.json·general/(일반 기사) 모두
       - name: 수집
         run: python collect_data.py --out data
         env:
@@ -41,7 +42,7 @@ jobs:
           git init -q -b data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add archive.json recent.json
+          git add -A  # archive.json, recent.json, general/*.json (덮어써도 '일반' 파일이 지워지지 않게 모두)
           git commit -q -m "data $(date -u +%Y-%m-%dT%H:%MZ)"
           git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
         env:

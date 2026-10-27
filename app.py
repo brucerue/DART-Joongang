@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 10:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 12:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5506,15 +5506,7 @@ def news_groups_of(kind):
 
 def fill_news_terms(kind):
     """고른 섹터들의 기업·키워드를 중복 없이 검색어 칸에 채운다 (그 뒤에 자유롭게 고칠 수 있다)."""
-    terms, skip = [], set()
-    for g in news_groups_of(kind):
-        for f in NEWS_SECTORS[g]["기업"]:
-            if name_key(f) in skip or f in terms:  # 앞에서 검색하는 기업의 줄임말이면 건너뜀
-                continue
-            terms.append(f)
-            skip.update(name_key(a) for a in NEWS_ALIASES.get(f, []))
-        terms += [k for k in NEWS_SECTORS[g]["키워드"] if k not in terms]
-    st.session_state[f"nw_{kind}_terms"] = ", ".join(terms)
+    st.session_state[f"nw_{kind}_terms"] = ", ".join(news_auto_terms(news_groups_of(kind)))
 
 
 def news_groups_changed(kind):
@@ -5680,6 +5672,116 @@ def render_timeline():
         st.caption(f"묶음 {len(clusters):,}건 중 최근 {len(shown)}건만 보여줘요. 기간을 줄이면 더 자세히 볼 수 있어요.")
 
 
+def news_search_names(terms):
+    """검색어 -> (owner: 검색어·줄임말 -> 어느 검색어 것인지(제목 확인·꼬리표용), search: 실제로 검색할 이름들)"""
+    owner, search = {}, []
+    for t in terms:
+        for n in news_names(t):
+            if n not in owner:
+                owner[n] = t
+                if n == t or len(terms) <= NEWS_ALIAS_LIMIT:
+                    search.append(n)  # 검색어가 적을 때만 줄임말도 따로 검색
+    for t in terms:  # 기사에서 주로 쓰는 이름이 등록명과 다른 기업은 항상 함께 검색 (예: 엘에스일렉트릭 -> LS일렉트릭)
+        for n in NEWS_ALWAYS_SEARCH.get(t, []):
+            if n not in owner:
+                owner[n] = t
+                search.append(n)
+    return owner, search
+
+
+GENERAL_DAYS = 3  # '일반' 기사는 섹터별 파일에 최근 3일만 모아 둔다 (collect_data.py와 같은 값)
+
+
+def general_file(sector):
+    """섹터의 '일반' 기사 파일 이름 (collect_data.py의 general_file과 같은 규칙)"""
+    return "general/" + hashlib.md5(sector.encode("utf-8")).hexdigest()[:10] + ".json"
+
+
+def news_auto_terms(groups):
+    """고른 섹터들로 채워지는 검색어 목록 (fill_news_terms와 같은 규칙) — 이 검색어 그대로면 모아 둔 기사로 바로 보여 준다"""
+    terms, skip = [], set()
+    for g in groups:
+        for f in NEWS_SECTORS[g]["기업"]:
+            if name_key(f) in skip or f in terms:
+                continue
+            terms.append(f)
+            skip.update(name_key(a) for a in NEWS_ALIASES.get(f, []))
+        terms += [k for k in NEWS_SECTORS[g]["키워드"] if k not in terms]
+    return terms
+
+
+def news_period_start(period, now):
+    """기간 선택 -> 그 시각 이후 기사만 ('오늘'은 오늘 0시, 나머지는 지금부터 n일 전)"""
+    if period == "오늘":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return now - timedelta(days=NEWS_PERIODS[period])
+
+
+def news_stored_res(kind, groups, period, terms, extra=None):
+    """모아 둔 기사(매시 정각 수집)로 산업 뉴스 결과를 만든다. 통신·단독은 recent.json(7일), 일반은 섹터별 파일(3일).
+    extra: '최신 기사 더 찾기'로 받은 기사들(합친다). 자료를 못 읽으면 None."""
+    now = datetime.now(KST)
+    if kind == "일반":
+        files = [get_stored(general_file(g)) for g in groups]
+        if any(f is None for f in files):
+            return None
+        rows = [r for f in files for r in f["items"]]
+        updated = min((f.get("updated") or "") for f in files)
+    else:
+        rec = get_stored("recent.json")
+        if rec is None:
+            return None
+        rows = [r for r in rec["items"] if r.get("k") == kind and set(r.get("s") or []) & set(groups)]
+        updated = rec.get("updated") or ""
+    since = news_period_start(period, now)
+    items, seen = [], set()
+    for r in rows:
+        it = stored_item(r)
+        if not it or it["dt"] < since or it["url"] in seen or is_blocked(it["title"]):
+            continue
+        seen.add(it["url"])
+        items.append(dict(it, tags=list(it["g"]) if len(terms) > 1 else []))
+    have = {title_key(i["title"]) for i in items}
+    for it in extra or []:
+        if it["dt"] >= since and title_key(it["title"]) not in have:
+            have.add(title_key(it["title"]))
+            items.append(it)
+    clusters = cluster_news(items)
+    when = updated[5:16].replace("-", ".").replace("T", " ") if updated else "?"
+    source = f"모아 둔 기사 ({when} 기준" + (f", 최신 {len(extra)}건 더함)" if extra else ")")
+    return {"corp": ", ".join(terms), "kind": kind, "terms": terms, "names": terms, "period": period, "total": len(items), "kept": len(items),
+            "clusters": clusters, "capped": False, "oldest": None, "source": source, "naver_note": None, "stored": True, "updated": updated}
+
+
+def news_topup(kind, terms, updated, yna_only):
+    """'최신 기사 더 찾기': 마지막 수집 뒤 나온 기사만 네이버 뉴스로 찾는다(검색어당 1번 — 구글 검색의 약 1/6). -> 기사 목록"""
+    cfg = NEWS_KINDS[kind]
+    owner, search = news_search_names(terms)
+    items, _, _ = search_news(search, 1, keyword=cfg["keyword"])
+    try:
+        after = datetime.strptime(updated, STORED_FMT).replace(tzinfo=KST) - timedelta(minutes=30)  # 수집 시각과 겹치게 조금 앞부터
+    except (TypeError, ValueError):
+        after = datetime.now(KST) - timedelta(hours=2)
+    keys = {t: name_key(t) for t in owner}
+    sports_keys = load_sports_keys() if kind in ("통신", "일반") else ()
+    out = []
+    for i in drop_blocked(items):
+        if i["dt"] < after or not i.get("category"):
+            continue
+        if kind == "통신" and (i["category"] != "통신사" or (yna_only and i["publisher"] != "연합뉴스")):
+            continue
+        if kind == "단독" and not is_exclusive(i["title"]):
+            continue
+        if kind in ("통신", "일반") and is_sports(i["title"], sports_keys if (kind == "통신" or i["publisher"] == "연합뉴스") else ()):
+            continue
+        tk = name_key(i["title"])
+        hits = [t for t, nk in keys.items() if key_in_title(nk, tk, i["title"])]
+        if not hits:
+            continue
+        out.append(dict(i, tags=list(dict.fromkeys(owner[t] for t in hits)) if len(terms) > 1 else []))
+    return out
+
+
 def render_news_search(kind):
     """통신/단독/일반 공통 화면: 섹터 고르기 + 검색어 + 기간 -> 기사 묶음 목록. 일반 = 단독과 같은 검색에서 '단독' 표기 조건만 뺀 것."""
     cfg = NEWS_KINDS[kind]
@@ -5700,20 +5802,21 @@ def render_news_search(kind):
         team_buttons(k, NEWS_SECTORS, f"{k}_groups", after=lambda: news_groups_changed(kind))
         st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key=f"{k}_groups", label_visibility="collapsed",
                  on_change=news_groups_changed, args=(kind,))
+    # 기간·체크박스는 폼 밖: 바꾸면 모아 둔 기사가 바로 다시 걸러진다 (검색어 칸만 폼 안 — 글자 칠 때마다 다시 그리지 않게)
+    period = st.radio("기간", list(NEWS_PERIODS), index=0, horizontal=True, key=f"{k}_period")
+    if kind == "통신":
+        with st.container(key="news_opts_bar"):  # 모바일에서도 두 체크박스를 한 줄에
+            cc1, cc2 = st.columns(2)
+            in_title = cc1.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.")
+            yna_only = cc2.checkbox("연합만 검색", value=True, key=f"{k}_yna", help="끄면 뉴시스·뉴스1 기사도 함께 검색해요.")
+    else:
+        in_title = st.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.")
+        yna_only = False
     with st.form(f"{k}_form"):
         text = st.text_input(
             "검색어 (쉼표로 구분)", key=f"{k}_terms", placeholder="예: 삼성전자, SK하이닉스, HBM",
-            help=f"고른 섹터의 대표 기업·키워드가 채워져요. 직접 빼거나 더해서 최대 {MAX_NEWS_TERMS[kind]}개까지 검색할 수 있어요. 많으면 조회가 오래 걸려요.",
+            help=f"고른 섹터의 대표 기업·키워드가 채워지고, 매시 정각에 모아 둔 기사가 바로 보여요. 검색어를 직접 빼거나 더하면 '뉴스 조회'로 새로 검색해요(최대 {MAX_NEWS_TERMS[kind]}개, 많으면 오래 걸려요).",
         )
-        period = st.radio("기간", list(NEWS_PERIODS), index=0, horizontal=True, key=f"{k}_period")
-        if kind == "통신":
-            with st.container(key="news_opts_bar"):  # 모바일에서도 두 체크박스를 한 줄에
-                cc1, cc2 = st.columns(2)
-                in_title = cc1.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.")
-                yna_only = cc2.checkbox("연합만 검색", value=True, key=f"{k}_yna", help="끄면 뉴시스·뉴스1 기사도 함께 검색해요.")
-        else:
-            in_title = st.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.")
-            yna_only = False
         submitted = log_if(st.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False), f"뉴스 조회: {kind}")
 
     if submitted:
@@ -5724,19 +5827,7 @@ def render_news_search(kind):
             st.error(f"검색어는 한 번에 {MAX_NEWS_TERMS[kind]}개까지 넣을 수 있어요. (지금 {len(terms)}개)")
         else:
             st.session_state.pop(f"news_res_{kind}", None)  # 이전 결과가 새 조회 결과로 오해되지 않도록 비움
-            owner = {}  # 검색어·줄임말 -> 어느 검색어 것인지 (제목 확인과 꼬리표용)
-            search = []
-            for t in terms:
-                for n in news_names(t):
-                    if n not in owner:
-                        owner[n] = t
-                        if n == t or len(terms) <= NEWS_ALIAS_LIMIT:
-                            search.append(n)  # 검색어가 적을 때만 줄임말도 따로 검색
-            for t in terms:  # 기사에서 주로 쓰는 이름이 등록명과 다른 기업은 항상 함께 검색 (예: 엘에스일렉트릭 -> LS일렉트릭)
-                for n in NEWS_ALWAYS_SEARCH.get(t, []):
-                    if n not in owner:
-                        owner[n] = t
-                        search.append(n)
+            owner, search = news_search_names(terms)
             with st.spinner("뉴스를 불러오는 중입니다..."):
                 try:
                     g_err = naver_note = None
@@ -5796,10 +5887,41 @@ def render_news_search(kind):
                     st.session_state[f"news_res_{kind}"] = {
                         "corp": ", ".join(terms), "kind": kind, "terms": terms, "names": search, "period": period,
                         "total": total, "kept": len(tagged), "clusters": clusters, "capped": capped, "oldest": since, "source": source, "naver_note": naver_note,
+                        "sig": (tuple(terms), period, in_title, yna_only),
                     }
                     save_watchlist(st.session_state[f"news_res_{kind}"])
 
-    res = st.session_state.get(f"news_res_{kind}")
+    groups = [g for g in news_groups_of(kind) if g in NEWS_SECTORS]
+    terms_now = parse_news_terms(text)
+    live = st.session_state.get(f"news_res_{kind}")
+    res = live if live and live.get("sig") == (tuple(terms_now), period, in_title, yna_only) else None
+    if res is None and groups:
+        auto = [name_key(t) for t in news_auto_terms(groups)]
+        same_terms = [name_key(t) for t in terms_now] == auto
+        if not same_terms:
+            st.caption("검색어를 바꿨어요. '뉴스 조회'를 누르면 새로 검색해요. (섹터를 다시 누르면 모아 둔 기사로 돌아가요)")
+            return
+        if not in_title or (kind == "통신" and not yna_only):
+            st.caption("모아 둔 기사는 제목에 기업명이 든 " + ("연합뉴스 " if kind == "통신" else "") + "기사만 있어요. 이 조건은 '뉴스 조회'를 누르면 새로 검색해요.")
+            return
+        top_key = f"{k}_topup"
+        top = st.session_state.get(top_key)
+        extra = top["items"] if top and top.get("sig") == (kind, tuple(groups)) else None
+        res = news_stored_res(kind, groups, period, terms_now, extra)
+        if res is None:
+            st.info("모아 둔 기사를 아직 불러오지 못했어요. '뉴스 조회'를 누르면 바로 검색해요.")
+            return
+        if kind == "일반" and period in ("3일", "일주일"):
+            st.caption(f"'일반'은 양이 많아 최근 {GENERAL_DAYS}일치만 모아 둬요. 그보다 앞의 기사는 '뉴스 조회'로 새로 검색해 주세요.")
+        if NAVER_ID and NAVER_SECRET and log_if(st.button("🔄 최신 기사 더 찾기", key=f"{k}_topup_btn",
+                                                         help="마지막으로 모아 둔 뒤(최대 1시간)에 나온 기사를 네이버 뉴스에서 찾아 더해요. 검색어당 한 번만 불러 빨라요."),
+                                               f"뉴스 최신 더 찾기: {kind}"):
+            with st.spinner("최신 기사를 찾는 중입니다..."):
+                try:
+                    st.session_state[top_key] = {"sig": (kind, tuple(groups)), "items": news_topup(kind, terms_now, res.get("updated"), yna_only)}
+                except NewsApiError as e:
+                    st.error(str(e))
+            st.rerun()
     if not res:
         return
     clusters = res["clusters"]

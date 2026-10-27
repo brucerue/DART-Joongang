@@ -2,12 +2,14 @@
 
 - GitHub Actions(.github/workflows/collect_data.yml)가 매시간 실행한다.
 - 모든 섹터의 통신·단독 기사와 주요 공시를 모아 data/archive.json(1년치)과 data/recent.json(최근 7일)에 쓴다.
+- '일반'(단독 표기 없는 기사 전부)은 양이 많아 1년치에는 넣지 않고, 섹터별 파일 data/general/<이름>.json에 최근 3일만 둔다(앱 산업 뉴스 '일반'이 바로 보여 줌).
 - 결과 파일은 워크플로가 저장소의 별도 'data' 브랜치에 올린다(앱이 올라간 main 브랜치는 건드리지 않아 앱이 다시 배포되지 않는다).
 - 섹터·기업·언론사 같은 데이터는 news_digest.py(→ app.py)를 그대로 써서 알람과 같은 기준으로 모은다.
 필요한 환경변수: DART_API_KEY (공시용, 없으면 기사만), NAVER_CLIENT_ID/NAVER_CLIENT_SECRET (선택)
 사용: python collect_data.py [--out data] [--days 365]
 """
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -18,7 +20,8 @@ import news_digest as nd
 KST = nd.KST
 KEEP_DAYS = 365  # 1년
 RECENT_DAYS = 7
-SECTORS = list(nd.SECTORS) + ["반도체", "전자", "항공", "재계"]  # 텔레그램 기본 알람 섹터 + 타임라인·오늘의 현황에만 쓰는 섹터
+SECTORS = list(nd.A["NEWS_SECTORS"])  # 산업 뉴스의 모든 섹터 (앱이 저장분을 바로 보여 주므로 빠짐없이)
+GENERAL_DAYS = 3  # '일반' 기사 보관 일수 (양이 많아 섹터별 파일에 최근 며칠만)
 LOOKBACK_HOURS = 48  # 매시간 돌지만, 실패한 회차가 있어도 메워지도록 이틀 전까지 훑는다
 FMT = "%Y-%m-%dT%H:%M"
 
@@ -37,6 +40,11 @@ def to_row(item, kind, sector):
         "d": item["dt"].astimezone(KST).strftime(FMT),
         "s": [sector], "g": list(item.get("tags") or []),
     }
+
+
+def general_file(sector):
+    """섹터의 '일반' 기사 파일 이름 (한글·중간점 없는 이름: 앱의 general_file과 같은 규칙)"""
+    return "general/" + hashlib.md5(sector.encode("utf-8")).hexdigest()[:10] + ".json"
 
 
 def merge(store, rows):
@@ -88,6 +96,21 @@ def main():
                 errors.append(f"{sector}/{mode}: {e}")
                 continue
             added += merge(store, [to_row(i, mode, sector) for i in items])
+    general_from = (now - timedelta(days=GENERAL_DAYS)).strftime(FMT)
+    general_n = 0
+    for sector in SECTORS:  # '일반'은 섹터별 파일에 최근 GENERAL_DAYS일만
+        gpath = os.path.join(args.out, general_file(sector))
+        gstore = {r["u"]: r for r in load_json(gpath).get("items", []) if r.get("d", "") >= general_from}
+        try:
+            items = nd.collect("일반", sector, cutoff)
+        except Exception as e:
+            errors.append(f"{sector}/일반: {e}")
+        else:
+            general_n += merge(gstore, [to_row(i, "일반", sector) for i in items])
+        os.makedirs(os.path.dirname(gpath), exist_ok=True)
+        grows = sorted((r for r in gstore.values() if r["d"] >= general_from), key=lambda r: r["d"], reverse=True)
+        with open(gpath, "w", encoding="utf-8") as f:
+            json.dump({"updated": now.strftime(FMT), "sector": sector, "items": grows}, f, ensure_ascii=False, separators=(",", ":"))
     if os.environ.get("DART_API_KEY", "").strip():
         try:
             feed = nd.fetch_dart_feed(now, wide=True)
@@ -106,10 +129,10 @@ def main():
         json.dump({"updated": stamp, "items": rows}, f, ensure_ascii=False, separators=(",", ":"))
     with open(os.path.join(args.out, "recent.json"), "w", encoding="utf-8") as f:
         json.dump({"updated": stamp, "items": [r for r in rows if r["d"] >= recent_from]}, f, ensure_ascii=False, separators=(",", ":"))
-    print(f"수집 완료: 새로 {added}건, 보관 {len(rows)}건(이전 {before}건), 실패 {len(errors)}곳")
+    print(f"수집 완료: 새로 {added}건, 보관 {len(rows)}건(이전 {before}건), 일반 새로 {general_n}건, 실패 {len(errors)}곳")
     for e in errors:
         print("  실패:", e, file=sys.stderr)
-    if errors and len(errors) >= len(SECTORS) * 2:  # 전부 실패했으면 오류로 끝내 알림이 가게 한다
+    if errors and len(errors) >= len(SECTORS) * 3:  # 전부 실패했으면 오류로 끝내 알림이 가게 한다
         sys.exit(1)
 
 
