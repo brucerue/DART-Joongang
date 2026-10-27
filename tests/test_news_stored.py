@@ -17,7 +17,8 @@ GEN = {"updated": d(0.5), "sector": "자동차", "items": [
     {"t": "현대차 노조 임금협상 타결", "u": "https://y/1", "p": "중앙일보", "k": "일반", "d": d(3), "s": ["자동차"], "g": ["현대차"]}]}
 gname = "general/" + hashlib.md5("자동차".encode()).hexdigest()[:10] + ".json"
 GETS = []
-CSV = "corp_code,corp_name,stock_code\n" + "\n".join([f"0{i:07d},비상장사{i}," for i in range(52000)] + ["00126380,삼성전자,005930"]) + "\n"
+# 기업 목록에 S-Oil·NAVER를 넣어 실제처럼 '에쓰오일'·'네이버'가 등록명으로 바뀌게 한다
+CSV = "corp_code,corp_name,stock_code\n" + "\n".join([f"0{i:07d},비상장사{i}," for i in range(52000)] + ["00126380,삼성전자,005930", "00138279,S-Oil,010950", "00266961,NAVER,035420"]) + "\n"
 class R:
     status_code = 200; text = "{}"; ok = True; content = b"{}"
     def __init__(self, p=None): self._p = p if p is not None else {}
@@ -53,6 +54,8 @@ def check(c, m):
 def md(at): return " ".join(m.value for m in at.markdown)
 def caps(at): return " ".join(c.value for c in at.caption)
 at = AppTest.from_file(REPO + "/app.py", default_timeout=300); at.run()
+import time as _t; _t.sleep(1.5)  # 앱을 열면 뒤에서 모아 둔 기사 파일을 미리 받는다
+check(any(u.endswith("/data/recent.json") for u in GETS) and any(gname in u for u in GETS), "앱을 열면 모아 둔 기사 파일(통신·단독·일반)을 미리 받아 둠")
 at.radio(key="news_mode").set_value("통신").run()
 GETS.clear()
 at.button_group(key="nw_통신_groups").set_value(["자동차"]).run()
@@ -87,6 +90,11 @@ at.text_input(key="nw_통신_terms").set_value("현대차, 테슬라 오토파�
 check(any("news.google.com" in u for u in GETS), "검색어를 고쳐 '뉴스 조회'를 누르면 새로 검색")
 at.radio(key="nw_통신_period").set_value("일주일").run()
 check("검색어를 바꿨어요" in caps(at), "고친 검색어로 조건을 바꾸면 '뉴스 조회' 안내(모아 둔 기사로 오해 없게)")
+# 팀 버튼(차팀)만 눌러도 바로 보여야 함 — 여러 섹터 검색어에 같은 회사의 다른 이름(한화에어로·한화에어로스페이스 등)이 섞여도
+at.button_group(key="nw_통신_groups").set_value([]).run()
+[b for b in at.button if b.key == "nw_통신_team_차팀"][0].click().run()
+check(set(at.session_state["nw_통신_groups"]) >= {"자동차", "배터리", "중후장대"} and "현대차 美 공장 증설" in md(at) and "검색어를 바꿨어요" not in caps(at),
+      f"차팀 버튼만 눌러도 모아 둔 기사가 바로 [{caps(at)[:80]}]")
 # 단독
 at.radio(key="news_mode").set_value("단독").run()
 at.button_group(key="nw_단독_groups").set_value(["자동차"]).run()
@@ -96,7 +104,6 @@ GETS.clear()
 at.radio(key="news_mode").set_value("일반").run()
 at.button_group(key="nw_일반_groups").set_value("자동차").run()
 check(not at.exception and "현대차 노조 임금협상 타결" in md(at), f"일반: 섹터별 파일에서 바로 {[str(e.value)[:100] for e in at.exception]}")
-check(any(gname in u for u in GETS), "일반은 고른 섹터 파일만 받음")
 at.radio(key="nw_일반_period").set_value("일주일").run()
 check("최근 3일치만" in caps(at), "일반 3일 넘는 기간 안내")
 print("실패", fails); sys.exit(1 if fails else 0)

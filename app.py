@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 17:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 22:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5711,6 +5711,15 @@ def news_auto_terms(groups):
     return terms
 
 
+def news_same_as_sectors(terms, groups):
+    """검색어가 고른 섹터로 채워진 그대로인지. 양쪽 모두 같은 정리(parse_news_terms: 등록명으로 바꾸고 중복 빼기)를 거쳐 비교한다
+    (예: '네이버'->'NAVER', '에쓰오일'->'S-Oil'로 바뀌어도 섹터 그대로로 본다)."""
+    if not groups:
+        return False
+    auto = parse_news_terms(", ".join(news_auto_terms(groups)))
+    return [name_key(t) for t in terms] == [name_key(t) for t in auto]
+
+
 def news_period_start(period, now):
     """기간 선택 -> 그 시각 이후 기사만 ('오늘'은 오늘 0시, 나머지는 지금부터 n일 전)"""
     if period == "오늘":
@@ -5822,7 +5831,7 @@ def render_news_search(kind):
 
     groups = [g for g in news_groups_of(kind) if g in NEWS_SECTORS]
     terms_now = parse_news_terms(text)
-    same_terms = bool(groups) and [name_key(t) for t in terms_now] == [name_key(t) for t in news_auto_terms(groups)]
+    same_terms = news_same_as_sectors(terms_now, groups)
     stored_ok = same_terms and in_title and (kind != "통신" or yna_only)  # 모아 둔 기사로 보여 줄 수 있는 조건
     top_key = f"{k}_topup"
     if submitted and stored_ok and NAVER_ID and NAVER_SECRET:
@@ -5917,8 +5926,6 @@ def render_news_search(kind):
     live = st.session_state.get(f"news_res_{kind}")
     res = live if live and live.get("sig") == (tuple(terms_now), period, in_title, yna_only) else None
     if res is None and groups:
-        auto = [name_key(t) for t in news_auto_terms(groups)]
-        same_terms = [name_key(t) for t in terms_now] == auto
         if not same_terms:
             st.caption("검색어를 바꿨어요. '뉴스 조회'를 누르면 새로 검색해요. (섹터를 다시 누르면 모아 둔 기사로 돌아가요)")
             return
@@ -11710,6 +11717,18 @@ def render_usage_stats():
 TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 분석", "주가 분석", "공시 분석", "산업 뉴스", "AI 무역 통계", "실적 캘린더", "정기보고서", "재계 순위"]
 SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 맨 아래(알람 버튼 밑)에 관리자 탭 '타임라인'·'사용 통계'가 보임 (위 탭 줄은 그대로)
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 산업 뉴스 탭을 먼저 연다
+def warm_stored_news():
+    """앱을 열면 뒤에서 모아 둔 기사 파일(통신·단독 recent.json + 섹터별 '일반')을 미리 받아 둔다.
+    서버 저장소(10분)에 들어가 있어서, 산업 뉴스·오늘의 현황에서 섹터를 누르는 순간 바로 보인다. 실패는 무시."""
+    def run():
+        for name in ["recent.json"] + [general_file(g) for g in NEWS_SECTORS]:
+            get_stored(name)
+    if not st.session_state.get("_news_warm"):
+        st.session_state["_news_warm"] = True
+        threading.Thread(target=run, daemon=True).start()
+
+
+warm_stored_news()
 first_tab = "산업 뉴스" if apply_watchlist() else None
 try:
     tabs = st.tabs(TAB_NAMES, default=first_tab)
