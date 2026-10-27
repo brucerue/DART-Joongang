@@ -1,0 +1,71 @@
+name: 철강 전기로 제강사 자료 모으기
+
+# 업종코드 241(1차 철강) 상장사 + 직접 추가한 곳(비상장 포함)의 사업보고서·반기보고서에서
+# 매출·영업이익(연결·별도), '생산능력·생산실적·가동률' 글, 전력비 낱말 앞뒤 글을 모아
+# 'steel' 브랜치(steel.json, 한 커밋 덮어쓰기)에 저장합니다. 기획 취재용으로 손으로 실행합니다.
+on:
+  workflow_dispatch:
+    inputs:
+      years:
+        description: "사업보고서 연도 (예: 2021-2025)"
+        default: "2021-2025"
+      half:
+        description: "반기보고서 연도 (쉼표)"
+        default: "2025,2026"
+      extra:
+        description: "업종코드가 달라도 넣을 기업 (DART 이름, 쉼표, 비상장 가능)"
+        default: "포스코,세아베스틸,세아창원특수강,와이케이스틸,환영철강공업"
+      fresh:
+        description: "처음부터 다시 받기 (yes면 지난 자료 무시)"
+        default: "no"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: steel-data
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 기업 목록·업종 확인 결과·지난 자료 가져오기
+        run: |
+          git fetch --depth=1 origin corp-codes
+          git show origin/corp-codes:corp_codes.csv > corp_codes.csv
+          git fetch --depth=1 origin parts
+          git show origin/parts:parts.json > parts.json
+          if [ "$IN_FRESH" != "yes" ] && git fetch --depth=1 origin steel 2>/dev/null; then
+            git show origin/steel:steel.json > prev.json || true
+          fi
+        env:
+          IN_FRESH: ${{ inputs.fresh }}
+      - name: DART에서 모으기
+        run: |
+          python -u steel_data.py --corp-csv corp_codes.csv --screen parts.json --out steel.json --prev prev.json \
+            --years "$IN_YEARS" --half "$IN_HALF" --extra "$IN_EXTRA" --max-minutes 100
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          IN_YEARS: ${{ inputs.years }}
+          IN_HALF: ${{ inputs.half }}
+          IN_EXTRA: ${{ inputs.extra }}
+      - name: steel 브랜치에 올리기 (한 커밋 덮어쓰기, 중간에 멈춰도 받은 데까지)
+        if: always() && hashFiles('steel.json') != ''
+        run: |
+          mkdir -p out && cp steel.json out/
+          cd out
+          git init -q -b steel
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add steel.json
+          git commit -q -m "steel data $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" steel
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
