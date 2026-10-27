@@ -1,0 +1,31 @@
+name: 임시 - IR 공시 원문 보기
+
+# 실적 캘린더의 같은 회사 IR 중복을 거르는 기준을 정하려고 잠깐 두는 작업 (끝나면 지운다).
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 점검
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: |
+          python - <<'PY'
+          import re, news_digest as nd
+          for no in ("20261008800486", "20261008800488", "20261023800445", "20261023800449"):
+              try:
+                  t = nd.fetch_doc_text(nd.dart_key(), no)
+              except Exception as e:
+                  print(f"::notice::{no} 못 읽음 {e}"); continue
+              t = re.sub(r"\s+", " ", t.replace("|", " / "))
+              k = t.find("개최")
+              print(f"::notice::{no}: {t[max(0, k - 100):k + 1100]}")
+          PY
