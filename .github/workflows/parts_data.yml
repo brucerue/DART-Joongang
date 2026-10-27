@@ -19,6 +19,9 @@ on:
       fresh:
         description: "처음부터 다시 받기 (yes면 지난 자료 무시)"
         default: "no"
+      cashflow:
+        description: "현금흐름표(영업·투자 현금흐름, 유형자산 취득)도 받기 (yes/no)"
+        default: "no"
 
 permissions:
   contents: write
@@ -50,8 +53,9 @@ jobs:
         run: |
           python -u parts_data.py --corp-csv corp_codes.csv --out parts.json --csv parts.csv \
             --prev prev.json --years "$IN_YEARS" --doc-years "$IN_DOC_YEARS" --extra "$IN_EXTRA" \
-            --max-minutes 100
+            --max-minutes 100 $( [ "$IN_CASHFLOW" = "yes" ] && echo --cashflow )
         env:
+          IN_CASHFLOW: ${{ inputs.cashflow }}
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           IN_YEARS: ${{ inputs.years }}
           IN_DOC_YEARS: ${{ inputs.doc_years }}

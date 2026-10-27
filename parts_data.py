@@ -277,6 +277,58 @@ def screen(dart, listed, prev_screen, prefixes, extra_names, log):
     return info, picked, missing, None
 
 
+# ---------- 현금흐름 (전체 재무제표) ----------
+CF_ITEMS = {  # 키: (IFRS 계정ID들, 계정이름에 들어가는 글자들)
+    "ocf": (("ifrs-full_CashFlowsFromUsedInOperatingActivities",), ("영업활동현금흐름", "영업활동으로인한현금흐름", "영업활동으로부터의현금흐름", "영업활동순현금흐름")),
+    "icf": (("ifrs-full_CashFlowsFromUsedInInvestingActivities",), ("투자활동현금흐름", "투자활동으로인한현금흐름", "투자활동순현금흐름")),
+    "capex": (("ifrs-full_PurchaseOfPropertyPlantAndEquipment",), ("유형자산의취득", "유형자산취득")),
+}
+
+
+def pick_cashflow(rows):
+    """전체 재무제표(fnlttSinglAcntAll) 중 현금흐름표(sj_div=CF)에서 영업·투자 현금흐름과 유형자산 취득."""
+    cf = [r for r in rows or [] if r.get("sj_div") == "CF"]
+    out = {}
+    for key, (ids, names) in CF_ITEMS.items():
+        hit = next((r for r in cf if r.get("account_id") in ids), None)
+        if hit is None:
+            hit = next((r for r in cf if any(n in (r.get("account_nm") or "").replace(" ", "") for n in names)), None)
+        if hit is not None:
+            v = num(hit.get("thstrm_amount"))
+            if key == "capex" and v is not None:
+                v = abs(v)  # 회사마다 음수(유출)·양수로 적는 방식이 달라 크기로 통일
+            out[key] = v
+    return out
+
+
+def collect_cashflow(dart, data, years, log):
+    """각 기업·연도에 cf가 없으면 받는다. 매출·영업이익과 같은 기준(fs: 연결/별도)으로 부른다."""
+    stopped = None
+    for ci, c in enumerate(data, 1):
+        try:
+            for y in years:
+                row = c["years"].get(str(y))
+                if not row or not row.get("done") or "cf" in row:
+                    continue
+                fs = row.get("fs") or "CFS"
+                jo = dart.json("fnlttSinglAcntAll.json", {"corp_code": c["corp_code"], "bsns_year": str(y),
+                                                          "reprt_code": REPORT, "fs_div": fs})
+                got = pick_cashflow((jo or {}).get("list"))
+                if not got and fs == "CFS":  # 연결이 없으면 별도로 한 번 더
+                    jo = dart.json("fnlttSinglAcntAll.json", {"corp_code": c["corp_code"], "bsns_year": str(y),
+                                                              "reprt_code": REPORT, "fs_div": "OFS"})
+                    got = pick_cashflow((jo or {}).get("list"))
+                    fs = "OFS" if got else fs
+                row["cf"] = {**got, "fs": fs}
+        except QuotaError as e:
+            stopped = str(e)
+            log(f"현금흐름 멈춤: {e} — {c['name']}에서. 받은 데까지 저장합니다.")
+            break
+        if ci % 20 == 0:
+            log(f"  현금흐름 {ci}/{len(data)}곳 (호출 {dart.calls}번)")
+    return stopped
+
+
 # ---------- 모으기 ----------
 def collect(dart, corps, years, doc_years, prev_corps, log):
     prev = {c["corp_code"]: c for c in prev_corps or []}
@@ -326,7 +378,8 @@ def collect(dart, corps, years, doc_years, prev_corps, log):
 
 def to_csv(corps, path):
     cols = ["기업", "종목코드", "시장", "업종코드", "연도", "직원수", "정규직", "계약직", "평균근속(년)",
-            "1인평균급여(원문)", "연간급여총액(원문)", "매출액", "영업이익", "재무기준", "직원집계방식", "접수번호"]
+            "1인평균급여(원문)", "연간급여총액(원문)", "매출액", "영업이익", "재무기준", "직원집계방식", "접수번호",
+            "영업활동현금흐름", "투자활동현금흐름", "유형자산취득", "현금흐름기준"]
     with open(path, "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
         w.writerow(cols)
@@ -335,7 +388,9 @@ def to_csv(corps, path):
                 r = c["years"][y]
                 w.writerow([c["name"], c["stock_code"], c["market"], c["induty"], y, r.get("emp"), r.get("regular"),
                             r.get("contract"), r.get("tenure"), r.get("pay_avg_raw"), r.get("pay_total_raw"),
-                            r.get("rev"), r.get("op"), r.get("fs"), r.get("emp_method"), r.get("rcept_no")])
+                            r.get("rev"), r.get("op"), r.get("fs"), r.get("emp_method"), r.get("rcept_no"),
+                            (r.get("cf") or {}).get("ocf"), (r.get("cf") or {}).get("icf"),
+                            (r.get("cf") or {}).get("capex"), (r.get("cf") or {}).get("fs")])
 
 
 def parse_years(s):
@@ -364,6 +419,7 @@ def main(argv=None, session=None):
     ap.add_argument("--max-calls", type=int, default=15000)
     ap.add_argument("--sleep", type=float, default=SLEEP)
     ap.add_argument("--max-minutes", type=float, default=0, help="이 시간이 지나면 받은 데까지 저장하고 끝냄(0=제한 없음)")
+    ap.add_argument("--cashflow", action="store_true", help="현금흐름표(영업·투자 현금흐름, 유형자산 취득)도 받음")
     args = ap.parse_args(argv)
     key = os.environ.get("DART_API_KEY", "").strip()
     if not key:
@@ -384,12 +440,17 @@ def main(argv=None, session=None):
         print(f"대상 {len(corps)}곳 (업종코드 {sum(c['picked_by'] == '업종코드' for c in corps)}곳)"
               + (f", 못 찾은 추가 기업: {', '.join(missing)}" if missing else ""))
         data, stopped = collect(dart, corps, years, doc_years, prev.get("corps"), print)
+        if args.cashflow and not stopped:
+            stopped = collect_cashflow(dart, data, years, print)
     done = sum(1 for c in data for y in years if c["years"].get(str(y), {}).get("done"))
     need = len(data) * len(years)
+    cf_need = sum(1 for c in data for y in years if c["years"].get(str(y), {}).get("done"))
+    cf_done = sum(1 for c in data for y in years if "cf" in c["years"].get(str(y), {}))
+    cf_ok = (not args.cashflow) or cf_done == cf_need
     result = {
         "built": datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
-        "complete": stopped is None and done == need,
-        "stopped": stopped, "progress": f"{done}/{need}",
+        "complete": stopped is None and done == need and cf_ok,
+        "stopped": stopped, "progress": f"{done}/{need}", "cf_progress": f"{cf_done}/{cf_need}",
         "years": years, "doc_years": doc_years, "ksic_prefixes": list(KSIC_PREFIXES),
         "extra_missing": missing, "calls_this_run": dart.calls,
         "notes": ["지금 상장된 회사만 대상(그사이 상장폐지 부품사 빠짐, 생존 편향)",
