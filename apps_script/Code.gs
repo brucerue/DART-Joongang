@@ -266,7 +266,10 @@ function doGet(e) {
   if (!e || !e.parameter || e.parameter.key !== props.getProperty("SECRET")) {
     return ContentService.createTextOutput("no");
   }
-  if (e.parameter.usage) return usageStats_(Number(e.parameter.days) || 30);   // 앱 관리자 화면(?lab=1)의 사용 통계
+  if (e.parameter.usage) {   // 앱 관리자 화면(?lab=1)의 사용 통계 (days=0이면 오늘만)
+    var nd = Number(e.parameter.days);
+    return usageStats_(isNaN(nd) || nd < 0 ? 30 : nd);
+  }
   var out = loadPrefs_();
   out._approved = loadApproved_();   // 앱 신청을 승인 버튼으로 받아들인 사람들 (뉴스 발송이 GitHub 명단에 합쳐서 씀)
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);

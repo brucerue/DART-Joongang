@@ -56,4 +56,12 @@ check(any(p and p["me"] == 1 for p in POSTS), "?me=1이면 me=1로 보냄")
 allmd = " ".join(m.value for m in at2.markdown)
 check("AI·" not in " ".join(" ".join(map(str, d["기능"])) for d in dfs if "기능" in d), "기능별 표에 AI 기록 없음")
 check("Gemini(무료)" in allmd and "8번" in allmd and "Claude로 넘어감(유료)" in allmd and "2번" in allmd and "20%" in allmd, "AI 호출 칸: Gemini 8 · Claude 2 (20%)")
+at2.radio(key="use_days").set_value(0).run()
+check(list(at2.radio(key="use_days").options) == ["오늘", "최근 7일", "최근 30일", "최근 90일"] and not at2.exception, f"기간에 '오늘' {list(at2.radio(key='use_days').options)}")
+check(any("새 버전으로 배포" in w.value for w in at2.warning), "예전 Apps Script면 '오늘' 안내")
+import datetime as _dt
+STATS["from"] = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=9))).strftime("%Y-%m-%d")
+import streamlit as _st; _st.cache_data.clear()  # 사용 통계는 10분 저장되므로 비우고 다시 읽는다
+at2.radio(key="use_days").set_value(7).run(); at2.radio(key="use_days").set_value(0).run()
+check(not any("새 버전으로 배포" in w.value for w in at2.warning) and "오늘" in " ".join(m.value for m in at2.markdown), "새 Apps Script면 '오늘' 카드")
 print("실패", fails)

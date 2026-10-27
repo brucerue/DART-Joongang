@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 03:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 09:45"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -11495,7 +11495,8 @@ def render_usage_stats():
     if not APPS_SCRIPT_URL:
         st.info("Streamlit Secrets에 APPS_SCRIPT_URL(Apps Script 웹앱 주소 + ?key=…)을 넣으면 기능 사용이 구글 시트에 기록되고 여기에 집계가 보여요.")
         return
-    days = st.radio("기간", [7, 30, 90], index=1, horizontal=True, key="use_days", format_func=lambda d: f"최근 {d}일")
+    days = st.radio("기간", [0, 7, 30, 90], index=2, horizontal=True, key="use_days", format_func=lambda d: "오늘" if d == 0 else f"최근 {d}일")
+    span = "오늘" if days == 0 else f"최근 {days}일"
     exclude_me = st.toggle("내 사용(?lab=1 또는 ?me=1로 연 세션) 빼고 보기", value=True, key="use_exclude_me")
     try:
         stats = fetch_usage_stats(days)
@@ -11505,6 +11506,9 @@ def render_usage_stats():
     if stats.get("error"):
         st.error(f"Apps Script 오류: {stats['error']}")
         return
+    today = datetime.now(KST).strftime("%Y-%m-%d")
+    if days == 0 and stats.get("from") != today:  # 예전 Apps Script는 기간 0을 30일로 읽는다
+        st.warning("'오늘'을 보려면 Apps Script를 새 버전으로 배포해야 해요. 지금은 최근 30일이 보여요.")
     day_rows, all_feats = stats.get("days") or [], stats.get("features") or []
     ai_rows = [f for f in all_feats if str(f["f"]).startswith(AI_LOG_PREFIX)]  # AI 호출 기록은 기능 순위와 따로
     feat_rows = [f for f in all_feats if not str(f["f"]).startswith(AI_LOG_PREFIX)]
@@ -11517,7 +11521,7 @@ def render_usage_stats():
     if not stats.get("days_exclude_ai"):  # 예전 Apps Script(재배포 전)는 날짜별 합계에 AI 호출 기록이 섞여 있어 빼 준다
         total_n -= sum(f[k_n] for f in ai_rows)
     st.markdown(cb_cards([
-        ("사용 횟수", f"{total_n:,}건", f"최근 {days}일", "flat"),
+        ("사용 횟수", f"{total_n:,}건", span, "flat"),
         ("하루 평균 세션", f"{sum(d[k_s] for d in day_rows) / max(len(day_rows), 1):.1f}개", "기록 있는 날 기준", "flat"),
         ("가장 많이 쓴 기능", (max(feat_rows, key=lambda f: f[k_n])["f"] if feat_rows else "-"), None, "flat"),
     ]), unsafe_allow_html=True)
@@ -11529,7 +11533,7 @@ def render_usage_stats():
         cnt = {str(f["f"])[len(AI_LOG_PREFIX):]: f["n"] for f in ai_rows}
         paid = cnt.get("Claude(대체)", 0) + cnt.get("Claude", 0)
         st.markdown(cb_cards([
-            ("Gemini(무료)", f"{cnt.get('Gemini', 0):,}번", f"최근 {days}일", "flat"),
+            ("Gemini(무료)", f"{cnt.get('Gemini', 0):,}번", span, "flat"),
             ("Claude로 넘어감(유료)", f"{paid:,}번", f"전체의 {paid / max(ai_total, 1) * 100:.0f}%", "up" if paid else "flat"),
         ]), unsafe_allow_html=True)
         st.caption("저장해 둔 답을 다시 보여 준 경우는 세지 않아요. 내 사용 포함 전체 횟수예요. Claude 횟수가 늘면 Gemini 한도가 자주 찬다는 뜻이에요.")
