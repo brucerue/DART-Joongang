@@ -25,7 +25,7 @@ const WORKFLOW_FILE = "news_digest.yml";
 // 야후 5분봉이 15~20분 늦게 나오므로 09:00 회차는 건너뛰고, 16:00·16:15 회차는 마감 뒤 일봉 종가 보정용
 const INTRADAY_FILE = "intraday.yml";
 const INTRADAY_FROM = 9 * 60 + 15, INTRADAY_TO = 16 * 60 + 15; // 분 단위(한국시간)
-// 기사·공시 모아두기(collect_data.yml)도 매시 정각에 실행시킨다 (하루 종일, 주말 포함 — 발송이 아니라 앱 산업 뉴스·오늘의 현황이 바로 보여 줄 자료라서)
+// 기사·공시 모아두기(collect_data.yml): 발송 시간(8~19시)에는 발송 작업이 15분마다 같은 수집을 하며 저장하므로, 그 밖의 시간에만 매시 정각에 실행시킨다(주말 포함)
 const COLLECT_FILE = "collect_data.yml";
 
 function intradayDue(kst) {
@@ -78,7 +78,7 @@ export default {
     const kst = new Date(event.scheduledTime + 9 * 3600 * 1000); // UTC getter로 한국시간을 읽는다
     const hour = kst.getUTCHours();
     if (intradayDue(kst)) ctx.waitUntil(dispatch(env, null, INTRADAY_FILE)); // 장중 시세 모으기 (평일 09:15~16:15)
-    if (kst.getUTCMinutes() < 5) ctx.waitUntil(dispatch(env, null, COLLECT_FILE)); // 기사·공시 모아두기 (매시 정각)
+    if (kst.getUTCMinutes() < 5 && !SEND_HOURS.includes(hour)) ctx.waitUntil(dispatch(env, null, COLLECT_FILE)); // 기사·공시 모아두기 (발송 시간 밖 매시 정각)
     if (!SEND_HOURS.includes(hour)) return;  // 시간 밖은 쉼 (요일은 받는 사람마다 정해요: 기본 월~금, '/요일'로 토·일도 선택)
     const quick = kst.getUTCMinutes() >= 5; // 정각이 아니면 단독만
     ctx.waitUntil(dispatch(env, quick ? { mode: "단독", auto: "true" } : { auto: "true" }));

@@ -612,8 +612,41 @@ def _sports_feed_keys():
     return tuple(dict.fromkeys(keys))
 
 
+_COLLECTED = []  # collect_data.py --dump 결과 {"종류|섹터": [기사]} (한 번만 읽는다)
+
+
+def collected_items(mode, sector, cutoff):
+    """같은 회차에 먼저 돈 수집(collect_data.py --dump, 환경변수 COLLECTED_FILE)이 찾아 둔 기사. 그 칸이 없으면 None(직접 검색)."""
+    if not _COLLECTED:
+        path, data = os.environ.get("COLLECTED_FILE", "").strip(), {}
+        if path and os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                data = {}
+        _COLLECTED.append(data)
+    rows = _COLLECTED[0].get(f"{mode}|{sector}")
+    if rows is None:
+        return None
+    out = []
+    for r in rows:
+        try:
+            dt = datetime.fromisoformat(r["dt"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if dt >= cutoff:
+            out.append(dict(r, dt=dt))
+    return out
+
+
 def collect(mode, sector, cutoff, google=None):
-    """(모드, 섹터)의 cutoff 이후 기사. google: 구글 뉴스 검색 함수를 바꿔 끼울 때(과거 채우기용, 기본은 최근 2일을 찾는 google_search)"""
+    """(모드, 섹터)의 cutoff 이후 기사. google: 구글 뉴스 검색 함수를 바꿔 끼울 때(과거 채우기용, 기본은 최근 2일을 찾는 google_search).
+    같은 회차에 수집기가 먼저 찾아 둔 기사(COLLECTED_FILE)가 있으면 다시 검색하지 않고 그것을 쓴다."""
+    if google is None:
+        got = collected_items(mode, sector, cutoff)
+        if got is not None:
+            return got
     google = google or google_search
     search, owner = sector_terms(sector)
     if mode == "통신":

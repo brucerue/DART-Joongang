@@ -6,7 +6,8 @@
 - 결과 파일은 워크플로가 저장소의 별도 'data' 브랜치에 올린다(앱이 올라간 main 브랜치는 건드리지 않아 앱이 다시 배포되지 않는다).
 - 섹터·기업·언론사 같은 데이터는 news_digest.py(→ app.py)를 그대로 써서 알람과 같은 기준으로 모은다.
 필요한 환경변수: DART_API_KEY (공시용, 없으면 기사만), NAVER_CLIENT_ID/NAVER_CLIENT_SECRET (선택)
-사용: python collect_data.py [--out data] [--days 365]
+사용: python collect_data.py [--out data] [--days 365] [--modes 통신,단독,일반] [--no-disc] [--dump fresh.json]
+  텔레그램 발송(news_digest.yml)이 정해진 회차마다 먼저 이걸 돌려 저장하고(--dump), 같은 결과로 알람을 보낸다(검색을 두 번 하지 않게).
 """
 import argparse
 import hashlib
@@ -79,7 +80,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data")
     ap.add_argument("--days", type=int, default=KEEP_DAYS)
+    ap.add_argument("--modes", default="통신,단독,일반", help="모을 기사 종류(쉼표). 15분 회차는 단독만")
+    ap.add_argument("--no-disc", action="store_true", help="공시는 건너뜀 (15분 회차)")
+    ap.add_argument("--dump", default="", help="이번에 찾은 기사를 (종류|섹터)별로 이 파일에 써 둔다 — 텔레그램 발송이 다시 검색하지 않고 쓴다")
     args = ap.parse_args()
+    modes = [m.strip() for m in args.modes.split(",") if m.strip()]
+    dump = {}
     now = datetime.now(KST)
     cutoff = now - timedelta(hours=LOOKBACK_HOURS)
     os.makedirs(args.out, exist_ok=True)
@@ -89,16 +95,17 @@ def main():
 
     errors, added = [], 0
     for sector in SECTORS:
-        for mode in ("통신", "단독"):
+        for mode in [m for m in ("통신", "단독") if m in modes]:
             try:
                 items = nd.collect(mode, sector, cutoff)
-            except Exception as e:  # 한 곳이 실패해도 나머지는 계속
+            except Exception as e:  # 한 곳이 실패해도 나머지는 계속 (발송은 이 칸만 직접 검색한다)
                 errors.append(f"{sector}/{mode}: {e}")
                 continue
+            dump[f"{mode}|{sector}"] = items
             added += merge(store, [to_row(i, mode, sector) for i in items])
     general_from = (now - timedelta(days=GENERAL_DAYS)).strftime(FMT)
     general_n = 0
-    for sector in SECTORS:  # '일반'은 섹터별 파일에 최근 GENERAL_DAYS일만
+    for sector in (SECTORS if "일반" in modes else []):  # '일반'은 섹터별 파일에 최근 GENERAL_DAYS일만
         gpath = os.path.join(args.out, general_file(sector))
         gstore = {r["u"]: r for r in load_json(gpath).get("items", []) if r.get("d", "") >= general_from}
         try:
@@ -106,12 +113,15 @@ def main():
         except Exception as e:
             errors.append(f"{sector}/일반: {e}")
         else:
+            dump[f"일반|{sector}"] = items
             general_n += merge(gstore, [to_row(i, "일반", sector) for i in items])
         os.makedirs(os.path.dirname(gpath), exist_ok=True)
         grows = sorted((r for r in gstore.values() if r["d"] >= general_from), key=lambda r: r["d"], reverse=True)
         with open(gpath, "w", encoding="utf-8") as f:
             json.dump({"updated": now.strftime(FMT), "sector": sector, "items": grows}, f, ensure_ascii=False, separators=(",", ":"))
-    if os.environ.get("DART_API_KEY", "").strip():
+    if args.no_disc:
+        pass
+    elif os.environ.get("DART_API_KEY", "").strip():
         try:
             feed = nd.fetch_dart_feed(now, wide=True)
             for sector in SECTORS:
@@ -129,10 +139,13 @@ def main():
         json.dump({"updated": stamp, "items": rows}, f, ensure_ascii=False, separators=(",", ":"))
     with open(os.path.join(args.out, "recent.json"), "w", encoding="utf-8") as f:
         json.dump({"updated": stamp, "items": [r for r in rows if r["d"] >= recent_from]}, f, ensure_ascii=False, separators=(",", ":"))
+    if args.dump:
+        with open(args.dump, "w", encoding="utf-8") as f:
+            json.dump({k: [dict(i, dt=i["dt"].isoformat()) for i in v] for k, v in dump.items()}, f, ensure_ascii=False)
     print(f"수집 완료: 새로 {added}건, 보관 {len(rows)}건(이전 {before}건), 일반 새로 {general_n}건, 실패 {len(errors)}곳")
     for e in errors:
         print("  실패:", e, file=sys.stderr)
-    if errors and len(errors) >= len(SECTORS) * 3:  # 전부 실패했으면 오류로 끝내 알림이 가게 한다
+    if errors and len(errors) >= len(SECTORS) * len(modes):  # 전부 실패했으면 오류로 끝내 알림이 가게 한다
         sys.exit(1)
 
 

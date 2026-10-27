@@ -2,10 +2,11 @@ name: 기사·공시 모아두기
 
 # 매시간 모든 섹터의 기사·공시를 모아 'data' 브랜치에 저장합니다(통신·단독·공시 1년, '일반'은 섹터별 3일).
 # 앱의 산업 뉴스·오늘의 현황·타임라인이 이 파일을 읽습니다.
-# 실행은 Cloudflare Worker(apps_script/worker.js)가 매시 정각에 부릅니다. GitHub 자체 예약은 늦거나 빠져서 3시간마다 예비로만 둡니다.
+# 한국시간 8~19시에는 텔레그램 발송(news_digest.yml)이 15분마다 같은 수집을 하며 저장하고(정각 전체, 15·30·45분 단독),
+# 그 밖의 시간에는 Cloudflare Worker(apps_script/worker.js)가 매시 정각에 이 작업을 부릅니다. GitHub 자체 예약은 밤에 3시간마다 예비로만 둡니다.
 on:
   schedule:
-    - cron: "40 */3 * * *"
+    - cron: "40 11-22/3 * * *" # 한국시간 20:40·23:40·02:40·05:40 (낮에는 발송 작업이 모으므로 겹치지 않게)
   workflow_dispatch:
 
 permissions:
