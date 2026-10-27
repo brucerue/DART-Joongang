@@ -293,32 +293,46 @@ def pick_cashflow(rows):
         hit = next((r for r in cf if r.get("account_id") in ids), None)
         if hit is None:
             hit = next((r for r in cf if any(n in (r.get("account_nm") or "").replace(" ", "") for n in names)), None)
+        if hit is None:  # 이름을 더 넓게: 띄어쓰기·괄호·'순'·'증가' 등 회사마다 다른 표기
+            loose = {"ocf": lambda n: "영업활동" in n and "현금" in n,
+                     "icf": lambda n: "투자활동" in n and "현금" in n,
+                     "capex": lambda n: n.startswith("유형자산") and any(w in n for w in ("취득", "증가", "구입", "매입"))}[key]
+            hit = next((r for r in cf if loose(re.sub(r"[\s()\[\]·]", "", r.get("account_nm") or ""))), None)
         if hit is not None:
             v = num(hit.get("thstrm_amount"))
             if key == "capex" and v is not None:
                 v = abs(v)  # 회사마다 음수(유출)·양수로 적는 방식이 달라 크기로 통일
             out[key] = v
+            out[key + "_nm"] = hit.get("account_nm")
+    if "capex" not in out:  # 못 찾았으면 사람이 확인할 수 있게 '유형' 들어간 계정 이름을 남김
+        out["ppe_names"] = [r.get("account_nm") for r in cf if "유형" in (r.get("account_nm") or "")][:8]
     return out
 
 
-def collect_cashflow(dart, data, years, log):
-    """각 기업·연도에 cf가 없으면 받는다. 매출·영업이익과 같은 기준(fs: 연결/별도)으로 부른다."""
+def collect_cashflow(dart, data, years, log, retry=False):
+    """각 기업·연도에 cf가 없으면 받는다. 매출·영업이익과 같은 기준(fs: 연결/별도)으로 부른다.
+    retry=True면 이미 받았어도 영업현금흐름이나 유형자산 취득이 빈 건을 다시 받는다."""
     stopped = None
     for ci, c in enumerate(data, 1):
         try:
             for y in years:
                 row = c["years"].get(str(y))
-                if not row or not row.get("done") or "cf" in row:
+                if not row or not row.get("done"):
+                    continue
+                old = row.get("cf")
+                if old is not None and not (retry and (old.get("ocf") is None or old.get("capex") is None)):
                     continue
                 fs = row.get("fs") or "CFS"
                 jo = dart.json("fnlttSinglAcntAll.json", {"corp_code": c["corp_code"], "bsns_year": str(y),
                                                           "reprt_code": REPORT, "fs_div": fs})
+                found = lambda d: any(k in d for k in ("ocf", "icf", "capex"))
                 got = pick_cashflow((jo or {}).get("list"))
-                if not got and fs == "CFS":  # 연결이 없으면 별도로 한 번 더
+                if not found(got) and fs == "CFS":  # 연결이 없으면 별도로 한 번 더
                     jo = dart.json("fnlttSinglAcntAll.json", {"corp_code": c["corp_code"], "bsns_year": str(y),
                                                               "reprt_code": REPORT, "fs_div": "OFS"})
-                    got = pick_cashflow((jo or {}).get("list"))
-                    fs = "OFS" if got else fs
+                    got2 = pick_cashflow((jo or {}).get("list"))
+                    if found(got2):
+                        got, fs = got2, "OFS"
                 row["cf"] = {**got, "fs": fs}
         except QuotaError as e:
             stopped = str(e)
@@ -420,6 +434,7 @@ def main(argv=None, session=None):
     ap.add_argument("--sleep", type=float, default=SLEEP)
     ap.add_argument("--max-minutes", type=float, default=0, help="이 시간이 지나면 받은 데까지 저장하고 끝냄(0=제한 없음)")
     ap.add_argument("--cashflow", action="store_true", help="현금흐름표(영업·투자 현금흐름, 유형자산 취득)도 받음")
+    ap.add_argument("--cf-retry", action="store_true", help="현금흐름 중 빈 칸(영업현금흐름·유형자산 취득)만 다시 받음")
     args = ap.parse_args(argv)
     key = os.environ.get("DART_API_KEY", "").strip()
     if not key:
@@ -442,8 +457,8 @@ def main(argv=None, session=None):
         print(f"대상 {len(corps)}곳 (업종코드 {sum(c['picked_by'] == '업종코드' for c in corps)}곳)"
               + (f", 못 찾은 추가 기업: {', '.join(missing)}" if missing else ""))
         data, stopped = collect(dart, corps, years, doc_years, prev.get("corps"), print)
-        if args.cashflow and not stopped:
-            stopped = collect_cashflow(dart, data, years, print)
+        if (args.cashflow or args.cf_retry) and not stopped:
+            stopped = collect_cashflow(dart, data, years, print, retry=args.cf_retry)
     done = sum(1 for c in data for y in years if c["years"].get(str(y), {}).get("done"))
     need = len(data) * len(years)
     cf_need = sum(1 for c in data for y in years if c["years"].get(str(y), {}).get("done"))

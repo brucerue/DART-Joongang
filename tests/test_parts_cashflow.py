@@ -21,11 +21,19 @@ def cf_rows(ocf, icf, capex, by_name=False):
 
 
 # 1) 계정 찾기: ID로, 이름으로, 유형자산 취득 부호 통일
+nums = lambda d: {k: v for k, v in d.items() if k in ("ocf", "icf", "capex")}
 got = P.pick_cashflow(cf_rows("1,000", "(500)", "(300)"))
-assert got == {"ocf": 1000, "icf": -500, "capex": 300}, got
+assert nums(got) == {"ocf": 1000, "icf": -500, "capex": 300}, got
 got = P.pick_cashflow(cf_rows("2,000", "-700", "400", by_name=True))
-assert got == {"ocf": 2000, "icf": -700, "capex": 400}, got
-assert P.pick_cashflow([{"sj_div": "BS", "account_nm": "자산총계", "thstrm_amount": "9"}]) == {}
+assert nums(got) == {"ocf": 2000, "icf": -700, "capex": 400}, got
+assert P.pick_cashflow([{"sj_div": "BS", "account_nm": "자산총계", "thstrm_amount": "9"}]).get("capex") is None
+# 넓은 이름: '유형자산의 증가', '영업활동 순현금흐름(유출)' 같은 표기 + 못 찾으면 계정 이름 남김
+loose = [{"sj_div": "CF", "account_id": "x", "account_nm": "영업활동 순현금흐름(유출)", "thstrm_amount": "50"},
+         {"sj_div": "CF", "account_id": "x", "account_nm": "유형자산의 증가", "thstrm_amount": "(30)"}]
+got = P.pick_cashflow(loose)
+assert got["ocf"] == 50 and got["capex"] == 30 and got["capex_nm"] == "유형자산의 증가", got
+got = P.pick_cashflow([{"sj_div": "CF", "account_id": "x", "account_nm": "유형자산처분이익", "thstrm_amount": "1"}])
+assert "capex" not in got and got["ppe_names"] == ["유형자산처분이익"], got
 
 
 class R:
@@ -87,7 +95,7 @@ b = json.load(open(out2, encoding="utf-8"))
 assert b["complete"] and b["cf_progress"] == "4/4", b["cf_progress"]
 assert len(f2.calls) == 5, f2.calls  # A 2025(1) + B 2024·2025(연결 실패+별도 = 2×2)
 cb = {c["name"]: c for c in b["corps"]}
-assert cb["가사"]["years"]["2025"]["cf"] == {"ocf": 1000, "icf": -400, "capex": 250, "fs": "CFS"}
+assert nums(cb["가사"]["years"]["2025"]["cf"]) == {"ocf": 1000, "icf": -400, "capex": 250} and cb["가사"]["years"]["2025"]["cf"]["fs"] == "CFS"
 assert cb["나사"]["years"]["2024"]["cf"]["fs"] == "OFS"
 rows = list(csv.DictReader(open(os.path.join(tmp, "b.csv"), encoding="utf-8-sig")))
 assert rows[0]["영업활동현금흐름"] == "1000" and rows[0]["유형자산취득"] == "250", rows[0]
@@ -111,4 +119,16 @@ P.main([x for x in base if x != "--cashflow"] + ["--out", os.path.join(tmp, "d.j
 d = json.load(open(os.path.join(tmp, "d.json"), encoding="utf-8"))
 names = {c["name"]: c for c in d["corps"]}
 assert "다사" in names and names["다사"]["picked_by"] == "직접 추가" and names["다사"]["years"]["2025"]["emp"] == 10, names.keys()
+# 6) --cf-retry: 이미 받은 건 중 유형자산 취득이 빈 것만 다시 부름
+prev3 = json.load(open(out2, encoding="utf-8"))
+prev3["corps"][0]["years"]["2024"]["cf"] = {"ocf": 1, "fs": "CFS"}  # 가사 2024만 빈 칸
+prev3["screen"]["C"] = {"induty": "289", "cls": "Y", "est": ""}  # 5번에서 목록에 더한 회사
+p3 = os.path.join(tmp, "prev3.json")
+json.dump(prev3, open(p3, "w", encoding="utf-8"), ensure_ascii=False)
+f4 = Fake()
+P.main([x for x in base if x != "--cashflow"] + ["--cf-retry", "--out", os.path.join(tmp, "e.json"), "--csv", os.path.join(tmp, "e.csv"),
+                                                 "--prev", p3], session=f4)
+assert f4.calls == [("fnlttSinglAcntAll.json", "A", "2024", "CFS")], f4.calls
+e = json.load(open(os.path.join(tmp, "e.json"), encoding="utf-8"))
+assert e["corps"][0]["years"]["2024"]["cf"]["capex"] == 250
 print("현금흐름 시험 통과")
