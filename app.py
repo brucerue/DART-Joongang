@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 15:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 17:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3299,7 +3299,7 @@ def publisher_of(url):
     return host or "알 수 없음", None
 
 
-def fetch_news(session, query, days, today_str):
+def fetch_news(session, query, days, today_str, pages=MAX_NEWS_PAGES):
     """검색어로 최신순 기사를 받아 기간 안의 것만 돌려준다. -> (기사 목록, 한도(1,000건)에 걸렸는지)
 
     ※ 작업 스레드에서 실행되므로 st.* 함수를 쓰지 않고, 세션은 인자로 받는다.
@@ -3308,7 +3308,7 @@ def fetch_news(session, query, days, today_str):
     first_day = date.fromisoformat(today_str) - timedelta(days=days - 1)
     cutoff = datetime.combine(first_day, datetime.min.time(), KST)  # 기간 시작: 그날 0시(한국 시간)
     items, reached_cutoff, got_full_page = [], False, False
-    for page in range(MAX_NEWS_PAGES):
+    for page in range(pages):
         data = call_naver(
             session,
             {"query": query, "display": NEWS_PAGE_SIZE, "start": 1 + page * NEWS_PAGE_SIZE, "sort": "date"},
@@ -3333,7 +3333,7 @@ def fetch_news(session, query, days, today_str):
     return items, (got_full_page and not reached_cutoff)
 
 
-def search_news(terms, days, keyword=None, suffixes=("",)):
+def search_news(terms, days, keyword=None, suffixes=("",), pages=MAX_NEWS_PAGES):
     """검색어마다 '검색어 단독'으로 동시에 검색해 합친다.
 
     -> (기사 목록, 한도에 걸렸는지, 한도에 걸린 검색에서 빠짐없이 본 가장 이른 시각)
@@ -3345,11 +3345,11 @@ def search_news(terms, days, keyword=None, suffixes=("",)):
     def one(job):
         term, suffix = job
         query = " ".join(x for x in (term, keyword, suffix) if x)
-        key = ("news", query, days, today)
+        key = ("news", query, days, today, pages)
         hit = cache_lookup(store, key, NEWS_TTL_TODAY if days <= 1 else NEWS_TTL)
         if hit is not _MISSING:
             return hit
-        value = fetch_news(session, query, days, today)
+        value = fetch_news(session, query, days, today, pages)
         cache_save(store, key, value)
         return value
 
@@ -3369,6 +3369,7 @@ def search_news(terms, days, keyword=None, suffixes=("",)):
 
 
 WIRE_DOMAINS = ("yna.co.kr", "newsis.com", "news1.kr")  # 통신 모드의 언론사: 연합뉴스(첫째)·뉴시스·뉴스1. 기본은 연합만, 체크를 풀면 전부
+NEWS_GOOGLE_WORKERS = 12  # 구글 뉴스 동시 호출 수 (실측 2026.10: 자동차 단독 75번이 6개씩 3.8초 -> 12개씩 1.0초, 실패 없음)
 GNEWS_SITE_CHUNK = 8  # 구글 검색어에 한 번에 넣는 site: 개수 (검색어가 너무 길면 구글이 잘라내므로 언론사를 나눠 검색)
 NEWS_GOOGLE_MIN = 5  # 단독 모드: 구글 뉴스에서 찾은 단독 기사가 이보다 적으면 네이버로 보충
 
@@ -3400,7 +3401,7 @@ def google_news(terms, days, domains, keyword=""):
         return value, None
 
     jobs = [(t, g) for t in terms for g in groups]
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+    with ThreadPoolExecutor(max_workers=NEWS_GOOGLE_WORKERS) as pool:
         got = list(pool.map(one, jobs))
     errs = [e for _, e in got if e]
     if errs and len(errs) == len(got):
@@ -5819,6 +5820,22 @@ def render_news_search(kind):
         )
         submitted = log_if(st.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False), f"뉴스 조회: {kind}")
 
+    groups = [g for g in news_groups_of(kind) if g in NEWS_SECTORS]
+    terms_now = parse_news_terms(text)
+    same_terms = bool(groups) and [name_key(t) for t in terms_now] == [name_key(t) for t in news_auto_terms(groups)]
+    stored_ok = same_terms and in_title and (kind != "통신" or yna_only)  # 모아 둔 기사로 보여 줄 수 있는 조건
+    top_key = f"{k}_topup"
+    if submitted and stored_ok and NAVER_ID and NAVER_SECRET:
+        # 섹터를 고른 그대로면 다시 전부 검색하지 않고, 모아 둔 기사 + 마지막 수집 뒤 새 기사만 찾는다 (구글 수십~수백 번 대신 네이버 검색어당 1번)
+        rec_updated = (get_stored("recent.json") or {}).get("updated") if kind != "일반" else min(
+            ((get_stored(general_file(g)) or {}).get("updated") or "") for g in groups)
+        st.session_state.pop(f"news_res_{kind}", None)  # 예전에 전체 검색한 결과 대신 모아 둔 기사 + 새 기사를 보여 준다
+        with st.spinner("마지막으로 모아 둔 뒤 나온 기사를 찾는 중입니다..."):
+            try:
+                st.session_state[top_key] = {"sig": (kind, tuple(groups)), "items": news_topup(kind, terms_now, rec_updated, yna_only)}
+            except NewsApiError as e:
+                st.error(str(e))
+        submitted = False
     if submitted:
         terms = parse_news_terms(text)
         if not terms:
@@ -5838,16 +5855,20 @@ def render_news_search(kind):
                         if g_err:
                             raise NewsApiError(g_err)
                         source = "구글 뉴스"
-                    else:  # 단독: 구글 뉴스에 네이버 뉴스를 항상 합친다(구글이 늦게 반영하는 기사를 네이버가 메움). 키가 없거나 USE_NAVER=0이면 구글만
-                        items, g_err = google_news(search, NEWS_PERIODS[period], list(PUBLISHERS), "단독" if cfg["need_exclusive"] else "")
+                    else:  # 단독·일반: 구글 뉴스에 네이버 뉴스를 항상 합친다(구글이 늦게 반영하는 기사를 네이버가 메움). 키가 없거나 USE_NAVER=0이면 구글만
+                        use_naver = bool(USE_NAVER and NAVER_ID and NAVER_SECRET)
+                        with ThreadPoolExecutor(max_workers=2) as both:  # 구글과 네이버를 동시에 (예전엔 차례로 불러 두 시간을 더했음)
+                            n_job = both.submit(search_news, search, NEWS_PERIODS[period], cfg["keyword"], ("",), 1 if kind == "일반" else MAX_NEWS_PAGES) if use_naver else None
+                            items, g_err = google_news(search, NEWS_PERIODS[period], list(PUBLISHERS), "단독" if cfg["need_exclusive"] else "")
                         items = drop_blocked(items)
                         source = "구글 뉴스"
                         n_excl = sum(is_exclusive(i["title"]) for i in items) if cfg["need_exclusive"] else len(items)
-                        few = n_excl < NEWS_GOOGLE_MIN
-                        if USE_NAVER and NAVER_ID and NAVER_SECRET:
+                        if use_naver:
                             try:
-                                n_items, capped, since = search_news(search, NEWS_PERIODS[period], keyword=cfg["keyword"])
+                                n_items, capped, since = n_job.result()
                                 n_items = drop_blocked(n_items)
+                                if kind == "일반":
+                                    capped = False  # 일반은 네이버를 최신 100건만 보충으로 본다 (구글이 39개 언론사를 이미 찾음)
                             except NewsApiError as e:
                                 if g_err or not n_excl:  # 보여줄 단독 기사가 하나도 없으면 네이버 오류를 그대로 알림
                                     raise

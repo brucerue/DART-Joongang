@@ -71,6 +71,11 @@ GETS.clear()
 check(not at.exception and "현대차 신형 아이오닉 공개" in md(at), f"최신 기사 더 찾기: 네이버 새 기사 더함 {[str(e.value)[:100] for e in at.exception]}")
 check(not any("news.google.com" in u for u in GETS) and any("openapi.naver.com" in u for u in GETS), "더 찾기는 네이버만 부름")
 check("최신 1건 더함" in caps(at), f"출처에 더한 건수 {caps(at)[:120]}")
+# 섹터를 고른 그대로 '뉴스 조회'를 누르면: 전부 다시 검색하지 않고 모아 둔 기사 + 네이버 새 기사만
+GETS.clear()
+[b for b in at.button if "nw_통신_form" in str(b.key)][0].click().run()
+check(not any("news.google.com" in u for u in GETS) and "현대차 美 공장 증설" in md(at) and "현대차 신형 아이오닉 공개" in md(at),  # 네이버는 바로 앞 '더 찾기' 저장분(5분)을 다시 씀
+      f"섹터 그대로 '뉴스 조회' = 모아 둔 기사 + 새 기사만 (구글 {sum('google' in u for u in GETS)}번)")
 # 연합만 끄면 안내
 at.checkbox(key="nw_통신_yna").uncheck().run()
 check("'뉴스 조회'를 누르면 새로 검색" in caps(at) and "현대차 美 공장 증설" not in md(at), "연합만을 끄면 새로 검색하라는 안내")
