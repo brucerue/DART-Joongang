@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 12:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.27 15:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8964,12 +8964,25 @@ IR_PURPOSE_RE = re.compile(
     r"(?:^|\n)[ \t]*(?:\d+\s*\.\s*)?(?:개최|실시)?[ \t]*목적[ \t]*[|:：]*\s*([^|\n]{2,80})")
 
 
+IR_NDR_WORDS = ("1대1", "1:1", "1 대 1", "oneonone", "그룹미팅", "소규모", "ndr", "논딜", "nondeal")  # 실적 발표가 아니라 증권사가 주관하는 기관 순회 미팅(NDR)
+
+
+def ir_is_ndr(text, purpose):
+    """IR 공시가 실적 발표(회사가 여는 컨퍼런스콜·설명회)가 아니라 NDR(1대1·그룹 미팅, 기관 순회)인지.
+    '개최목적'에 NDR이 있거나 '개최방법'에 1대1·그룹 미팅·소규모가 있으면 NDR (예: 한화에어로 10/30, 현대제철 11/3)."""
+    flat = re.sub(r"[\s\-_|/]", "", str(text)).lower()
+    i = flat.find("개최방법")
+    method = flat[i:i + 80] if i >= 0 else ""
+    goal = re.sub(r"[\s\-_]", "", str(purpose or "")).lower()
+    return any(w in method or w in goal for w in IR_NDR_WORDS)
+
+
 def cal_ir_info(session, store, rcept_no):
-    """IR 개최 공시 원문에서 (개최일, 개최 목적)을 읽는다. 못 읽은 것은 None."""
+    """IR 개최 공시 원문에서 (개최일, 개최 목적, NDR인지)를 읽는다. 못 읽은 것은 None."""
     try:
         text = fetch_document_text(session, store, rcept_no)
     except Exception:
-        return None, None
+        return None, None, False
     held = None
     pos = text.find("일시")
     for chunk in ([text[pos:pos + 200]] if pos >= 0 else []) + [text[:1500]]:
@@ -8982,13 +8995,13 @@ def cal_ir_info(session, store, rcept_no):
                 continue
     m = IR_PURPOSE_RE.search(text)
     purpose = re.sub(r"\s+", " ", m.group(1)).strip(" ()|") if m else None
-    return held, (purpose or None)
+    return held, (purpose or None), ir_is_ndr(text, purpose)
 
 
 def cal_company(session, store, name, code, ws, we, today):
     """회사 하나의 일정 -> {"events": [...], "deadlines": [...], "unread": [...]}"""
     fy = cal_fiscal_month(session, store, code)
-    events, unread = [], []
+    events, unread, ndr = [], [], 0
     recent = cal_list_rows(session, store, code, min(ws, today) - timedelta(days=30), today)
     irs = []
     for r in recent:
@@ -9002,12 +9015,14 @@ def cal_company(session, store, name, code, ws, we, today):
         if "기업설명회" in key:
             irs.append((d, r))
     for filed, r in sorted(irs, key=lambda x: x[0], reverse=True)[:3]:
-        held, purpose = cal_ir_info(session, store, r["rcept_no"])
+        held, purpose, is_ndr = cal_ir_info(session, store, r["rcept_no"])
         if held is None:
             unread.append((name, filed, r.get("rcept_no")))
+        elif is_ndr:  # 실적 발표 뒤 증권사 주관 기관 미팅(NDR)은 실적 일정이 아니라 뺀다
+            ndr += ws <= held <= we
         elif ws <= held <= we:
             events.append({"date": held, "corp": name, "kind": "IR 개최", "purpose": purpose or "", "text": f"기업설명회(IR) 개최 · {filed.month}/{filed.day} 공시", "no": r.get("rcept_no")})
-    return {"events": events, "deadlines": cal_deadlines(fy, ws, we), "unread": unread}
+    return {"events": events, "deadlines": cal_deadlines(fy, ws, we), "unread": unread, "ndr": ndr}
 
 
 def collect_calendar(corps, ws, we):
@@ -9016,10 +9031,11 @@ def collect_calendar(corps, ws, we):
     today = TODAY
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         results = list(pool.map(lambda c: cal_company(session, store, c[0], c[1], ws, we, today), corps))
-    out = {"events": [], "deadlines": {}, "unread": []}
+    out = {"events": [], "deadlines": {}, "unread": [], "ndr": 0}
     for (name, _), res in zip(corps, results):
         out["events"].extend(res["events"])
         out["unread"].extend(res["unread"])
+        out["ndr"] += res.get("ndr", 0)
         for key in res["deadlines"]:
             out["deadlines"].setdefault(key, []).append(name)
     out["events"].sort(key=lambda e: (e["date"], e["corp"]))
@@ -9111,6 +9127,8 @@ def render_calendar():
     for (deadline, label), who in sorted(data["deadlines"].items()):
         names = who[0] if len(who) == 1 else f"{who[0]} 외 {len(who) - 1}곳"
         st.caption(f"법정 제출기한 · {cal_day(deadline)} {label} — {names}")
+    if data.get("ndr"):
+        st.caption(f"실적 발표가 아닌 IR(증권사 주관 1대1·그룹 미팅, NDR) {data['ndr']}건은 뺐어요.")
     if data["unread"]:
         st.caption("IR 개최 공시는 있으나 날짜를 읽지 못한 기업: " + ", ".join(
             f"[{n}]({DART_VIEW_URL.format(no)})" if no else n for n, _, no in data["unread"]))
