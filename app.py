@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.28 11:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.28 12:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3491,11 +3491,12 @@ def news_tokens(title):
     return out
 
 
-def same_news_event(a, b):
+def same_news_event(a, b, tokens=None):
     """두 기사(제목·tags)가 같은 사건인지: 핵심 낱말이 충분히 겹치면 True.
     - 앞머리 낱말(주로 회사)이 같고 3개 이상·절반 가까이 겹치거나, 4개 이상·절반 이상 겹침
     - 검색어 꼬리표(tags)가 둘 다 있는데 하나도 안 겹치면 다른 회사 기사라 False(실적 기사처럼 틀이 같은 제목이 섞이는 것 방지)"""
-    ta, tb = news_tokens(a["title"]), news_tokens(b["title"])
+    tokens = tokens or news_tokens  # 묶기처럼 여러 번 비교할 땐 제목마다 한 번만 뽑아 둔 것을 쓴다
+    ta, tb = tokens(a["title"]), tokens(b["title"])
     sa, sb = set(ta), set(tb)
     shared = sa & sb
     if not shared:
@@ -3521,19 +3522,28 @@ def cluster_news(items):
             it = {**it, "title": re.sub(r"\s*[|ㅣ｜]\s*퍼가기\s*$", "", it["title"]), "_share": True}
         clean.append(it)
     clusters = []
+    tok_memo = {}
+
+    def tokens(title):  # 제목마다 핵심 낱말을 한 번만 뽑는다 (예전엔 비교할 때마다 다시 뽑아 기사 1천 건에 6초)
+        if title not in tok_memo:
+            tok_memo[title] = news_tokens(title)
+        return tok_memo[title]
     # 바로 열리는 기사 먼저(최신순), 그다음 공유용 사본(최신순) -> 같은 묶음이면 바로 열리는 기사가 대표가 된다
     for item in sorted(clean, key=lambda x: (bool(x.get("_share")), -x["dt"].timestamp())):
         key = title_key(item["title"])
+        toks = set(tokens(item["title"]))
         for c in clusters:
+            if toks and c["toks"] and not toks & c["toks"]:
+                continue  # 핵심 낱말이 하나도 안 겹치면(대개 다른 회사 기사) 같은 사건일 수 없어 글자 비교를 건너뛴다
             m = c["matcher"]
             m.set_seq1(key)
-            if (m.real_quick_ratio() >= SIMILAR_TITLE and m.quick_ratio() >= SIMILAR_TITLE and m.ratio() >= SIMILAR_TITLE) or same_news_event(item, c["items"][0]):
+            if (m.real_quick_ratio() >= SIMILAR_TITLE and m.quick_ratio() >= SIMILAR_TITLE and m.ratio() >= SIMILAR_TITLE) or same_news_event(item, c["items"][0], tokens):
                 c["items"].append(item)
                 break
         else:
             matcher = difflib.SequenceMatcher(None, autojunk=False)
             matcher.set_seq2(key)  # 묶음의 첫 제목을 기준으로 삼는다 (한 번만 분석해 두면 빠르다)
-            clusters.append({"matcher": matcher, "items": [item]})
+            clusters.append({"matcher": matcher, "items": [item], "toks": toks})
     out = []
     for c in clusters:
         out.append({"rep": c["items"][0], "others": sorted(c["items"][1:], key=lambda x: x["dt"], reverse=True)})
@@ -3826,20 +3836,29 @@ def reading_targets(query):
     return out
 
 
+@st.cache_resource(show_spinner=False)
+def _corp_name_map(_idx_id):
+    """기업 목록 -> {이름 소문자: 등록명} (상장사 먼저). 기업 10만 곳을 매번 훑지 않도록 한 번만 만든다 (예전엔 이름 하나에 0.06초)."""
+    out = {}
+    for n in get_name_index()["corp_name"]:
+        out.setdefault(str(n).casefold(), n)
+    return out
+
+
 def canonical_corp(corp):
     """입력한 기업명을 DART에 등록된 정확한 표기로 바꾼다. 영문 대소문자는 구분하지 않는다.
     예: sk하이닉스 -> SK하이닉스, lg엔솔은 기업명이 아니므로 그대로. 같은 이름이 여럿이면 상장사 우선."""
     text = unicodedata.normalize("NFKC", str(corp)).strip()
     if not text or text.isdigit():
         return text
-    idx = get_name_index()  # 상장사가 먼저 오도록 정렬된 목록
-    hit = idx[idx["corp_name"].str.casefold() == text.casefold()]
-    if not hit.empty:
-        return hit.iloc[0]["corp_name"]
+    names = _corp_name_map(id(get_name_index()))  # 상장사가 먼저 오도록 정렬된 목록에서 만든 사전
+    hit = names.get(text.casefold())
+    if hit is not None:
+        return hit
     for name, tier in reading_targets(text).items():  # 에쓰오일 -> S-Oil, 네이버 -> NAVER
-        hit = idx[idx["corp_name"].str.casefold() == name.casefold()]
-        if tier == 0 and not hit.empty:
-            return hit.iloc[0]["corp_name"]
+        hit = names.get(name.casefold())
+        if tier == 0 and hit is not None:
+            return hit
     return text
 
 
@@ -5716,8 +5735,13 @@ def news_same_as_sectors(terms, groups):
     (예: '네이버'->'NAVER', '에쓰오일'->'S-Oil'로 바뀌어도 섹터 그대로로 본다)."""
     if not groups:
         return False
-    auto = parse_news_terms(", ".join(news_auto_terms(groups)))
-    return [name_key(t) for t in terms] == [name_key(t) for t in auto]
+    key = tuple(groups)
+    if key not in _AUTO_TERMS_MEMO:  # 같은 섹터 조합은 한 번만 정리해 둔다
+        _AUTO_TERMS_MEMO[key] = [name_key(t) for t in parse_news_terms(", ".join(news_auto_terms(groups)))]
+    return [name_key(t) for t in terms] == _AUTO_TERMS_MEMO[key]
+
+
+_AUTO_TERMS_MEMO = {}
 
 
 def news_period_start(period, now):
@@ -11724,6 +11748,10 @@ def warm_stored_news():
     def run():
         for name in ["recent.json"] + [general_file(g) for g in NEWS_SECTORS]:
             get_stored(name)
+        try:
+            _corp_name_map(id(get_name_index()))  # 검색어 이름 정리용 기업 목록 사전도 미리 (처음 한 번 약 3초)
+        except Exception:
+            pass
     if not st.session_state.get("_news_warm"):
         st.session_state["_news_warm"] = True
         threading.Thread(target=run, daemon=True).start()
