@@ -5810,6 +5810,7 @@ def render_news_search(kind):
                  on_change=news_groups_changed, args=(kind,))
     else:
         team_buttons(k, NEWS_SECTORS, f"{k}_groups", after=lambda: news_groups_changed(kind))
+        st.caption("섹터를 많이 고르거나 팀 단위로 고르면 불러오는 데 시간이 걸려요.")
         st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key=f"{k}_groups", label_visibility="collapsed",
                  on_change=news_groups_changed, args=(kind,))
     # 기간·체크박스는 폼 밖: 바꾸면 모아 둔 기사가 바로 다시 걸러진다 (검색어 칸만 폼 안 — 글자 칠 때마다 다시 그리지 않게)
