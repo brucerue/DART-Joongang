@@ -68,28 +68,26 @@ check("모아 둔 기사" in caps(at), "출처에 '모아 둔 기사 (… 기준
 check(not any("news.google.com" in u or "openapi.naver.com" in u for u in GETS), f"구글·네이버를 부르지 않음 {[u[:40] for u in GETS if 'google' in u or 'naver' in u][:3]}")
 at.radio(key="nw_통신_period").set_value("3일").run()
 check("기아 EV5 유럽 출시" in md(at), "기간을 3일로 바꾸면 바로 다시 걸러짐")
-# 최신 기사 더 찾기: 네이버로만
+# 버튼 하나: 모아 둔 기사를 보는 중이면 '최신 기사 더 찾기'(네이버로만), '뉴스 조회' 버튼은 따로 없음
+def form_btn(at, kind="통신"): return [b for b in at.button if f"nw_{kind}_submit" in str(b.key)][0]
+check(form_btn(at).label == "🔄 최신 기사 더 찾기" and not [b for b in at.button if "topup_btn" in str(b.key)], f"버튼 하나만, 이름 '최신 기사 더 찾기' [{form_btn(at).label}]")
 GETS.clear()
-[b for b in at.button if b.key == "nw_통신_topup_btn"][0].click().run()
+form_btn(at).click().run()
 check(not at.exception and "현대차 신형 아이오닉 공개" in md(at), f"최신 기사 더 찾기: 네이버 새 기사 더함 {[str(e.value)[:100] for e in at.exception]}")
 check(not any("news.google.com" in u for u in GETS) and any("openapi.naver.com" in u for u in GETS), "더 찾기는 네이버만 부름")
 check("최신 1건 더함" in caps(at), f"출처에 더한 건수 {caps(at)[:120]}")
-# 섹터를 고른 그대로 '뉴스 조회'를 누르면: 전부 다시 검색하지 않고 모아 둔 기사 + 네이버 새 기사만
-GETS.clear()
-[b for b in at.button if "nw_통신_form" in str(b.key)][0].click().run()
-check(not any("news.google.com" in u for u in GETS) and "현대차 美 공장 증설" in md(at) and "현대차 신형 아이오닉 공개" in md(at),  # 네이버는 바로 앞 '더 찾기' 저장분(5분)을 다시 씀
-      f"섹터 그대로 '뉴스 조회' = 모아 둔 기사 + 새 기사만 (구글 {sum('google' in u for u in GETS)}번)")
+check("현대차 美 공장 증설" in md(at), "더 찾기 뒤에도 모아 둔 기사는 그대로")
 # 연합만 끄면 안내
 at.checkbox(key="nw_통신_yna").uncheck().run()
-check("'뉴스 조회'를 누르면 새로 검색" in caps(at) and "현대차 美 공장 증설" not in md(at), "연합만을 끄면 새로 검색하라는 안내")
+check("'뉴스 조회'를 누르면 새로 검색" in caps(at) and "현대차 美 공장 증설" not in md(at) and form_btn(at).label == "뉴스 조회", "연합만을 끄면 버튼이 '뉴스 조회'로, 새로 검색하라는 안내")
 at.checkbox(key="nw_통신_yna").check().run()
 # 검색어를 직접 고치면 안내
 GETS.clear()
 at.text_input(key="nw_통신_terms").set_value("현대차, 테슬라 오토파일럿")
-[b for b in at.button if "nw_통신_form" in str(b.key)][0].click().run()
+[b for b in at.button if "nw_통신_submit" in str(b.key)][0].click().run()
 check(any("news.google.com" in u for u in GETS), "검색어를 고쳐 '뉴스 조회'를 누르면 새로 검색")
 at.radio(key="nw_통신_period").set_value("일주일").run()
-check("검색어를 바꿨어요" in caps(at), "고친 검색어로 조건을 바꾸면 '뉴스 조회' 안내(모아 둔 기사로 오해 없게)")
+check("검색어를 바꿨어요" in caps(at) and form_btn(at).label == "뉴스 조회", "고친 검색어면 버튼이 '뉴스 조회' + 안내(모아 둔 기사로 오해 없게)")
 # 팀 버튼(차팀)만 눌러도 바로 보여야 함 — 여러 섹터 검색어에 같은 회사의 다른 이름(한화에어로·한화에어로스페이스 등)이 섞여도
 at.button_group(key="nw_통신_groups").set_value([]).run()
 [b for b in at.button if b.key == "nw_통신_team_차팀"][0].click().run()
@@ -105,5 +103,5 @@ at.radio(key="news_mode").set_value("일반").run()
 at.button_group(key="nw_일반_groups").set_value("자동차").run()
 check(not at.exception and "현대차 노조 임금협상 타결" in md(at), f"일반: 섹터별 파일에서 바로 {[str(e.value)[:100] for e in at.exception]}")
 at.radio(key="nw_일반_period").set_value("일주일").run()
-check("최근 3일치만" in caps(at), "일반 3일 넘는 기간 안내")
+check("최근 3일치만" in caps(at) and form_btn(at, "일반").label == "뉴스 조회", "일반 일주일은 '뉴스 조회'(새로 검색) + 안내")
 print("실패", fails); sys.exit(1 if fails else 0)

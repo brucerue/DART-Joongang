@@ -44,7 +44,7 @@ check(list(at.radio(key="news_mode").options) == ["통신", "단독", "일반", 
 def run(mode):
     at.session_state["news_mode"] = mode; at.run()
     at.session_state[f"nw_{mode}_terms"] = "현대차"; at.session_state[f"nw_{mode}_period"] = "24시간"; at.run()
-    [b for b in at.button if f"nw_{mode}_form" in str(b.key)][0].click().run()
+    [b for b in at.button if f"nw_{mode}_submit" in str(b.key)][0].click().run()
     return " ".join(m.value for m in at.markdown), [e.value[:100] for e in at.error], [w.value[:100] for w in at.warning]
 t, err, warn = run("일반")
 print("   일반 오류", err, "경고", warn, [c.value[:80] for c in at.caption][-2:])

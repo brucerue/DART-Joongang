@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.28 10:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.28 11:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5820,17 +5820,28 @@ def render_news_search(kind):
         period = st.radio("기간", list(NEWS_PERIODS), index=0, horizontal=True, key=f"{k}_period", label_visibility="collapsed", width="content")
         in_title = st.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.", width="content")
         yna_only = st.checkbox("연합만 검색", value=True, key=f"{k}_yna", help="끄면 뉴시스·뉴스1 기사도 함께 검색해요.", width="content") if kind == "통신" else False
+    def can_use_stored(terms, groups):  # 모아 둔 기사로 보여 줄 수 있는지 (섹터 검색어 그대로 + 제목만·연합만 켬 + 일반은 3일 안)
+        return (news_same_as_sectors(terms, groups) and in_title and (kind != "통신" or yna_only)
+                and not (kind == "일반" and NEWS_PERIODS[period] > GENERAL_DAYS))
+
+    # 버튼 하나: 모아 둔 기사를 보는 중이면 '최신 기사 더 찾기', 검색어·조건을 바꿨으면 '뉴스 조회'(새로 검색). 검색어 칸에서 엔터를 쳐도 눌린다
+    pre_groups = [g for g in news_groups_of(kind) if g in NEWS_SECTORS]
+    topup_mode = bool(NAVER_ID and NAVER_SECRET) and can_use_stored(parse_news_terms(st.session_state.get(f"{k}_terms", "")), pre_groups)
     with st.form(f"{k}_form"):
         text = st.text_input(
             "검색어 (쉼표로 구분)", key=f"{k}_terms", placeholder="예: 삼성전자, SK하이닉스, HBM",
-            help=f"고른 섹터의 대표 기업·키워드가 채워지고, 매시 정각에 모아 둔 기사가 바로 보여요. 검색어를 직접 빼거나 더하면 '뉴스 조회'로 새로 검색해요(최대 {MAX_NEWS_TERMS[kind]}개, 많으면 오래 걸려요).",
+            help=f"고른 섹터의 대표 기업·키워드가 채워지고, 모아 둔 기사(15분~1시간마다 갱신)가 바로 보여요. 검색어를 직접 빼거나 더하고 엔터를 누르면 새로 검색해요(최대 {MAX_NEWS_TERMS[kind]}개, 많으면 오래 걸려요).",
         )
-        submitted = log_if(st.form_submit_button("뉴스 조회") or st.session_state.pop("news_run", False), f"뉴스 조회: {kind}")
+        submitted = log_if(st.form_submit_button(
+            "🔄 최신 기사 더 찾기" if topup_mode else "뉴스 조회",
+            help="마지막으로 모아 둔 뒤에 나온 기사를 네이버 뉴스에서 찾아 더해요. 검색어당 한 번만 불러 빨라요." if topup_mode else "고친 검색어·조건으로 구글·네이버에서 새로 검색해요.",
+            key=f"{k}_submit",  # 이름이 바뀌어도(검색어를 고친 그 순간) 같은 버튼으로 알아보게
+        ) or st.session_state.pop("news_run", False), f"뉴스 최신 더 찾기: {kind}" if topup_mode else f"뉴스 조회: {kind}")
 
     groups = [g for g in news_groups_of(kind) if g in NEWS_SECTORS]
     terms_now = parse_news_terms(text)
     same_terms = news_same_as_sectors(terms_now, groups)
-    stored_ok = same_terms and in_title and (kind != "통신" or yna_only)  # 모아 둔 기사로 보여 줄 수 있는 조건
+    stored_ok = can_use_stored(terms_now, groups)  # 모아 둔 기사로 보여 줄 수 있는 조건
     top_key = f"{k}_topup"
     if submitted and stored_ok and NAVER_ID and NAVER_SECRET:
         # 섹터를 고른 그대로면 다시 전부 검색하지 않고, 모아 둔 기사 + 마지막 수집 뒤 새 기사만 찾는다 (구글 수십~수백 번 대신 네이버 검색어당 1번)
@@ -5930,6 +5941,9 @@ def render_news_search(kind):
         if not in_title or (kind == "통신" and not yna_only):
             st.caption("모아 둔 기사는 제목에 기업명이 든 " + ("연합뉴스 " if kind == "통신" else "") + "기사만 있어요. 이 조건은 '뉴스 조회'를 누르면 새로 검색해요.")
             return
+        if not stored_ok:  # 일반 + 3일 넘는 기간
+            st.caption(f"'일반'은 양이 많아 최근 {GENERAL_DAYS}일치만 모아 둬요. 이 기간은 '뉴스 조회'를 누르면 새로 검색해요.")
+            return
         top_key = f"{k}_topup"
         top = st.session_state.get(top_key)
         extra = top["items"] if top and top.get("sig") == (kind, tuple(groups)) else None
@@ -5937,17 +5951,6 @@ def render_news_search(kind):
         if res is None:
             st.info("모아 둔 기사를 아직 불러오지 못했어요. '뉴스 조회'를 누르면 바로 검색해요.")
             return
-        if kind == "일반" and period in ("3일", "일주일"):
-            st.caption(f"'일반'은 양이 많아 최근 {GENERAL_DAYS}일치만 모아 둬요. 그보다 앞의 기사는 '뉴스 조회'로 새로 검색해 주세요.")
-        if NAVER_ID and NAVER_SECRET and log_if(st.button("🔄 최신 기사 더 찾기", key=f"{k}_topup_btn",
-                                                         help="마지막으로 모아 둔 뒤(최대 1시간)에 나온 기사를 네이버 뉴스에서 찾아 더해요. 검색어당 한 번만 불러 빨라요."),
-                                               f"뉴스 최신 더 찾기: {kind}"):
-            with st.spinner("최신 기사를 찾는 중입니다..."):
-                try:
-                    st.session_state[top_key] = {"sig": (kind, tuple(groups)), "items": news_topup(kind, terms_now, res.get("updated"), yna_only)}
-                except NewsApiError as e:
-                    st.error(str(e))
-            st.rerun()
     if not res:
         return
     clusters = res["clusters"]
