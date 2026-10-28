@@ -447,7 +447,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.27 22:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.28 10:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5814,15 +5814,12 @@ def render_news_search(kind):
         st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key=f"{k}_groups", label_visibility="collapsed",
                  on_change=news_groups_changed, args=(kind,))
     # 기간·체크박스는 폼 밖: 바꾸면 모아 둔 기사가 바로 다시 걸러진다 (검색어 칸만 폼 안 — 글자 칠 때마다 다시 그리지 않게)
-    period = st.radio("기간", list(NEWS_PERIODS), index=0, horizontal=True, key=f"{k}_period")
-    if kind == "통신":
-        with st.container(key="news_opts_bar"):  # 모바일에서도 두 체크박스를 한 줄에
-            cc1, cc2 = st.columns(2)
-            in_title = cc1.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.")
-            yna_only = cc2.checkbox("연합만 검색", value=True, key=f"{k}_yna", help="끄면 뉴시스·뉴스1 기사도 함께 검색해요.")
-    else:
-        in_title = st.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.")
-        yna_only = False
+    # PC에서는 '기간 · 선택지 · 제목만 · 연합만'을 한 줄에, 폭이 좁은 폰에서는 저절로 다음 줄로 넘어간다
+    with st.container(key="news_filter_bar", horizontal=True, vertical_alignment="center", gap="medium"):
+        st.markdown('<span class="mode-lbl">기간</span>', unsafe_allow_html=True, width="content")
+        period = st.radio("기간", list(NEWS_PERIODS), index=0, horizontal=True, key=f"{k}_period", label_visibility="collapsed", width="content")
+        in_title = st.checkbox("제목만 검색", value=True, key=f"{k}_title", help="제목에 검색어(기업명)가 들어간 기사만 보여줘요.", width="content")
+        yna_only = st.checkbox("연합만 검색", value=True, key=f"{k}_yna", help="끄면 뉴시스·뉴스1 기사도 함께 검색해요.", width="content") if kind == "통신" else False
     with st.form(f"{k}_form"):
         text = st.text_input(
             "검색어 (쉼표로 구분)", key=f"{k}_terms", placeholder="예: 삼성전자, SK하이닉스, HBM",
@@ -7759,8 +7756,8 @@ footer { visibility: hidden; }
 .st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-fin_unit_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"], .st-key-news_mode_bar [data-testid="stHorizontalBlock"], .st-key-px_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
 .st-key-fin_mode_bar [data-testid="stColumn"], .st-key-fin_unit_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"], .st-key-news_mode_bar [data-testid="stColumn"], .st-key-px_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
 .st-key-fin_mode_bar [data-testid="stColumn"]:first-child, .st-key-fin_unit_bar [data-testid="stColumn"]:first-child, .st-key-disc_mode_bar [data-testid="stColumn"]:first-child, .st-key-news_mode_bar [data-testid="stColumn"]:first-child, .st-key-px_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
-.st-key-news_opts_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
-.st-key-news_opts_bar [data-testid="stColumn"] { min-width: 0 !important; }
+.st-key-news_filter_bar { flex-wrap: wrap !important; row-gap: 0.4rem !important; }  /* PC는 한 줄, 좁으면 다음 줄로 */
+.st-key-news_filter_bar [data-testid="stRadio"] { margin-bottom: 0 !important; }
 .st-key-ovs_fx_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.75rem !important; }  /* 모바일에서도 한 줄 */
 .st-key-ovs_fx_bar [data-testid="stColumn"] { min-width: 0 !important; }
 
