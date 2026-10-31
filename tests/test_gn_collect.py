@@ -55,6 +55,8 @@ kj = json.load(open(os.path.join(out, gc.file_name("korea", "반도체")), encod
 check([r["t"] for r in kj["items"]] == ["South Korea chip exports jump"], f"한국 관련: 기사 아닌 모음은 빼고 저장 {[r['t'] for r in kj['items']]}")
 check(all(os.path.exists(os.path.join(out, gc.file_name("korea", s2))) for s2 in gc.KOREA_TOPICS), "한국 관련 섹터마다 파일")
 check(any('-"North Korea"' in q for q in GQ), "북한 기사 빼는 검색식")
+nq = [q for q in GQ if '"Nvidia"' in q]
+check(len(nq) == 4 and "site:asia.nikkei.com" in " ".join(nq) and all(q.count("site:") <= 6 for q in nq), f"언론사 12곳을 6곳씩 두 번에 나눠 검색 (엔비디아는 반도체·빅테크 두 섹터라 4번: {len(nq)}번)")
 # 앱: 섹터만 고르면 모아 둔 외신이 바로
 os.environ["DART_API_KEY"] = "x" * 40
 os.environ.pop("ANTHROPIC_API_KEY", None); os.environ.pop("GEMINI_API_KEY", None)

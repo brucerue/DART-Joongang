@@ -449,7 +449,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.31 12:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.31 13:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5442,36 +5442,42 @@ def gnews_search(terms, days, domains, in_title=True):
     session, store = get_session(), get_cache_store()
     doms = tuple(sorted(domains))
 
-    def one(term):
+    def one(job):  # (기업, 언론사 묶음) 하나 — 언론사가 많으면 나눠 검색해 합친다
+        term, chunk = job
         aliases = gnews_aliases(term)
-        key = ("gnews2", term, tuple(aliases), days, doms, in_title, TODAY.isoformat())
+        key = ("gnews2", term, tuple(aliases), days, chunk, in_title, TODAY.isoformat())
         hit = cache_lookup(store, key, NEWS_TTL)
         if hit is not _MISSING:
             return hit
-        value = gnews_fetch(session, term, days, doms, in_title, aliases=aliases)
+        value = gnews_fetch(session, term, days, chunk, in_title, aliases=aliases)
         cache_save(store, key, value)
         return value
 
+    jobs = [(t, c) for t in terms for c in gc.domain_chunks(doms)]
     with ThreadPoolExecutor(max_workers=NEWS_GOOGLE_WORKERS) as pool:
-        return dict(zip(terms, pool.map(one, terms)))
+        got = list(pool.map(one, jobs))
+    return {t: gc.merge_items([v for (t2, _), v in zip(jobs, got) if t2 == t]) for t in terms}
 
 
 def gnews_korea(sectors, days, domains):
     """'한국 관련' 외신: 섹터마다 (한국 낱말) AND (섹터 낱말)로 본문까지 찾는다 -> {섹터: 기사 목록}. 같은 검색은 저장해 둔 결과."""
     session, store = get_session(), get_cache_store()
     doms = tuple(sorted(domains))
-    def one(sec):
+    def one(job):
+        sec, chunk = job
         core = gc.korea_core(sec)
-        key = ("gnews_kr", core, days, doms, TODAY.isoformat())
+        key = ("gnews_kr", core, days, chunk, TODAY.isoformat())
         hit = cache_lookup(store, key, NEWS_TTL)
         if hit is not _MISSING:
             return hit
-        value = gnews_fetch(session, sec, days, doms, in_title=False, query_core=core)
+        value = gnews_fetch(session, sec, days, chunk, in_title=False, query_core=core)
         cache_save(store, key, value)
         return value
 
+    jobs = [(s2, c) for s2 in sectors for c in gc.domain_chunks(doms)]
     with ThreadPoolExecutor(max_workers=NEWS_GOOGLE_WORKERS) as pool:
-        return dict(zip(sectors, pool.map(one, sectors)))
+        got = list(pool.map(one, jobs))
+    return {s2: gc.merge_items([v for (x, _), v in zip(jobs, got) if x == s2]) for s2 in sectors}
 
 
 

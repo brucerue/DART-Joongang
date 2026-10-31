@@ -57,16 +57,17 @@ def collect_global(out_dir, now, errors):
     from concurrent.futures import ThreadPoolExecutor
     groups = gc.global_sectors(nd.A["OVERSEAS_GROUPS"], nd.A["FOREIGN_ENGLISH"], nd.A["OVERSEAS_NAMES"])
     doms = list(gc.GNEWS_OUTLETS.values())
-    jobs = [("global", g, t) for g, terms in groups.items() for t in terms] + [("korea", sec, None) for sec in gc.KOREA_TOPICS]
+    jobs = [("global", g, t, c) for g, terms in groups.items() for t in terms for c in gc.domain_chunks(doms)]
+    jobs += [("korea", sec, None, c) for sec in gc.KOREA_TOPICS for c in gc.domain_chunks(doms)]
 
-    def one(job):
-        kind, sec, term = job
+    def one(job):  # (종류, 섹터, 기업, 언론사 묶음) 하나 — 언론사가 많아 나눠 검색
+        kind, sec, term, chunk = job
         core = gc.company_core(term) if kind == "global" else gc.korea_core(sec)
         try:
-            r = requests.get(gc.GNEWS_URL, params={"q": gc.query(core, 2, doms), "hl": "en-US", "gl": "US", "ceid": "US:en"},
+            r = requests.get(gc.GNEWS_URL, params={"q": gc.query(core, 2, chunk), "hl": "en-US", "gl": "US", "ceid": "US:en"},
                              headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
             r.raise_for_status()
-            items = gc.parse_rss(r.content, doms, 2, now, gc.aliases(term) if kind == "global" else None)
+            items = gc.parse_rss(r.content, chunk, 2, now, gc.aliases(term) if kind == "global" else None)
         except Exception as e:
             errors.append(f"외신 {sec}/{term or '한국'}: {type(e).__name__}")
             return job, None
@@ -82,7 +83,7 @@ def collect_global(out_dir, now, errors):
         path = os.path.join(out_dir, gc.file_name(kind, sec))
         files[path] = (kind, sec, {r["u"]: r for r in load_json(path).get("items", []) if r.get("d", "") >= keep_from})
     added = 0
-    for (kind, sec, term), items in results:
+    for (kind, sec, term, _), items in results:
         store = files[os.path.join(out_dir, gc.file_name(kind, sec))][2]
         for it in items or []:
             row = store.get(it["url"])
@@ -214,7 +215,7 @@ def main():
     print(f"수집 완료: 새로 {added}건, 보관 {len(rows)}건(이전 {before}건), 일반 새로 {general_n}건, 실패 {len(errors)}곳")
     for e in errors:
         print("  실패:", e, file=sys.stderr)
-    if errors and len(errors) >= len(SECTORS) * len([m for m in modes if m != "외신"]) + (80 if "외신" in modes else 0):  # 거의 전부 실패했으면 오류로 끝내 알림이 가게 한다
+    if errors and len(errors) >= len(SECTORS) * len([m for m in modes if m != "외신"]) + (150 if "외신" in modes else 0):  # 거의 전부 실패했으면 오류로 끝내 알림이 가게 한다
         sys.exit(1)
 
 

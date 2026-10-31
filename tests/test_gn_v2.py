@@ -66,7 +66,8 @@ at.text_input(key="gn_corp").set_value("SK hynix")
 [b for b in at.button if "해외 뉴스 조회" in str(b.label)][0].click().run()
 check(not at.exception, f"예외 없음 {[str(e.value)[:120] for e in at.exception]}")
 q = queries[-1] if queries else ""
-check('"SK hynix"' in q and '"Hynix"' in q and " OR " in q, f"별칭으로 넓게 검색 [{q[:80]}]")
+hq = [x for x in queries if '"Hynix"' in x]
+check('"SK hynix"' in hq[0] and " OR " in hq[0] and len(hq) == 2 and any("site:economist.com" in x for x in hq), f"별칭으로 넓게, 언론사는 두 묶음으로 [{len(hq)}번]")
 t = md(at)
 check(t.count("- [SK Hynix profit jumps") == 1 and "같은 기사 1건 더(Reuters)" in t, "같은 기사(로이터·CNBC)는 한 묶음, 최신 기사가 대표")
 check("SK Group chairman" not in t, "'SK'만 맞는 다른 회사 기사는 뺌")

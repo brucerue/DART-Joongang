@@ -19,7 +19,27 @@ GLOBAL_KEEP_DAYS = 7  # 모아 두는 외신 기간 (화면 기간 선택 최대
 GNEWS_OUTLETS = {  # 화면 이름 -> 도메인
     "WSJ": "wsj.com", "Bloomberg": "bloomberg.com", "NYT": "nytimes.com", "Reuters": "reuters.com",
     "FT": "ft.com", "CNBC": "cnbc.com", "AP": "apnews.com",
+    "Nikkei Asia": "asia.nikkei.com", "Economist": "economist.com", "SCMP": "scmp.com", "Politico": "politico.com", "Axios": "axios.com",
 }
+SITE_CHUNK = 6  # 검색어 하나에 넣는 언론사 수 (구글은 너무 긴 검색어를 잘라서, 언론사가 많으면 나눠 검색해 합친다)
+
+
+def domain_chunks(domains):
+    """언론사 도메인들 -> SITE_CHUNK개씩 묶음"""
+    domains = list(domains)
+    return [tuple(domains[i:i + SITE_CHUNK]) for i in range(0, len(domains), SITE_CHUNK)]
+
+
+def merge_items(lists):
+    """여러 묶음 검색 결과 -> 주소로 중복을 뺀 최신순 목록"""
+    out, seen = [], set()
+    for lst in lists:
+        for it in lst or []:
+            if it["url"] not in seen:
+                seen.add(it["url"])
+                out.append(it)
+    out.sort(key=lambda x: x["dt"], reverse=True)
+    return out
 # 외신 기업 별칭: 검색은 별칭 모두로 넓게, 제목 판정은 별칭이 낱말 그대로 들어간 것만 (없는 기업은 영문 이름 하나)
 GNEWS_ALIASES = {
     "Samsung Electronics": ["Samsung Electronics", "Samsung"], "SK hynix": ["SK hynix", "SK Hynix", "Hynix"],
