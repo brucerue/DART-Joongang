@@ -74,7 +74,7 @@ check("[한글] SK Hynix profit jumps on HBM demand" in t, "한글 제목 함께
 # 2) 한국 관련
 at.radio(key="gn_view").set_value("한국 관련").run()
 at.button_group(key="gnk_groups").set_value(["반도체"]).run()
-[b for b in at.button if "한국 관련 외신 조회" in str(b.label)][0].click().run()
+[b for b in at.button if b.key == "gnk_live"][0].click().run()
 check(not at.exception, f"예외 없음 {[str(e.value)[:120] for e in at.exception]}")
 q = queries[-1] if queries else ""
 check('"South Korea"' in q and "chip" in q, f"한국 낱말 + 섹터 낱말로 검색 [{q[:90]}]")

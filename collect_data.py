@@ -16,6 +16,9 @@ import os
 import sys
 from datetime import datetime, timedelta
 
+import requests
+
+import gnews_calc as gc
 import news_digest as nd
 
 KST = nd.KST
@@ -41,6 +44,69 @@ def to_row(item, kind, sector):
         "d": item["dt"].astimezone(KST).strftime(FMT),
         "s": [sector], "g": list(item.get("tags") or []),
     }
+
+
+GEMINI_DEFAULT_MODEL = "gemini-3.6-flash"  # app.py의 GEMINI_MODEL 기본값과 같게 (GitHub Secrets/환경변수 GEMINI_MODEL로 바꿀 수 있음)
+GEMINI_LITE_MODEL = "gemini-3.5-flash-lite"
+
+
+def collect_global(out_dir, now, errors):
+    """외신을 모아 섹터별 파일(global/·korea/)에 최근 7일 쌓는다. 기업별 = 해외 섹터 기업의 별칭이 제목에 든 기사,
+    한국 관련 = 한국 낱말 + 섹터 낱말로 본문까지 찾은 기사. 새 제목은 Gemini로 한글 제목을 붙인다(GEMINI_API_KEY 없으면 건너뜀 — 앱이 볼 때 옮김).
+    -> (새로 들어온 건수, 새로 옮긴 제목 수)"""
+    from concurrent.futures import ThreadPoolExecutor
+    groups = gc.global_sectors(nd.A["OVERSEAS_GROUPS"], nd.A["FOREIGN_ENGLISH"], nd.A["OVERSEAS_NAMES"])
+    doms = list(gc.GNEWS_OUTLETS.values())
+    jobs = [("global", g, t) for g, terms in groups.items() for t in terms] + [("korea", sec, None) for sec in gc.KOREA_TOPICS]
+
+    def one(job):
+        kind, sec, term = job
+        core = gc.company_core(term) if kind == "global" else gc.korea_core(sec)
+        try:
+            r = requests.get(gc.GNEWS_URL, params={"q": gc.query(core, 2, doms), "hl": "en-US", "gl": "US", "ceid": "US:en"},
+                             headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+            r.raise_for_status()
+            items = gc.parse_rss(r.content, doms, 2, now, gc.aliases(term) if kind == "global" else None)
+        except Exception as e:
+            errors.append(f"외신 {sec}/{term or '한국'}: {type(e).__name__}")
+            return job, None
+        if kind == "korea":
+            items = [i for i in items if not gc.GN_JUNK_RE.search(i["title"])]
+        return job, items
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(one, jobs))
+    keep_from = (now - timedelta(days=gc.GLOBAL_KEEP_DAYS)).strftime(FMT)
+    files = {}  # 파일 경로 -> (kind, 섹터, {주소: 줄})
+    for kind, sec in [("global", g) for g in groups] + [("korea", s2) for s2 in gc.KOREA_TOPICS]:
+        path = os.path.join(out_dir, gc.file_name(kind, sec))
+        files[path] = (kind, sec, {r["u"]: r for r in load_json(path).get("items", []) if r.get("d", "") >= keep_from})
+    added = 0
+    for (kind, sec, term), items in results:
+        store = files[os.path.join(out_dir, gc.file_name(kind, sec))][2]
+        for it in items or []:
+            row = store.get(it["url"])
+            if row is None:
+                row = {"t": it["title"], "u": it["url"], "p": it["publisher"], "d": it["dt"].astimezone(KST).strftime(FMT), "ko": ""}
+                store[it["url"]] = row
+                added += 1
+            if term:
+                row["c"] = list(dict.fromkeys((row.get("c") or []) + [term]))  # 어느 기업 기사인지 (기업별)
+    need = list(dict.fromkeys(r["t"] for _, _, st in files.values() for r in st.values() if not r.get("ko")))
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    ko = gc.gemini_translate(need, key, os.environ.get("GEMINI_MODEL", "").strip() or GEMINI_DEFAULT_MODEL, requests.post) if need and key else {}
+    rest = [t for t in need if t not in ko]
+    if rest and key:  # 기본 모델이 붐비거나 없으면 가벼운 모델로 한 번 더
+        ko.update(gc.gemini_translate(rest, key, GEMINI_LITE_MODEL, requests.post))
+    for path, (kind, sec, store) in files.items():
+        for r in store.values():
+            if not r.get("ko") and ko.get(r["t"]):
+                r["ko"] = ko[r["t"]]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        rows = sorted(store.values(), key=lambda r: r["d"], reverse=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"updated": now.strftime(FMT), "kind": kind, "sector": sec, "items": rows}, f, ensure_ascii=False, separators=(",", ":"))
+    return added, len(ko)
 
 
 def general_file(sector):
@@ -80,7 +146,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data")
     ap.add_argument("--days", type=int, default=KEEP_DAYS)
-    ap.add_argument("--modes", default="통신,단독,일반", help="모을 기사 종류(쉼표). 15분 회차는 단독만")
+    ap.add_argument("--modes", default="통신,단독,일반,외신", help="모을 기사 종류(쉼표). 15분 회차는 단독만")
     ap.add_argument("--no-disc", action="store_true", help="공시는 건너뜀 (15분 회차)")
     ap.add_argument("--dump", default="", help="이번에 찾은 기사를 (종류|섹터)별로 이 파일에 써 둔다 — 텔레그램 발송이 다시 검색하지 않고 쓴다")
     args = ap.parse_args()
@@ -119,6 +185,9 @@ def main():
         grows = sorted((r for r in gstore.values() if r["d"] >= general_from), key=lambda r: r["d"], reverse=True)
         with open(gpath, "w", encoding="utf-8") as f:
             json.dump({"updated": now.strftime(FMT), "sector": sector, "items": grows}, f, ensure_ascii=False, separators=(",", ":"))
+    if "외신" in modes:
+        g_added, g_ko = collect_global(args.out, now, errors)
+        print(f"외신: 새로 {g_added}건, 한글 제목 {g_ko}건")
     if args.no_disc:
         pass
     elif os.environ.get("DART_API_KEY", "").strip():
@@ -145,7 +214,7 @@ def main():
     print(f"수집 완료: 새로 {added}건, 보관 {len(rows)}건(이전 {before}건), 일반 새로 {general_n}건, 실패 {len(errors)}곳")
     for e in errors:
         print("  실패:", e, file=sys.stderr)
-    if errors and len(errors) >= len(SECTORS) * len(modes):  # 전부 실패했으면 오류로 끝내 알림이 가게 한다
+    if errors and len(errors) >= len(SECTORS) * len([m for m in modes if m != "외신"]) + (80 if "외신" in modes else 0):  # 거의 전부 실패했으면 오류로 끝내 알림이 가게 한다
         sys.exit(1)
 
 

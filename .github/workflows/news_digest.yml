@@ -68,6 +68,7 @@ jobs:
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
           IN_MODE: ${{ inputs.mode }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # 외신 한글 제목 (없으면 번역 없이 모으고 앱이 볼 때 옮김)
         run: |
           mkdir -p data
           git fetch origin data --depth=1 || true

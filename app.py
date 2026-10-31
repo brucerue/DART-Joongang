@@ -37,7 +37,9 @@ import importlib
 
 import pandas as pd
 import stock_calc as sc
+import gnews_calc as gc
 
+gc = importlib.reload(gc)  # (아래 stock_calc와 같은 이유: 배포 뒤 옛 모듈이 남지 않게)
 sc = importlib.reload(sc)  # 배포로 stock_calc.py가 바뀌었는데 서버 메모리에 옛 모듈이 남아 있으면 새 함수를 못 찾으므로, 실행할 때마다 다시 읽는다
 import importlib
 import today_calc as tdc
@@ -447,7 +449,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.31 10:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.31 12:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5349,47 +5351,16 @@ def render_feed(by_sector=False):
 #  - 공식 API가 아니라 비공식 RSS라 문법이 바뀌거나 막힐 수 있다. 제목·링크·매체·시각만 가져온다 (본문은 가져오지 않는다).
 # ------------------------------------------------------------
 GNEWS_URL = "https://news.google.com/rss/search"
-GNEWS_OUTLETS = {  # 화면 이름 -> 도메인
-    "WSJ": "wsj.com", "Bloomberg": "bloomberg.com", "NYT": "nytimes.com", "Reuters": "reuters.com",
-    "FT": "ft.com", "CNBC": "cnbc.com", "AP": "apnews.com",
-}
 GNEWS_PERIODS = {"1일": 1, "3일": 3, "7일": 7}
-# 외신 기업 별칭: 검색은 별칭 모두로 넓게, 제목 판정은 별칭이 낱말 그대로 들어간 것만 (없는 기업은 영문 이름 하나)
-GNEWS_ALIASES = {
-    "Samsung Electronics": ["Samsung Electronics", "Samsung"], "SK hynix": ["SK hynix", "SK Hynix", "Hynix"],
-    "Hyundai Motor": ["Hyundai Motor", "Hyundai Motors"], "Kia": ["Kia"], "LG Energy Solution": ["LG Energy Solution", "LGES"],
-    "LG Electronics": ["LG Electronics"], "Samsung SDI": ["Samsung SDI"], "POSCO Holdings": ["POSCO"], "Hanwha Aerospace": ["Hanwha Aerospace"],
-    "KEPCO": ["KEPCO", "Korea Electric Power"], "KT Corp": ["KT Corp"], "Samsung C&T": ["Samsung C&T"],
-    "TSMC": ["TSMC", "Taiwan Semiconductor"], "Alphabet": ["Alphabet", "Google"], "Meta": ["Meta Platforms", "Meta", "Facebook"],
-    "General Motors": ["General Motors", "GM"], "Exxon Mobil": ["Exxon Mobil", "ExxonMobil", "Exxon"], "RTX": ["RTX", "Raytheon"],
-    "Lockheed Martin": ["Lockheed Martin", "Lockheed"], "Northrop Grumman": ["Northrop Grumman", "Northrop"],
-    "Johnson & Johnson": ["Johnson & Johnson", "J&J"], "Eli Lilly": ["Eli Lilly", "Lilly"], "SAIC Motor": ["SAIC Motor", "SAIC"],
-    "Hua Hong Semiconductor": ["Hua Hong"], "ArcelorMittal": ["ArcelorMittal", "Arcelor"], "Great Wall Motor": ["Great Wall Motor"],
-    "Mitsubishi Motors": ["Mitsubishi Motors"], "Micron": ["Micron"], "Intel": ["Intel"], "Nvidia": ["Nvidia"],
-}
-# '한국 관련' 외신: 한국 낱말 + 섹터 낱말이 함께 든 기사를 본문까지 찾는다 (구글은 본문도 색인)
-KOREA_WORDS = ["South Korea", "South Korean", "Korean", "Seoul"]
-GN_JUNK_RE = re.compile(r"Market Talk|Roundup|News Quiz|Breaking News|Live Updates?|Newsletter|Podcast|Morning Bid|Stocks making the biggest moves|^Video|Crossword", re.I)  # 기사가 아닌 모음·퀴즈·홈페이지 등
+# 외신 규칙(언론사·별칭·한국 낱말·검색식·번역 문구)은 gnews_calc.py에 두고 앱과 수집기(collect_data.py)가 같이 쓴다
+GNEWS_OUTLETS, GNEWS_ALIASES, KOREA_WORDS, KOREA_TOPICS, KOREA_EXCLUDE = gc.GNEWS_OUTLETS, gc.GNEWS_ALIASES, gc.KOREA_WORDS, gc.KOREA_TOPICS, gc.KOREA_EXCLUDE
+GN_JUNK_RE, KOREA_TITLE_RE, GN_KO_SYSTEM, GN_KO_CHUNK = gc.GN_JUNK_RE, gc.KOREA_TITLE_RE, gc.GN_KO_SYSTEM, gc.GN_KO_CHUNK
+gnews_aliases, gnews_title_has = gc.aliases, gc.title_has
 GN_BODY_SHOW = 20  # '본문에 한국' 기사는 처음 이만큼만 펼쳐 보이고 나머지는 '더 보기'
-KOREA_EXCLUDE = '-"North Korea" -"North Korean" -Pyongyang -"Kim Jong"'  # 'Korean'에 걸리는 북한 기사(김정은 방중 등)는 뺀다 (실측 2026.10: 중후장대에 섞임)
-KOREA_TOPICS = {
-    "자동차": ["automaker", "carmaker", "auto", "cars", "EV"], "배터리": ["battery", "batteries", "cathode"],
-    "중후장대": ["shipbuilder", "shipbuilding", "shipyard", "defense", "arms", "steel"], "정유·석화": ["refiner", "refinery", "petrochemical", "oil"],
-    "에너지": ["nuclear", "reactor", "power grid", "energy", "LNG"], "반도체": ["chip", "chips", "chipmaker", "semiconductor", "memory"],
-    "IT·통신": ["telecom", "internet", "AI", "data center"], "전자": ["electronics", "smartphone", "display", "appliance"],
-    "항공": ["airline", "aviation", "aircraft"], "재계": ["chaebol", "conglomerate", "tariff", "trade deal", "investment"],
-}
-KOREA_TITLE_RE = re.compile(r"(?<![A-Za-z])(South\s+Korea|Korea|Korean|Koreans|Seoul|Samsung|Hyundai|SK\s+hynix|Hynix|LG|Hanwha|POSCO|Kia|KEPCO|Naver|Kakao)(?![A-Za-z])", re.I)
 
 
-def gnews_aliases(term):
-    """외신 검색어 -> 별칭 목록 (검색·제목 판정에 쓴다)"""
-    return GNEWS_ALIASES.get(term) or [term]
 
 
-def gnews_title_has(title, aliases):
-    """제목에 별칭 중 하나가 낱말 그대로 들어 있는지 (대소문자 무시, 'Meta'는 'metaverse'에 안 걸림)"""
-    return any(re.search(r"(?<![A-Za-z0-9])" + re.escape(a) + r"(?![A-Za-z0-9])", title, re.I) for a in aliases)
 MAX_GNEWS_CORPS = 100  # 섹터를 고르면 기업이 많아지므로 넉넉하게 (기업 하나당 구글 검색 한 번)
 # 한글 기업명 -> 영문 검색어 (없으면 입력한 그대로 검색). 필요하면 자유롭게 추가하세요.
 GNEWS_NAMES = {
@@ -5489,11 +5460,8 @@ def gnews_korea(sectors, days, domains):
     """'한국 관련' 외신: 섹터마다 (한국 낱말) AND (섹터 낱말)로 본문까지 찾는다 -> {섹터: 기사 목록}. 같은 검색은 저장해 둔 결과."""
     session, store = get_session(), get_cache_store()
     doms = tuple(sorted(domains))
-    korea = "(" + " OR ".join(f'"{w}"' for w in KOREA_WORDS) + ")"
-
     def one(sec):
-        words = KOREA_TOPICS.get(sec) or []
-        core = korea + (" (" + " OR ".join(f'"{w}"' if " " in w else w for w in words) + ")" if words else "") + " " + KOREA_EXCLUDE
+        core = gc.korea_core(sec)
         key = ("gnews_kr", core, days, doms, TODAY.isoformat())
         hit = cache_lookup(store, key, NEWS_TTL)
         if hit is not _MISSING:
@@ -5506,8 +5474,6 @@ def gnews_korea(sectors, days, domains):
         return dict(zip(sectors, pool.map(one, sectors)))
 
 
-GN_KO_SYSTEM = "너는 중앙일보 산업부 기자를 돕는 번역가다. 영문 외신 기사 제목을 한국 신문 제목처럼 짧고 정확하게 옮긴다. 회사·인명은 한국 언론 표기(엔비디아, 마이크론, TSMC 등)를 쓰고, 없는 내용을 더하지 않는다."
-GN_KO_CHUNK = 40  # 한 번에 옮기는 제목 수
 
 
 def gnews_translate(titles):
@@ -5519,8 +5485,7 @@ def gnews_translate(titles):
 
     def one(chunk):
         sig = hashlib.md5("\n".join(chunk).encode("utf-8")).hexdigest()
-        prompt = ("다음 영문 기사 제목들을 순서대로 한국어 제목으로 옮겨 JSON 배열(문자열 목록)로만 답해라. 개수는 정확히 " + str(len(chunk)) + "개.\n"
-                  + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(chunk)))
+        prompt = gc.ko_prompt(chunk)
         try:
             text, _ = ai_cached(("gn_ko", sig), lambda: ai_generate(prompt, system=GN_KO_SYSTEM, json_mode=True))
             got = parse_json(text)
@@ -5569,8 +5534,75 @@ def gn_clusters_md(clusters, ko):
     return "\n".join(lines)
 
 
+def gn_stored_rows(kind, sectors):
+    """모아 둔 외신(섹터별 파일) -> (기사 목록, 갱신 시각) — 못 읽은 파일이 있으면 (None, '')"""
+    files = [get_stored(gc.file_name(kind, g)) for g in sectors]
+    if not files or any(f is None for f in files):
+        return None, ""
+    rows, seen = [], set()
+    for f in files:
+        for r in f["items"]:
+            if r.get("u") and r["u"] not in seen:
+                seen.add(r["u"])
+                rows.append(r)
+    return rows, min((f.get("updated") or "") for f in files)
+
+
+def gn_items(rows, days):
+    """저장된 외신 줄 -> 화면용 기사 (최근 days일). 한글 제목(ko)·기업(c)도 함께"""
+    since = datetime.now(KST) - timedelta(days=days)
+    out = []
+    for r in rows:
+        try:
+            dt = datetime.strptime(r["d"], STORED_FMT).replace(tzinfo=KST)
+        except (KeyError, ValueError, TypeError):
+            continue
+        if dt >= since:
+            out.append({"title": r.get("t", ""), "url": r["u"], "publisher": r.get("p", ""), "dt": dt, "ko": r.get("ko") or "", "c": r.get("c") or [], "tags": []})
+    return out
+
+
+def gn_ko_map(clusters, want_ko):
+    """묶음 대표 제목들의 한글 제목: 모아 둘 때 옮겨 둔 것(ko)을 쓰고, 없는 것만 AI로 옮긴다(일주일 저장)"""
+    ko = {c["rep"]["title"]: c["rep"]["ko"] for c in clusters if c["rep"].get("ko")}
+    if want_ko:
+        missing = [c["rep"]["title"] for c in clusters if c["rep"]["title"] not in ko]
+        if missing:
+            with st.spinner("제목을 한글로 옮기는 중입니다..."):
+                ko.update(gnews_translate(missing))
+    return ko
+
+
+def gn_clusters_md(clusters, ko):
+    """외신 묶음들 -> 마크다운 목록: 영문 제목(링크) / 한글 제목 / 매체·시각·같은 기사 수"""
+    lines = []
+    for c in clusters:
+        i = c["rep"]
+        title = re.sub(r"([\[\]])", r"\\\1", i["title"])
+        kor = ko.get(i["title"])
+        more = ""
+        if c["others"]:
+            pubs = list(dict.fromkeys(o["publisher"] for o in c["others"] if o.get("publisher") and o["publisher"] != i["publisher"]))
+            more = f" · 같은 기사 {len(c['others'])}건 더" + (f"({', '.join(pubs[:3])})" if pubs else "")
+        lines.append(f"- [{title}]({i['url'].replace(')', '%29')})" + (f"  \n  {html.escape(md_safe(kor))}" if kor else "")
+                     + f"  \n  <small>{html.escape(i['publisher'])} · {i['dt']:%m/%d %H:%M}{html.escape(more)}</small>")
+    return "\n".join(lines)
+
+
+def gn_filter_bar(pre, title_box=True):
+    """외신 기간·제목만·한글 제목 (폼 밖: 바꾸면 모아 둔 기사가 바로 다시 걸러진다) -> (기간, 제목만, 한글 제목)"""
+    with st.container(horizontal=True, vertical_alignment="center", gap="medium", key=f"{pre}_opts_bar"):
+        st.markdown('<span class="mode-lbl">기간</span>', unsafe_allow_html=True, width="content")
+        period = st.radio("기간", list(GNEWS_PERIODS), index=1, horizontal=True, key=f"{pre}_period", label_visibility="collapsed", width="content")
+        in_title = st.checkbox("제목에 기업명이 든 기사만", value=True, key=f"{pre}_title", width="content",
+                               help="기업 이름(별칭 포함: Samsung, Hynix, Google 등)이 낱말 그대로 제목에 든 기사만 보여줘요.") if title_box else True
+        want_ko = st.checkbox("한글 제목 함께", value=bool(AI_PROVIDER), key=f"{pre}_ko", width="content", disabled=not AI_PROVIDER,
+                              help="영문 제목 아래 AI가 옮긴 한글 제목을 붙여요. 모아 둘 때 미리 옮겨 두고, 없는 것만 그때 옮겨요.")
+    return period, in_title, want_ko
+
+
 def render_global_news():
-    """뉴스 탭 > 외신: 기업별(영문 별칭으로 WSJ·Bloomberg 등 기사) / 한국 관련(본문까지 한국 + 섹터 낱말) — 같은 기사는 묶고 한글 제목을 함께"""
+    """뉴스 탭 > 외신: 기업별(영문 별칭) / 한국 관련(본문까지) — 매시 모아 둔 기사를 섹터만 고르면 바로 보여 주고, 같은 기사는 묶고 한글 제목을 함께"""
     view = st.radio("외신 보기", ["기업별", "한국 관련"], horizontal=True, key="gn_view", label_visibility="collapsed",
                     help="기업별 = 고른 기업 이름이 제목에 든 기사. 한국 관련 = 한국(South Korea·Korean·Seoul)과 섹터 낱말이 함께 나오는 기사를 본문까지 찾아요.")
     track_choice("gn_view", "외신 보기")
@@ -5579,50 +5611,58 @@ def render_global_news():
         return
     st.markdown('<span class="sec-lbl">섹터 (여러 개 선택 가능)</span>', unsafe_allow_html=True)
     st.pills("섹터", list(GLOBAL_SECTORS), selection_mode="multi", key="gn_groups", on_change=fill_gn_terms, label_visibility="collapsed",
-             help="재무 분석 '해외'와 같은 기업이에요. 고르면 아래 기업명 칸에 영문 기업명이 채워져요.")
+             help="재무 분석 '해외'와 같은 기업이에요. 고르면 매시 모아 둔 기사가 바로 보여요.")
+    period, in_title, want_ko = gn_filter_bar("gn")
     with st.form("gn_search"):
         corp_text = st.text_input("기업명 (여러 곳은 쉼표로)", key="gn_corp", placeholder="예: Samsung, TSMC, Tesla",
-                                  help=f"한글 이름은 알려진 기업이면 영문으로 바꿔 검색해요. 최대 {MAX_GNEWS_CORPS}곳까지 한 번에 검색해요(곳 수만큼 시간이 걸려요).")
-        with st.container(horizontal=True, vertical_alignment="center", gap="medium", key="gn_opts_bar"):
-            period = st.radio("기간", list(GNEWS_PERIODS), index=1, horizontal=True, key="gn_period", width="content")
-            in_title = st.checkbox("제목에 기업명이 든 기사만", value=True, key="gn_title", width="content",
-                                   help="기업 이름(별칭 포함: Samsung, Hynix, Google 등)이 낱말 그대로 제목에 든 기사만 보여줘요.")
-            want_ko = st.checkbox("한글 제목 함께", value=bool(AI_PROVIDER), key="gn_ko", width="content", disabled=not AI_PROVIDER,
-                                  help="AI가 영문 제목을 한글로 옮겨 아래에 붙여요. 같은 제목은 일주일 저장해 다시 옮기지 않아요.")
-        submitted = log_if(st.form_submit_button("해외 뉴스 조회"), "외신 조회")
+                                  help=f"섹터를 고르면 채워지고 모아 둔 기사가 바로 보여요. 직접 고치고 엔터(또는 버튼)를 누르면 새로 검색해요(최대 {MAX_GNEWS_CORPS}곳).")
+        submitted = log_if(st.form_submit_button("해외 뉴스 조회", key="gn_submit"), "외신 조회")
+    parts = []
+    for part in re.split(NEWS_SPLIT, corp_text or ""):
+        part = part.strip()
+        if part and part.casefold() not in {x.casefold() for x in parts}:
+            parts.append(part)
+    groups = [g for g in (st.session_state.get("gn_groups") or []) if g in GLOBAL_SECTORS]
+    sig = (tuple(p.casefold() for p in parts), period, in_title)
     if submitted:
         st.session_state.pop("gn_res", None)
-        parts = []
-        for part in re.split(NEWS_SPLIT, corp_text):
-            part = part.strip()
-            if part and part.casefold() not in {x.casefold() for x in parts}:
-                parts.append(part)
         if not parts:
             st.error("기업명을 입력해주세요.")
         elif len(parts) > MAX_GNEWS_CORPS:
             st.error(f"기업은 한 번에 {MAX_GNEWS_CORPS}곳까지 넣을 수 있어요. (지금 {len(parts)}곳)")
         else:
             terms = {gnews_term(p): p for p in parts}  # 영문 검색어 -> 입력한 이름
+            got = None
             with st.spinner("해외 뉴스를 찾는 중입니다..."):
                 try:
                     got = gnews_search(list(terms), GNEWS_PERIODS[period], list(GNEWS_OUTLETS.values()), in_title)
                 except NewsApiError as e:
                     st.error(str(e))
-                    got = None
                 except requests.exceptions.RequestException:
                     st.error("Google News에 연결하지 못했어요. 잠시 후 다시 시도해주세요.")
-                    got = None
             if got is not None:
-                clusters = {t: cluster_news(items) for t, items in got.items()}  # 같은 기사(다른 매체 전재·업데이트)는 묶는다
-                ko = {}
-                if want_ko:
-                    with st.spinner("제목을 한글로 옮기는 중입니다..."):
-                        ko = gnews_translate([c["rep"]["title"] for cl in clusters.values() for c in cl])
-                st.session_state["gn_res"] = {"clusters": clusters, "labels": terms, "period": period, "ko": ko}
+                st.session_state["gn_res"] = {"clusters": {t: cluster_news(items) for t, items in got.items()}, "labels": terms,
+                                              "period": period, "sig": sig, "source": "방금 검색"}
     res = st.session_state.get("gn_res")
-    if not res or "clusters" not in res:
-        return
-    st.caption(f"최근 {res['period']} · 최신순 · 같은 기사는 묶음")
+    if not (res and res.get("sig") == sig):
+        res = None
+        auto = [n.casefold() for n in global_sector_names(groups)]
+        if groups and [p.casefold() for p in parts] == auto and in_title:  # 섹터 그대로면 모아 둔 기사로 바로
+            rows, updated = gn_stored_rows("global", groups)
+            if rows is None:
+                st.info("모아 둔 외신을 아직 불러오지 못했어요. '해외 뉴스 조회'를 누르면 바로 검색해요.")
+                return
+            items = gn_items(rows, GNEWS_PERIODS[period])
+            terms = global_sector_names(groups)
+            res = {"clusters": {t: cluster_news([i for i in items if t in i["c"]]) for t in terms}, "labels": {t: t for t in terms},
+                   "period": period, "source": f"모아 둔 기사 ({updated[5:16].replace('-', '.').replace('T', ' ')} 기준)"}
+        elif groups or parts:
+            st.caption("기업명이나 조건을 바꿨어요. '해외 뉴스 조회'를 누르면 새로 검색해요. (섹터를 다시 누르면 모아 둔 기사로 돌아가요)")
+            return
+        else:
+            return
+    ko = gn_ko_map([c for cl in res["clusters"].values() for c in cl], want_ko)
+    st.caption(f"최근 {res['period']} · 최신순 · 같은 기사는 묶음 · {res.get('source', '')}")
     many = len(res["clusters"]) > 5  # 섹터처럼 기업이 많으면 기사 없는 기업은 한 줄로 모은다
     empty = []
     for term, clusters in res["clusters"].items():
@@ -5635,71 +5675,60 @@ def render_global_news():
         if not clusters:
             st.info("이 기간에 해당 언론사 기사를 찾지 못했어요. 기간을 늘리거나 영문 이름으로 검색해 보세요.")
             continue
-        st.markdown(gn_clusters_md(clusters, res.get("ko") or {}), unsafe_allow_html=True)
+        st.markdown(gn_clusters_md(clusters, ko), unsafe_allow_html=True)
     if empty:
         st.caption("이 기간에 기사가 없는 기업: " + ", ".join(empty))
 
 
 def render_gn_korea():
-    """외신 '한국 관련': 섹터마다 (한국 낱말) AND (섹터 낱말)로 본문까지 찾고, 제목에 한국이 나온 기사와 본문에만 나온 기사를 나눠 보여 준다"""
+    """외신 '한국 관련': 섹터를 고르면 매시 모아 둔 기사를 바로, '지금 새로 검색'은 그 자리에서 다시 찾는다.
+    (한국 낱말) AND (섹터 낱말)로 본문까지 찾은 기사를 제목에 한국이 나온 것과 본문에만 나온 것으로 나눠 보여 준다"""
     st.markdown('<span class="sec-lbl">섹터 (여러 개 선택 가능)</span>', unsafe_allow_html=True)
     st.pills("섹터", list(KOREA_TOPICS), selection_mode="multi", key="gnk_groups", label_visibility="collapsed",
-             help="섹터마다 영어 낱말(예: 반도체 = chip·chipmaker·semiconductor·memory)과 한국(South Korea·Korean·Seoul)이 함께 나오는 외신을 찾아요.")
-    with st.form("gnk_search"):
-        with st.container(horizontal=True, vertical_alignment="center", gap="medium", key="gnk_opts_bar"):
-            period = st.radio("기간", list(GNEWS_PERIODS), index=1, horizontal=True, key="gnk_period", width="content")
-            want_ko = st.checkbox("한글 제목 함께", value=bool(AI_PROVIDER), key="gnk_ko", width="content", disabled=not AI_PROVIDER,
-                                  help="AI가 영문 제목을 한글로 옮겨 아래에 붙여요. 같은 제목은 일주일 저장해 다시 옮기지 않아요.")
-        submitted = log_if(st.form_submit_button("한국 관련 외신 조회"), "외신 한국 관련 조회")
-    if submitted:
-        st.session_state.pop("gnk_res", None)
-        groups = [g for g in (st.session_state.get("gnk_groups") or []) if g in KOREA_TOPICS]
-        if not groups:
-            st.error("섹터를 하나 이상 골라 주세요.")
-        else:
-            with st.spinner("한국 관련 외신을 찾는 중입니다..."):
-                try:
-                    got = gnews_korea(groups, GNEWS_PERIODS[period], list(GNEWS_OUTLETS.values()))
-                except (NewsApiError, requests.exceptions.RequestException) as e:
-                    st.error(str(e) if isinstance(e, NewsApiError) else "Google News에 연결하지 못했어요. 잠시 후 다시 시도해주세요.")
-                    got = None
-            if got is not None:
-                items, seen = [], {}
-                for sec, lst in got.items():
-                    for it in lst:
-                        if GN_JUNK_RE.search(it["title"]):  # 기사가 아닌 모음·퀴즈·홈페이지는 뺀다
-                            continue
-                        if it["url"] in seen:
-                            seen[it["url"]]["tags"].append(sec)
-                            continue
-                        row = dict(it, tags=[sec])
-                        seen[it["url"]] = row
-                        items.append(row)
-                in_t = [i for i in items if KOREA_TITLE_RE.search(i["title"])]
-                body = [i for i in items if not KOREA_TITLE_RE.search(i["title"])]
-                c_t, c_b = cluster_news(in_t), cluster_news(body)
-                ko = {}
-                if want_ko:
-                    with st.spinner("제목을 한글로 옮기는 중입니다..."):
-                        ko = gnews_translate([c["rep"]["title"] for c in c_t + c_b])
-                st.session_state["gnk_res"] = {"title": c_t, "body": c_b, "period": period, "groups": groups, "ko": ko}
-    res = st.session_state.get("gnk_res")
-    if not res:
+             help="섹터마다 영어 낱말(예: 반도체 = chip·chipmaker·semiconductor·memory)과 한국(South Korea·Korean·Seoul)이 함께 나오는 외신이에요. 고르면 매시 모아 둔 기사가 바로 보여요.")
+    period, _, want_ko = gn_filter_bar("gnk", title_box=False)
+    groups = [g for g in (st.session_state.get("gnk_groups") or []) if g in KOREA_TOPICS]
+    if not groups:
         return
-    ko = res.get("ko") or {}
-    st.caption(f"최근 {res['period']} · {', '.join(res['groups'])} · 제목에 한국 {len(res['title'])}묶음 · 본문 언급 {len(res['body'])}묶음 · 같은 기사는 묶음")
+    live = log_if(st.button("🔄 지금 새로 검색", key="gnk_live", help="모아 둔 기사(매시 정각) 대신 지금 구글 뉴스에서 다시 찾아요."), "외신 한국 관련 새로 검색")
+    items, source = None, ""
+    if live:
+        with st.spinner("한국 관련 외신을 찾는 중입니다..."):
+            try:
+                got = gnews_korea(groups, GNEWS_PERIODS[period], list(GNEWS_OUTLETS.values()))
+                items = [it for lst in got.values() for it in lst if not GN_JUNK_RE.search(it["title"])]
+                source = "방금 검색"
+            except (NewsApiError, requests.exceptions.RequestException) as e:
+                st.error(str(e) if isinstance(e, NewsApiError) else "Google News에 연결하지 못했어요. 잠시 후 다시 시도해주세요.")
+                return
+    else:
+        rows, updated = gn_stored_rows("korea", groups)
+        if rows is None:
+            st.info("모아 둔 외신을 아직 불러오지 못했어요. '지금 새로 검색'을 누르면 바로 찾아요.")
+            return
+        items = gn_items(rows, GNEWS_PERIODS[period])
+        source = f"모아 둔 기사 ({updated[5:16].replace('-', '.').replace('T', ' ')} 기준)"
+    uniq, seen = [], set()
+    for it in items:
+        if it["url"] not in seen:
+            seen.add(it["url"])
+            uniq.append(dict(it, tags=[]))
+    c_t = cluster_news([i for i in uniq if KOREA_TITLE_RE.search(i["title"])])
+    c_b = cluster_news([i for i in uniq if not KOREA_TITLE_RE.search(i["title"])])
+    ko = gn_ko_map(c_t + c_b, want_ko)
+    st.caption(f"최근 {period} · {', '.join(groups)} · 제목에 한국 {len(c_t)}묶음 · 본문 언급 {len(c_b)}묶음 · 같은 기사는 묶음 · {source}")
     st.markdown("##### 제목에 한국이 나온 기사")
-    if res["title"]:
-        st.markdown(gn_clusters_md(res["title"], ko), unsafe_allow_html=True)
+    if c_t:
+        st.markdown(gn_clusters_md(c_t, ko), unsafe_allow_html=True)
     else:
         st.caption("이 기간에는 없어요.")
     st.markdown("##### 본문에 한국이 나온 기사")
     st.caption("제목엔 한국이 없지만 구글이 본문에서 한국과 섹터 낱말을 함께 찾은 기사예요. 스치듯 언급된 경우도 있으니 원문으로 확인하세요.")
-    if res["body"]:
-        st.markdown(gn_clusters_md(res["body"][:GN_BODY_SHOW], ko), unsafe_allow_html=True)
-        if len(res["body"]) > GN_BODY_SHOW:
-            with st.expander(f"본문 언급 더 보기 ({len(res['body']) - GN_BODY_SHOW}묶음)"):
-                st.markdown(gn_clusters_md(res["body"][GN_BODY_SHOW:], ko), unsafe_allow_html=True)
+    if c_b:
+        st.markdown(gn_clusters_md(c_b[:GN_BODY_SHOW], ko), unsafe_allow_html=True)
+        if len(c_b) > GN_BODY_SHOW:
+            with st.expander(f"본문 언급 더 보기 ({len(c_b) - GN_BODY_SHOW}묶음)"):
+                st.markdown(gn_clusters_md(c_b[GN_BODY_SHOW:], ko), unsafe_allow_html=True)
     else:
         st.caption("이 기간에는 없어요.")
 
@@ -11942,7 +11971,8 @@ def warm_stored_news():
     """앱을 열면 뒤에서 모아 둔 기사 파일(통신·단독 recent.json + 섹터별 '일반')을 미리 받아 둔다.
     서버 저장소(10분)에 들어가 있어서, 산업 뉴스·오늘의 현황에서 섹터를 누르는 순간 바로 보인다. 실패는 무시."""
     def run():
-        for name in ["recent.json"] + [general_file(g) for g in NEWS_SECTORS]:
+        for name in (["recent.json"] + [general_file(g) for g in NEWS_SECTORS] + [gc.file_name("global", g) for g in GLOBAL_SECTORS]
+                     + [gc.file_name("korea", g) for g in gc.KOREA_TOPICS]):
             get_stored(name)
         try:
             _corp_name_map(id(get_name_index()))  # 검색어 이름 정리용 기업 목록 사전도 미리 (처음 한 번 약 3초)

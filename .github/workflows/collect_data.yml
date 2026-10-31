@@ -37,6 +37,7 @@ jobs:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # 외신 한글 제목 (없으면 번역 없이 모으고 앱이 볼 때 옮김)
       - name: data 브랜치에 올리기 (기록을 남기지 않고 한 커밋으로 덮어씀)
         run: |
           cd data

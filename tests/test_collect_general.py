@@ -26,7 +26,7 @@ os.makedirs(os.path.dirname(g), exist_ok=True)
 old = (now - timedelta(days=5)).strftime(cd.FMT); keep = (now - timedelta(days=2)).strftime(cd.FMT)
 json.dump({"items": [{"t": "오래된 일반", "u": "https://old", "p": "a", "k": "일반", "d": old, "s": ["자동차"], "g": []},
                      {"t": "이틀 전 일반", "u": "https://keep", "p": "a", "k": "일반", "d": keep, "s": ["자동차"], "g": []}]}, open(g, "w"))
-sys.argv = ["collect_data.py", "--out", out]
+sys.argv = ["collect_data.py", "--out", out, "--modes", "통신,단독,일반"]  # 외신은 test_gn_collect.py에서
 cd.main()
 gen = json.load(open(g, encoding="utf-8"))
 titles = [r["t"] for r in gen["items"]]
