@@ -1,0 +1,57 @@
+name: 임시 - 외신 검색 품질 점검
+
+# 외신 '기업별'·'한국 관련' 검색 결과를 실제로 확인하려고 잠깐 두는 작업 (끝나면 지운다). 건수와 제목만 출력.
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 점검
+        run: |
+          python - <<'PY'
+          import ast, re, requests, xml.etree.ElementTree as ET
+          from urllib.parse import urlparse
+          src = open("app.py", encoding="utf-8").read()
+          ns = {"re": re}
+          for n in ast.parse(src).body:
+              if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") in ("GNEWS_OUTLETS", "GNEWS_ALIASES", "KOREA_WORDS", "KOREA_TOPICS", "KOREA_TITLE_RE"):
+                  exec(compile(ast.Module([n], []), "x", "exec"), ns)
+          doms = list(ns["GNEWS_OUTLETS"].values())
+          sites = " OR ".join(f"site:{d}" for d in doms)
+          def get(core, days=3):
+              q = f"{core} ({sites}) when:{days}d"
+              r = requests.get("https://news.google.com/rss/search", params={"q": q, "hl": "en-US", "gl": "US", "ceid": "US:en"}, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+              out = []
+              for it in ET.fromstring(r.content).iter("item"):
+                  src = it.find("source"); d = urlparse((src.get("url") if src is not None else "") or "").netloc.lower().removeprefix("www.")
+                  if any(d == x or d.endswith("." + x) for x in doms):
+                      t = (it.findtext("title") or "").rsplit(" - ", 1)[0]; out.append((t, (src.text or "") if src is not None else d))
+              return out
+          def note(m): print("::notice::" + m[:900], flush=True)
+          for term in ("SK hynix", "Samsung Electronics", "LG Energy Solution"):
+              al = ns["GNEWS_ALIASES"].get(term, [term])
+              old = get(f'"{term}"'); new = get("(" + " OR ".join(f'"{a}"' for a in al) + ")")
+              keep = [t for t, p in new if any(re.search(r"(?<![A-Za-z0-9])" + re.escape(a) + r"(?![A-Za-z0-9])", t, re.I) for a in al)]
+              first = term.split()[0]
+              old_keep = [t for t, p in old if term.casefold() in t.casefold() or first.casefold() in t.casefold()]
+              note(f"{term}: 예전 {len(old_keep)}건 / 새 {len(keep)}건 | 새 제목: " + " || ".join(keep[:6]))
+              dropped = [t for t in old_keep if t not in keep]
+              if dropped: note(f"   {term} 예전엔 걸렸으나 빠진 것: " + " || ".join(dropped[:5]))
+          korea = "(" + " OR ".join(f'"{w}"' for w in ns["KOREA_WORDS"]) + ")"
+          for sec in ("반도체", "중후장대", "자동차"):
+              words = ns["KOREA_TOPICS"][sec]
+              core = korea + " (" + " OR ".join(f'"{w}"' if " " in w else w for w in words) + ")"
+              got = get(core)
+              t_in = [t for t, p in got if ns["KOREA_TITLE_RE"].search(t)]; t_body = [t for t, p in got if not ns["KOREA_TITLE_RE"].search(t)]
+              note(f"한국 관련 {sec}: 제목에 한국 {len(t_in)}건 / 본문 {len(t_body)}건")
+              note(f"   제목: " + " || ".join(t_in[:6]))
+              note(f"   본문: " + " || ".join(t_body[:8]))
+          PY
