@@ -2,6 +2,9 @@ import pathlib as _pl
 REPO = str(_pl.Path(__file__).resolve().parents[1])  # 저장소 폴더 (tests/run_all.py는 임시 복사본에서 돌린다)
 FIX = str(_pl.Path(__file__).resolve().parent / "fixtures")  # 시험용 자료
 import os, sys, types, json, requests
+from email.utils import format_datetime
+from datetime import datetime, timedelta, timezone
+RECENT = format_datetime(datetime.now(timezone.utc) - timedelta(hours=2))  # 늘 '최근' 기사가 되게 (날짜를 고정하면 며칠 뒤 기간 밖으로 빠짐)
 os.environ["DART_API_KEY"] = "x"*40
 import pandas as pd
 CSV = "corp_code,corp_name,stock_code\n" + "\n".join([f"0{i:07d},비상장사{i}," for i in range(52000)] + ["00126380,삼성전자,005930"]) + "\n"
@@ -13,8 +16,8 @@ class R:
     def raise_for_status(self): pass
 def rss(term):
     if term in ("Nvidia", "Samsung"):
-        return ('<rss><channel><item><title>%s surges on AI demand - Reuters</title><link>https://reuters.com/a</link><pubDate>Sun, 25 Oct 2026 01:00:00 GMT</pubDate>'
-                '<source url="https://www.reuters.com">Reuters</source></item></channel></rss>' % term).encode()
+        return ('<rss><channel><item><title>%s surges on AI demand - Reuters</title><link>https://reuters.com/a</link><pubDate>%s</pubDate>'
+                '<source url="https://www.reuters.com">Reuters</source></item></channel></rss>' % (term, RECENT)).encode()
     return b"<rss><channel></channel></rss>"
 def fake_get(url, *a, **k):
     if "news.google.com" in url:
