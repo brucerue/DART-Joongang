@@ -449,7 +449,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.31 14:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.31 16:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -1005,6 +1005,16 @@ def op_change(cur, prev):
     if prev > 0:
         return pct_change(cur, prev)
     return None
+
+
+FIN_Q_PICKS = ["전체", "1Q", "2Q", "3Q", "4Q"]
+
+
+def fin_quarter_records(records, pick):
+    """분기별 실적에서 고른 분기(1Q~4Q)만 남긴다 ('2025 3Q', '2026 3Q*' 등 이름으로 판단). '전체'면 그대로."""
+    if pick not in FIN_Q_PICKS[1:]:
+        return records
+    return [r for r in records if re.search(r"(?<!\d)" + pick[0] + r"Q", str(r.get("label", "")))]
 
 
 def make_record(label, sort_key, cur, yoy=None, qoq=None):
@@ -4196,7 +4206,15 @@ def render_financials():
     with st.container(border=True):
         st.markdown(f"##### {result['corp']} 실적")  # 아래 '재무상태'와 같은 크기의 소제목
         unit = st.radio("단위", list(UNITS), horizontal=True, key="fin_unit", label_visibility="collapsed")  # 기본 억원, 조원으로 바꿀 수 있음
-        table = build_table(result["records"], result["period"], unit=unit)
+        q_pick = "전체"
+        if result["period"] == "분기별":  # 1~4Q를 고르면 그 분기끼리만 (예: 3Q만 모아 해마다 비교)
+            q_pick = st.radio("분기", FIN_Q_PICKS, horizontal=True, key="fin_q_pick", label_visibility="collapsed",
+                              help="1Q~4Q를 고르면 그 분기끼리만 모아 보여줘요(예: 해마다 3분기끼리). 이때 '전분기比'는 빼요.")
+            track_choice("fin_q_pick", "재무 분기 골라 보기")
+        records = fin_quarter_records(result["records"], q_pick)
+        table = build_table(records, result["period"], unit=unit)
+        if q_pick != "전체":
+            table = table[[c for c in table.columns if "전분기" not in c]]
         basis = "연결 기준" if FS_DIV == "CFS" else "별도 기준"  # 지금은 항상 연결재무제표(CFS)로 조회
         st.caption(f"단위: {unit} · {basis}")
         alts = {r["alt"] for r in result["records"] if r.get("alt")}
@@ -4224,9 +4242,9 @@ def render_financials():
             height=(len(table) + 1) * 35 + 3,
         )
         if st.toggle("그래프", key="fin_chart_on"):
-            render_fin_charts(result["records"], unit)
+            render_fin_charts(records, unit)
 
-    bs_table = build_bs_table(result["records"], result["period"], unit=unit)
+    bs_table = build_bs_table(records, result["period"], unit=unit)
     if not bs_table.empty:
         with st.container(border=True):
             st.markdown("##### 재무상태")
@@ -4250,7 +4268,7 @@ def render_financials():
                 "은행·보험·증권사는 계정 구조가 달라 '-'로 나올 수 있어요." + only_year
             )
             if st.toggle("더 보기", key="fin_bs_more", help=more_help):
-                more = build_bs_more_table(result["records"], result["period"], unit=unit)
+                more = build_bs_more_table(records, result["period"], unit=unit)
                 st.dataframe(
                     more, hide_index=True,
                     column_config={"기간": st.column_config.TextColumn("기간", width=95)},
@@ -4260,11 +4278,13 @@ def render_financials():
     with st.container(border=True):
         render_fin_ai(result)
 
-    export = build_table(result["records"], result["period"], for_export=True, unit=unit)
-    bs_export = build_bs_table(result["records"], result["period"], for_export=True, unit=unit)
+    export = build_table(records, result["period"], for_export=True, unit=unit)
+    if q_pick != "전체":
+        export = export[[c for c in export.columns if "전분기" not in c]]
+    bs_export = build_bs_table(records, result["period"], for_export=True, unit=unit)
     if not bs_export.empty:  # 다운로드 파일에는 재무상태 열도 함께
         export = export.merge(bs_export, on="기간", how="left")
-    base_name = f"DART_{safe_filename(result['corp'])}_{result['period']}_{TODAY:%Y%m%d}"
+    base_name = f"DART_{safe_filename(result['corp'])}_{result['period']}{'_' + q_pick if q_pick != '전체' else ''}_{TODAY:%Y%m%d}"
     d1, d2, _ = st.columns([1, 1, 4])
     d1.download_button(
         "CSV 다운로드",
