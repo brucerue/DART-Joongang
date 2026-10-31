@@ -449,7 +449,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.31 13:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.31 14:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5601,7 +5601,7 @@ def gn_filter_bar(pre, title_box=True):
     """외신 기간·제목만·한글 제목 (폼 밖: 바꾸면 모아 둔 기사가 바로 다시 걸러진다) -> (기간, 제목만, 한글 제목)"""
     with st.container(horizontal=True, vertical_alignment="center", gap="medium", key=f"{pre}_opts_bar"):
         st.markdown('<span class="mode-lbl">기간</span>', unsafe_allow_html=True, width="content")
-        period = st.radio("기간", list(GNEWS_PERIODS), index=1, horizontal=True, key=f"{pre}_period", label_visibility="collapsed", width="content")
+        period = st.radio("기간", list(GNEWS_PERIODS), index=0, horizontal=True, key=f"{pre}_period", label_visibility="collapsed", width="content")
         in_title = st.checkbox("제목에 기업명이 든 기사만", value=True, key=f"{pre}_title", width="content",
                                help="기업 이름(별칭 포함: Samsung, Hynix, Google 등)이 낱말 그대로 제목에 든 기사만 보여줘요.") if title_box else True
         want_ko = st.checkbox("한글 제목 함께", value=bool(AI_PROVIDER), key=f"{pre}_ko", width="content", disabled=not AI_PROVIDER,
