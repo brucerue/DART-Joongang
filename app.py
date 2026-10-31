@@ -5369,6 +5369,8 @@ GNEWS_ALIASES = {
 }
 # '한국 관련' 외신: 한국 낱말 + 섹터 낱말이 함께 든 기사를 본문까지 찾는다 (구글은 본문도 색인)
 KOREA_WORDS = ["South Korea", "South Korean", "Korean", "Seoul"]
+GN_JUNK_RE = re.compile(r"Market Talk|Roundup|News Quiz|Breaking News|Live Updates?|Newsletter|Podcast|Morning Bid|Stocks making the biggest moves|^Video|Crossword", re.I)  # 기사가 아닌 모음·퀴즈·홈페이지 등
+GN_BODY_SHOW = 20  # '본문에 한국' 기사는 처음 이만큼만 펼쳐 보이고 나머지는 '더 보기'
 KOREA_EXCLUDE = '-"North Korea" -"North Korean" -Pyongyang -"Kim Jong"'  # 'Korean'에 걸리는 북한 기사(김정은 방중 등)는 뺀다 (실측 2026.10: 중후장대에 섞임)
 KOREA_TOPICS = {
     "자동차": ["automaker", "carmaker", "auto", "cars", "EV"], "배터리": ["battery", "batteries", "cathode"],
@@ -5665,6 +5667,8 @@ def render_gn_korea():
                 items, seen = [], {}
                 for sec, lst in got.items():
                     for it in lst:
+                        if GN_JUNK_RE.search(it["title"]):  # 기사가 아닌 모음·퀴즈·홈페이지는 뺀다
+                            continue
                         if it["url"] in seen:
                             seen[it["url"]]["tags"].append(sec)
                             continue
@@ -5692,7 +5696,10 @@ def render_gn_korea():
     st.markdown("##### 본문에 한국이 나온 기사")
     st.caption("제목엔 한국이 없지만 구글이 본문에서 한국과 섹터 낱말을 함께 찾은 기사예요. 스치듯 언급된 경우도 있으니 원문으로 확인하세요.")
     if res["body"]:
-        st.markdown(gn_clusters_md(res["body"], ko), unsafe_allow_html=True)
+        st.markdown(gn_clusters_md(res["body"][:GN_BODY_SHOW], ko), unsafe_allow_html=True)
+        if len(res["body"]) > GN_BODY_SHOW:
+            with st.expander(f"본문 언급 더 보기 ({len(res['body']) - GN_BODY_SHOW}묶음)"):
+                st.markdown(gn_clusters_md(res["body"][GN_BODY_SHOW:], ko), unsafe_allow_html=True)
     else:
         st.caption("이 기간에는 없어요.")
 

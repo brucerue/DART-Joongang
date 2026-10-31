@@ -27,7 +27,8 @@ def fake_get(url, *a, **k):
                     + item("SK Group chairman meets Trump", "bloomberg.com", "Bloomberg", 3, "a3"))
         elif '"South Korea"' in q and "chip" in q:
             body = (item("South Korea's chip exports hit record", "reuters.com", "Reuters", 2, "k1")
-                    + item("Nvidia supply deal reshapes memory market", "wsj.com", "WSJ", 4, "k2"))
+                    + item("Nvidia supply deal reshapes memory market", "wsj.com", "WSJ", 4, "k2")
+                    + item("Tech, Media &amp; Telecom Roundup: Market Talk", "wsj.com", "WSJ", 5, "k3"))
         else:
             body = ""
         return R(f"<rss><channel>{body}</channel></rss>".encode())
@@ -83,4 +84,6 @@ i_b = next((i for i, h in enumerate(heads) if "본문에 한국이 나온 기사
 check(i_t >= 0 and i_b > i_t and "South Korea's chip exports hit record" in heads[i_t + 1] and "Nvidia supply deal" in heads[i_b + 1],
       "제목에 한국 / 본문 언급을 나눠 보여 줌")
 check("[한글] Nvidia supply deal reshapes memory market" in md(at), "한국 관련도 한글 제목")
+check("Market Talk" not in md(at), "기사가 아닌 모음(Market Talk 등)은 뺌")
+check('-"North Korea"' in q, "북한 기사는 검색에서 뺌")
 print("실패", fails); sys.exit(1 if fails else 0)
