@@ -4209,12 +4209,10 @@ def render_financials():
         q_pick = "전체"
         if result["period"] == "분기별":  # 1~4Q를 고르면 그 분기끼리만 (예: 3Q만 모아 해마다 비교)
             q_pick = st.radio("분기", FIN_Q_PICKS, horizontal=True, key="fin_q_pick", label_visibility="collapsed",
-                              help="1Q~4Q를 고르면 그 분기끼리만 모아 보여줘요(예: 해마다 3분기끼리). 이때 '전분기比'는 빼요.")
+                              help="1Q~4Q를 고르면 그 분기끼리만 모아 보여줘요(예: 해마다 3분기끼리). 전년동기比·전분기比는 그대로예요.")
             track_choice("fin_q_pick", "재무 분기 골라 보기")
         records = fin_quarter_records(result["records"], q_pick)
-        table = build_table(records, result["period"], unit=unit)
-        if q_pick != "전체":
-            table = table[[c for c in table.columns if "전분기" not in c]]
+        table = build_table(records, result["period"], unit=unit)  # 분기를 골라도 전분기比는 그대로 둔다(바로 앞 분기 대비 비율)
         basis = "연결 기준" if FS_DIV == "CFS" else "별도 기준"  # 지금은 항상 연결재무제표(CFS)로 조회
         st.caption(f"단위: {unit} · {basis}")
         alts = {r["alt"] for r in result["records"] if r.get("alt")}
@@ -4279,8 +4277,6 @@ def render_financials():
         render_fin_ai(result)
 
     export = build_table(records, result["period"], for_export=True, unit=unit)
-    if q_pick != "전체":
-        export = export[[c for c in export.columns if "전분기" not in c]]
     bs_export = build_bs_table(records, result["period"], for_export=True, unit=unit)
     if not bs_export.empty:  # 다운로드 파일에는 재무상태 열도 함께
         export = export.merge(bs_export, on="기간", how="left")

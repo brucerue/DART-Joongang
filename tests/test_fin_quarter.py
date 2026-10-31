@@ -1,4 +1,4 @@
-"""재무 분석(개별) 분기별: 억원/조원 아래 '전체/1Q~4Q' — 고른 분기끼리만 보여 주고 '전분기比'는 뺀다 (가짜 응답)"""
+"""재무 분석(개별) 분기별: 억원/조원 아래 '전체/1Q~4Q' — 고른 분기끼리만 보여 주고 비율(전년동기比·전분기比)은 그대로 (가짜 응답)"""
 import pathlib as _pl
 REPO = str(_pl.Path(__file__).resolve().parents[1])
 FIX = str(_pl.Path(__file__).resolve().parent / "fixtures")
@@ -29,7 +29,7 @@ check(len(t) == 11 and any("전분기" in c for c in t.columns), f"전체: 11분
 r.set_value("3Q").run()
 t = table()
 check(list(t["기간"]) == ["2024 3Q", "2025 3Q", "2026 3Q*"] or sorted(t["기간"]) == ["2024 3Q", "2025 3Q", "2026 3Q*"], f"3Q: 3분기끼리만 {list(t['기간'])}")
-check(not any("전분기" in c for c in t.columns) and any("전년동기" in c for c in t.columns), f"3Q: 전분기比 빼고 전년동기比만 {list(t.columns)}")
+check(any("전분기" in c for c in t.columns) and any("전년동기" in c for c in t.columns), f"3Q: 전년동기比·전분기比 비율은 그대로 {list(t.columns)}")
 at.radio(key="fin_q_pick").set_value("4Q").run()
 check(len(table()) == 2, f"4Q: 2024·2025 두 줄 ({len(table())})")
 at2 = AppTest.from_file(REPO + "/app.py", default_timeout=120)
