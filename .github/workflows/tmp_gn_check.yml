@@ -22,7 +22,7 @@ jobs:
           src = open("app.py", encoding="utf-8").read()
           ns = {"re": re}
           for n in ast.parse(src).body:
-              if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") in ("GNEWS_OUTLETS", "GNEWS_ALIASES", "KOREA_WORDS", "KOREA_TOPICS", "KOREA_TITLE_RE"):
+              if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") in ("GNEWS_OUTLETS", "GNEWS_ALIASES", "KOREA_WORDS", "KOREA_TOPICS", "KOREA_TITLE_RE", "KOREA_EXCLUDE"):
                   exec(compile(ast.Module([n], []), "x", "exec"), ns)
           doms = list(ns["GNEWS_OUTLETS"].values())
           sites = " OR ".join(f"site:{d}" for d in doms)
@@ -36,7 +36,7 @@ jobs:
                       t = (it.findtext("title") or "").rsplit(" - ", 1)[0]; out.append((t, (src.text or "") if src is not None else d))
               return out
           def note(m): print("::notice::" + m[:900], flush=True)
-          for term in ("SK hynix", "Samsung Electronics", "LG Energy Solution"):
+          for term in ():
               al = ns["GNEWS_ALIASES"].get(term, [term])
               old = get(f'"{term}"'); new = get("(" + " OR ".join(f'"{a}"' for a in al) + ")")
               keep = [t for t, p in new if any(re.search(r"(?<![A-Za-z0-9])" + re.escape(a) + r"(?![A-Za-z0-9])", t, re.I) for a in al)]
@@ -48,7 +48,7 @@ jobs:
           korea = "(" + " OR ".join(f'"{w}"' for w in ns["KOREA_WORDS"]) + ")"
           for sec in ("반도체", "중후장대", "자동차"):
               words = ns["KOREA_TOPICS"][sec]
-              core = korea + " (" + " OR ".join(f'"{w}"' if " " in w else w for w in words) + ")"
+              core = korea + " (" + " OR ".join(f'"{w}"' if " " in w else w for w in words) + ") " + ns["KOREA_EXCLUDE"]
               got = get(core)
               t_in = [t for t, p in got if ns["KOREA_TITLE_RE"].search(t)]; t_body = [t for t, p in got if not ns["KOREA_TITLE_RE"].search(t)]
               note(f"한국 관련 {sec}: 제목에 한국 {len(t_in)}건 / 본문 {len(t_body)}건")

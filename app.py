@@ -5369,6 +5369,7 @@ GNEWS_ALIASES = {
 }
 # '한국 관련' 외신: 한국 낱말 + 섹터 낱말이 함께 든 기사를 본문까지 찾는다 (구글은 본문도 색인)
 KOREA_WORDS = ["South Korea", "South Korean", "Korean", "Seoul"]
+KOREA_EXCLUDE = '-"North Korea" -"North Korean" -Pyongyang -"Kim Jong"'  # 'Korean'에 걸리는 북한 기사(김정은 방중 등)는 뺀다 (실측 2026.10: 중후장대에 섞임)
 KOREA_TOPICS = {
     "자동차": ["automaker", "carmaker", "auto", "cars", "EV"], "배터리": ["battery", "batteries", "cathode"],
     "중후장대": ["shipbuilder", "shipbuilding", "shipyard", "defense", "arms", "steel"], "정유·석화": ["refiner", "refinery", "petrochemical", "oil"],
@@ -5490,7 +5491,7 @@ def gnews_korea(sectors, days, domains):
 
     def one(sec):
         words = KOREA_TOPICS.get(sec) or []
-        core = korea + (" (" + " OR ".join(f'"{w}"' if " " in w else w for w in words) + ")" if words else "")
+        core = korea + (" (" + " OR ".join(f'"{w}"' if " " in w else w for w in words) + ")" if words else "") + " " + KOREA_EXCLUDE
         key = ("gnews_kr", core, days, doms, TODAY.isoformat())
         hit = cache_lookup(store, key, NEWS_TTL)
         if hit is not _MISSING:
