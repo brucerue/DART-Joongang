@@ -22,7 +22,9 @@ def fake_get(url, *a, **k):
     if "news.google.com" in url:
         q = k.get("params", {}).get("q", ""); queries.append(q)
         if '"Hynix"' in q:
-            body = (item("SK Hynix profit jumps on HBM demand", "reuters.com", "Reuters", 2, "a1")
+            body = (item("World in Brief: SK Hynix soars", "economist.com", "The Economist", 1, "j1")
+                    + item("SK Hynix chef's kimchi recipe", "cooking.nytimes.com", "NYT Cooking", 1, "j2")
+                    + item("SK Hynix profit jumps on HBM demand", "reuters.com", "Reuters", 2, "a1")
                     + item("SK Hynix profit jumps on HBM demand, update", "cnbc.com", "CNBC", 1, "a2")
                     + item("SK Group chairman meets Trump", "bloomberg.com", "Bloomberg", 3, "a3"))
         elif '"South Korea"' in q and "chip" in q:
@@ -71,6 +73,7 @@ check('"SK hynix"' in hq[0] and " OR " in hq[0] and len(hq) == 2 and any("site:e
 t = md(at)
 check(t.count("- [SK Hynix profit jumps") == 1 and "같은 기사 1건 더(Reuters)" in t, "같은 기사(로이터·CNBC)는 한 묶음, 최신 기사가 대표")
 check("SK Group chairman" not in t, "'SK'만 맞는 다른 회사 기사는 뺌")
+check("World in Brief" not in t and "kimchi recipe" not in t, "요약 코너(World in Brief)·NYT 요리는 뺌")
 check("[한글] SK Hynix profit jumps on HBM demand" in t, "한글 제목 함께")
 # 2) 한국 관련
 at.radio(key="gn_view").set_value("한국 관련").run()

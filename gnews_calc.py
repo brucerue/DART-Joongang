@@ -55,7 +55,7 @@ GNEWS_ALIASES = {
 }
 # '한국 관련' 외신: 한국 낱말 + 섹터 낱말이 함께 든 기사를 본문까지 찾는다 (구글은 본문도 색인)
 KOREA_WORDS = ["South Korea", "South Korean", "Korean", "Seoul"]
-GN_JUNK_RE = re.compile(r"Market Talk|Roundup|News Quiz|Breaking News|Live Updates?|Newsletter|Podcast|Morning Bid|Stocks making the biggest moves|^Video|Crossword", re.I)
+GN_JUNK_RE = re.compile(r"Market Talk|Roundup|News Quiz|Breaking News|Live Updates?|Newsletter|Podcast|Morning Bid|Stocks making the biggest moves|^Video|Crossword|World in Brief|The Morning|Evening Briefing|Daily Briefing", re.I)
 KOREA_EXCLUDE = '-"North Korea" -"North Korean" -Pyongyang -"Kim Jong"'
 KOREA_TOPICS = {
     "자동차": ["automaker", "carmaker", "auto", "cars", "EV"], "배터리": ["battery", "batteries", "cathode"],
@@ -67,6 +67,15 @@ KOREA_TOPICS = {
 KOREA_TITLE_RE = re.compile(r"(?<![A-Za-z])(South\s+Korea|Korea|Korean|Koreans|Seoul|Samsung|Hyundai|SK\s+hynix|Hynix|LG|Hanwha|POSCO|Kia|KEPCO|Naver|Kakao)(?![A-Za-z])", re.I)
 GN_KO_SYSTEM = "너는 중앙일보 산업부 기자를 돕는 번역가다. 영문 외신 기사 제목을 한국 신문 제목처럼 짧고 정확하게 옮긴다. 회사·인명은 한국 언론 표기(엔비디아, 마이크론, TSMC 등)를 쓰고, 없는 내용을 더하지 않는다."
 GN_KO_CHUNK = 40
+
+
+GN_JUNK_PUBLISHER_RE = re.compile(r"Cooking|Wirecutter|Games|Crossword", re.I)  # 같은 도메인의 기사 아닌 곳 (NYT Cooking 등)
+GN_JUNK_DOMAINS = ("cooking.nytimes.com",)
+
+
+def is_junk(title, publisher="", domain=""):
+    """외신 중 기사가 아닌 것(모음·요약 코너·요리 등)인지 — 기업별·한국 관련 모두 뺀다"""
+    return bool(GN_JUNK_RE.search(title or "") or GN_JUNK_PUBLISHER_RE.search(publisher or "") or (domain or "") in GN_JUNK_DOMAINS)
 
 
 def aliases(term):
@@ -118,6 +127,8 @@ def parse_rss(content, domains, days, now=None, title_names=None):
         if publisher and title.endswith(" - " + publisher):
             title = title[: -len(publisher) - 3].strip()
         if title_names is not None and not title_has(title, title_names):
+            continue
+        if is_junk(title, publisher, domain):
             continue
         out.append({"title": title, "url": (it.findtext("link") or "").strip(), "publisher": publisher, "domain": domain, "dt": when})
     out.sort(key=lambda x: x["dt"], reverse=True)

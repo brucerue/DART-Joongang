@@ -449,7 +449,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.31 13:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.10.31 13:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5427,6 +5427,8 @@ def gnews_fetch(session, term, days, domains, in_title=True, ko=False, extra="",
         title = (it.findtext("title") or "").strip()
         if publisher and title.endswith(" - " + publisher):
             title = title[: -len(publisher) - 3].strip()
+        if not ko and gc.is_junk(title, publisher, domain):  # 외신: 모음·요약 코너·요리 섹션 등 기사 아닌 것은 뺀다
+            continue
         if in_title and aliases is not None:
             if not gnews_title_has(title, aliases):  # 별칭이 낱말 그대로 든 제목만 ('LG'만 맞는 LG전자 기사 등은 뺀다)
                 continue
@@ -5563,7 +5565,7 @@ def gn_items(rows, days):
             dt = datetime.strptime(r["d"], STORED_FMT).replace(tzinfo=KST)
         except (KeyError, ValueError, TypeError):
             continue
-        if dt >= since:
+        if dt >= since and not gc.is_junk(r.get("t", ""), r.get("p", "")):  # 예전에 모아 둔 기사 아닌 것(요약 코너 등)도 뺀다
             out.append({"title": r.get("t", ""), "url": r["u"], "publisher": r.get("p", ""), "dt": dt, "ko": r.get("ko") or "", "c": r.get("c") or [], "tags": []})
     return out
 

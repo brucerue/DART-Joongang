@@ -81,7 +81,8 @@ def collect_global(out_dir, now, errors):
     files = {}  # 파일 경로 -> (kind, 섹터, {주소: 줄})
     for kind, sec in [("global", g) for g in groups] + [("korea", s2) for s2 in gc.KOREA_TOPICS]:
         path = os.path.join(out_dir, gc.file_name(kind, sec))
-        files[path] = (kind, sec, {r["u"]: r for r in load_json(path).get("items", []) if r.get("d", "") >= keep_from})
+        files[path] = (kind, sec, {r["u"]: r for r in load_json(path).get("items", [])
+                                   if r.get("d", "") >= keep_from and not gc.is_junk(r.get("t", ""), r.get("p", ""))})
     added = 0
     for (kind, sec, term, _), items in results:
         store = files[os.path.join(out_dir, gc.file_name(kind, sec))][2]
