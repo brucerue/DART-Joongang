@@ -63,6 +63,9 @@ MAX_DART_PAGES = 30  # 시장마다 하루 최대 3,000건까지만 확인
 DISCLOSURE_SKIP = ["소유상황보고서", "소유주식변동신고서"]  # 텔레그램 알림에서 뺄 보고서명 단어: 임원·주요주주 특정증권등 소유상황보고서, 최대주주등 소유주식변동신고서 (공백·가운뎃점 무시, 수집·타임라인에는 적용 안 함)
 DART_DOC_URL = "https://opendart.fss.or.kr/api/document.xml"  # 공시 원문(zip). 잠정실적 수치를 읽을 때 쓴다
 PROV_UNITS = {"원": 1, "천원": 10**3, "백만원": 10**6, "억원": 10**8, "십억원": 10**9, "조원": 10**12}  # 잠정실적 표의 단위 (app.py와 같게)
+DISC_SUM_MAX = 20  # 주요 공시 AI 한 줄 요약: 한 회차에 요약할 최대 건수 (넘는 건 요약 없이 보냄)
+DISC_SUM_CHARS = 8000  # 요약에 넘길 공시 원문 앞부분 글자 수
+GEMINI_MODELS = ("gemini-3.6-flash", "gemini-3.5-flash-lite")  # 요약에 쓸 모델(앞이 안 되면 뒤). collect_data.py의 기본값과 같게
 EARN_WAIT_MINUTES = 30  # 잠정실적 원문이 DART에 아직 안 올라왔으면 이 시간까지는 기다렸다가(다음 회차에) 수치와 함께 보낸다
 # -----------------------------------------------------
 
@@ -567,6 +570,94 @@ def enrich_earnings(items, seen, now, dry=False):
             note = "   (원문을 받지 못해 수치는 원문 링크에서 확인해 주세요)"
         for it in group:
             it["detail"] = html.escape(note, quote=False)
+    return changed
+
+
+# ---------- 주요 공시 AI 한 줄 요약 ----------
+DISC_SUM_SYSTEM = ("너는 경제부 기자를 돕는 공시 요약가다. 주어진 공시 원문만 보고 핵심을 한국어 한 문장(60자 안팎)으로 요약한다. "
+                   "원문에 없는 내용·해석·전망은 쓰지 않는다. 금액·비율·날짜는 원문에 적힌 숫자와 단위를 그대로 옮기고, "
+                   "조·억 단위로 바꾸거나 반올림·계산하지 않는다(숫자는 원문과 대조해 다르면 요약을 버린다). "
+                   "회사 이름과 보고서 이름은 반복하지 말고 '무엇을, 얼마나, 언제'를 쓴다. 요약 문장만 답한다.")
+
+
+def _num_key(s):
+    return re.sub(r"[,\s]", "", s.rstrip(","))
+
+
+def summary_ok(summary, text):
+    """AI 요약의 숫자가 원문에 정말 있는지 대조한다(하나라도 없으면 요약을 버림). 한 문장·적당한 길이만."""
+    if not summary or len(summary) > 120 or "\n" in summary.strip():
+        return False
+    nums = lambda t: {_num_key(n).rstrip(",") for n in re.findall(r"\d[\d,]*(?:\.\d+)?", t)}
+    return nums(summary) <= nums(text)  # 숫자 덩어리끼리 맞춘다 ('2,345'가 '1,234,500,…' 안의 글자로 통과되지 않게)
+
+
+def gemini_summary(text, title, key, post=None):
+    """공시 원문 -> 한 줄 요약 (실패하면 None). 모델 하나가 안 되면 다음 모델로."""
+    post = post or requests.post
+    prompt = f"보고서: {title}\n\n원문:\n{text[:DISC_SUM_CHARS]}"
+    body = {"systemInstruction": {"parts": [{"text": DISC_SUM_SYSTEM}]}, "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048}}
+    for model in GEMINI_MODELS:
+        try:
+            res = post(f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+                       json=body, headers={"x-goog-api-key": key}, timeout=30)
+        except Exception:
+            continue
+        if res.status_code != 200:
+            continue
+        parts = ((res.json().get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+        got = " ".join("".join(p.get("text", "") for p in parts if not p.get("thought")).split())
+        if got:
+            return got
+    return None
+
+
+def summarize_disclosures(items, seen, now):
+    """잠정실적이 아닌 주요 공시에 AI 한 줄 요약(detail)을 붙인다. 원문이 아직 없거나 AI가 안 되면 요약 없이 그대로 보낸다
+    (알람을 늦추지 않음). 요약의 숫자는 원문과 대조해 없으면 버린다. 같은 접수번호는 seen에 남겨 다시 부르지 않는다 -> seen이 바뀌었으면 True"""
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    by_no = {}
+    for it in items:
+        by_no.setdefault(it["key"], []).append(it)
+    if not by_no or not key:
+        return False
+    changed, todo = False, []
+    for no, group in by_no.items():
+        old = seen.get(f"sum|{no}")
+        if old is not None:  # '시각|요약' (요약이 비었으면 전에 실패한 것: 다시 부르지 않음)
+            got = old.split("|", 1)[1] if "|" in old else ""
+            for it in group:
+                if got:
+                    it["detail"] = html.escape("   ↳ " + got, quote=False)
+            continue
+        todo.append(no)
+    todo = todo[:DISC_SUM_MAX]
+    api_key = dart_key()
+
+    def one(no):
+        try:
+            text = fetch_doc_text(api_key, no)
+        except DocNotReady:
+            return no, "wait", None
+        except Exception as e:
+            return no, "error", str(e)
+        got = gemini_summary(text, by_no[no][0]["title"], key)
+        return no, ("ok" if summary_ok(got, text) else "bad"), got
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(one, todo))
+    for no, status, got in results:
+        if status == "wait":  # 원문이 아직 없음: 요약 없이 보내고 기록도 안 남김
+            print(f"  공시 요약 {no}: 원문이 아직 없어 요약 없이 보냄")
+            continue
+        if status == "ok":
+            for it in by_no[no]:
+                it["detail"] = html.escape("   ↳ " + got, quote=False)
+        print(f"  공시 요약 {no}: {got if status == 'ok' else '요약 안 붙임 (' + str(got)[:60] + ')'}")
+        if status in ("ok", "bad"):
+            seen[f"sum|{no}"] = f"{now.isoformat()}|{got if status == 'ok' else ''}"
+            changed = True
     return changed
 
 
@@ -1436,6 +1527,14 @@ def main():
             seen_dirty = enrich_earnings(earn_new, seen, now)
         except Exception as e:  # 수치를 못 붙여도 공시 알림은 그대로 보낸다
             print(f"잠정실적 수치 읽기 실패: {e}", file=sys.stderr)
+    # 1-3) 이번에 새로 갈 주요 공시(잠정실적 제외)에는 AI 한 줄 요약을 붙인다 (GEMINI_API_KEY가 있을 때만)
+    disc_new = [i for sub in subs if "공시" in sub["modes"] and not sub.get("paused") for s in sub["sectors"]
+                for i in found.get(("공시", s), []) if not i.get("earn") and f"{sub['chat_id']}|공시|{i['key']}" not in seen]
+    if disc_new:
+        try:
+            seen_dirty = summarize_disclosures(disc_new, seen, now) or seen_dirty
+        except Exception as e:  # 요약을 못 붙여도 공시 알림은 그대로 보낸다
+            print(f"공시 요약 실패: {e}", file=sys.stderr)
 
     # 2) 받는 사람마다 자기 섹터·모드에서 아직 안 보낸 기사만 골라 보낸다
     #    모드별 결과가 모두 한 통에 들어갈 만큼 적으면 한 메시지로 합치고, 많으면 모드별로 따로 보낸다

@@ -59,9 +59,11 @@ jobs:
       # 정시 회차(Worker가 auto로 부름): 먼저 모든 섹터 기사를 모아 'data' 브랜치(앱 산업 뉴스·오늘의 현황이 읽음)에 저장하고,
       # 같은 결과(fresh.json)로 아래에서 알람을 보낸다 — 같은 검색을 두 번 하지 않음. 정각은 통신·단독·일반·공시, 15·30·45분은 단독만.
       # 이 단계가 실패해도 발송은 예전처럼 직접 검색해서 보낸다(continue-on-error).
+      # 멈춰 버리면 작업 전체 제한(15분)에 걸려 발송까지 취소되므로, 이 단계만 6분에 끊는다 (2026.10.31 10:15 회차 누락).
       - name: 기사 모아두기 (앱용 저장 + 이번 발송에 사용)
         if: inputs.auto
         continue-on-error: true
+        timeout-minutes: 6
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
@@ -96,6 +98,7 @@ jobs:
           PREFS_URL: ${{ secrets.PREFS_URL }}  # (선택) 구글 Apps Script 즉시 응답 방식을 쓸 때만
           NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
           NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # 주요 공시 AI 한 줄 요약 (없으면 요약 없이 보냄)
           IN_ONLY: ${{ inputs.only }}
           IN_MODE: ${{ inputs.mode }}
           IN_SECTORS: ${{ inputs.sectors }}
