@@ -1,0 +1,64 @@
+name: 현대차·기아 판매실적 모으기
+
+# 현대차·기아가 매월 초 '영업(잠정)실적(공정공시)'로 내는 판매대수를 'sales' 브랜치(sales.json)에 쌓습니다.
+# 앱의 재무 분석 '판매 실적', 기업 브리핑(현대차·기아), 오늘의 현황(자동차)이 이 파일을 읽습니다.
+# 처음 한 번은 수동 실행(Run workflow)으로 과거(since부터)를 채웁니다. 이미 읽은 공시는 다시 받지 않습니다.
+on:
+  schedule:
+    - cron: "20 7,9 1-3 * *" # 한국 시간 매월 1~3일 16:20, 18:20 (판매실적은 보통 1~2일 오후에 공시)
+  workflow_dispatch:
+    inputs:
+      since:
+        description: "공시를 찾을 시작 날짜 (YYYYMMDD)"
+        default: "20160101"
+      max_docs:
+        description: "한 번에 받을 최대 원문 수"
+        default: "400"
+
+permissions:
+  contents: write # sales 브랜치에 올리기 위해 필요
+
+concurrency:
+  group: sales-data
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 지금까지 모은 자료 가져오기
+        run: |
+          git fetch origin sales --depth=1 || true
+          git show origin/sales:sales.json > prev.json 2>/dev/null || rm -f prev.json
+      - name: 새 판매실적 공시 읽기
+        run: python sales_data.py --prev prev.json --out sales.json --since "${IN_SINCE:-20160101}" --max-docs "${IN_MAX_DOCS:-400}"
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          TELEGRAM_BOT_TOKEN: unused
+          IN_SINCE: ${{ inputs.since }}
+          IN_MAX_DOCS: ${{ inputs.max_docs }}
+      - name: sales 브랜치에 올리기 (기록을 남기지 않고 한 커밋으로 덮어씀)
+        run: |
+          mkdir -p out && cp sales.json out/
+          cd out
+          git init -q -b sales
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sales.json
+          git commit -q -m "sales $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" sales
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 실패 알림
+        if: failure()
+        run: python news_digest.py --alert sales
+        env:
+          PREFS_URL: ${{ secrets.PREFS_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}

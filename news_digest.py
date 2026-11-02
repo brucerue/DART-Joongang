@@ -38,6 +38,8 @@ from urllib.parse import urlparse
 
 import requests
 
+from sales_calc import parse_sales  # 현대차·기아 월별 판매대수 표 (앱·수집기와 같은 규칙)
+
 KST = timezone(timedelta(hours=9))
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(HERE, "app.py")
@@ -507,49 +509,6 @@ def earnings_detail(rows):
     return html.escape("\n".join(lines), quote=False)
 
 
-SALES_LABELS = {"국내": "국내", "내수": "국내", "판매대수(내수)": "국내", "해외": "해외", "판매대수(해외)": "해외",
-                "특수": "특수", "판매대수(특수)": "특수", "계": "합계", "합계": "합계", "판매대수(계)": "합계"}  # 판매대수 표의 줄 이름 -> 메시지 이름
-
-
-def _pct_text(v):
-    """'7.5' -> '+7.5%', '-8.9' -> '-8.9%' (원문 숫자 그대로, 부호만 붙임). 숫자가 아니면 None"""
-    v = str(v).strip().replace(" ", "")
-    if not re.fullmatch(r"[+-]?\d+(?:\.\d+)?", v):
-        return None
-    return (v if v[0] in "+-" or float(v) == 0 else "+" + v) + "%"
-
-
-def parse_sales(text):
-    """현대차·기아처럼 매월 '영업(잠정)실적' 공시로 내는 판매대수 표 -> {year, month, monthly: [(이름, 대수, 전년比, 전월比)],
-    cum: [(이름, 대수, 전년比)], cum_label} 또는 None. 표 칸: 당기, 전기, 전기대비%, 전환여부, 전년동기, 전년동기대비%, 전환여부"""
-    cells = [c.strip().rstrip("|").strip() for c in text.split("\n")]
-    m = re.search(r"당기실적\s*\|?\s*\n\s*(\d{4})-(\d{2})-\d{2}", text)
-    if not m:
-        return None
-    year, month = m.group(1), str(int(m.group(2)))
-    out = {"year": year, "month": month, "monthly": [], "cum": [], "cum_label": f"1~{month}월"}
-    k = 0
-    while k < len(cells):
-        head = cells[k].replace(" ", "")
-        if not (head.startswith("구분") and "단위:대" in head):
-            k += 1
-            continue
-        hdr = cells[k + 1:k + 8]
-        cum = any("누적" in h for h in hdr)
-        k += 8
-        while k + 7 < len(cells):
-            name = SALES_LABELS.get(cells[k].replace(" ", ""))
-            row = cells[k + 1:k + 8]
-            if not name or not re.fullmatch(r"\d[\d,]*", row[0]):
-                break
-            if cum:
-                out["cum"].append((name, row[0], _pct_text(row[5])))
-            else:
-                out["monthly"].append((name, row[0], _pct_text(row[5]), _pct_text(row[2])))
-            k += 8
-    return out if out["monthly"] else None
-
-
 def sales_detail(sales):
     """판매대수 -> 메시지 줄 (HTML). 예: '10월 판매 329,773대 (전년比 -6.3% · 전월比 +6.4%)' / '국내 … · 해외 …' / '1~10월 누적 …'"""
     def cmp_(*pairs):
@@ -943,7 +902,7 @@ def send_failure_alert(kind, token):
     """발송 실행이 실패했을 때 관리자(나)에게 텔레그램으로 알린다. 구글 스크립트(PREFS_URL)가 있으면 거기로 보내(같은 종류 1시간 1회 제한),
     없으면 봇 토큰으로 직접 보낸다. 알림이 안 가도 오류로 끝내지 않는다."""
     run_url = "/".join(filter(None, [os.environ.get("GITHUB_SERVER_URL"), os.environ.get("GITHUB_REPOSITORY"), "actions/runs", os.environ.get("GITHUB_RUN_ID")]))
-    what = {"digest": "뉴스 발송", "sync": "동기화", "collect": "기사·공시 모으기", "corp": "기업 목록 만들기", "sports": "스포츠 제목 모으기", "prices": "시세 모으기", "intraday": "장중 시세 모으기", "trade": "수출입 통계 모으기", "flash": "산업부 수출입 잠정치 모으기", "groups": "20대 품목 자료 모으기"}.get(kind, kind)
+    what = {"digest": "뉴스 발송", "sync": "동기화", "collect": "기사·공시 모으기", "corp": "기업 목록 만들기", "sports": "스포츠 제목 모으기", "prices": "시세 모으기", "intraday": "장중 시세 모으기", "trade": "수출입 통계 모으기", "flash": "산업부 수출입 잠정치 모으기", "groups": "20대 품목 자료 모으기", "sales": "현대차·기아 판매실적 모으기"}.get(kind, kind)
     mode = os.environ.get("IN_MODE", "").strip()
     text = f"{what} 실행이 실패했어요{' (' + mode + ')' if mode and mode != '전체' else ''}.\n아래 링크에서 원인을 볼 수 있어요.\n{run_url}"
     url = os.environ.get("PREFS_URL", "").strip()
