@@ -38,7 +38,8 @@ from urllib.parse import urlparse
 
 import requests
 
-from sales_calc import parse_sales  # 현대차·기아 월별 판매대수 표 (앱·수집기와 같은 규칙)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # 다른 폴더에서 불러와도 옆의 sales_calc.py를 찾게
+from sales_calc import parse_sales  # 현대차·기아 월별 판매대수 표 (앱·수집기와 같은 규칙)  # noqa: E402
 
 KST = timezone(timedelta(hours=9))
 HERE = os.path.dirname(os.path.abspath(__file__))

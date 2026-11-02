@@ -52,6 +52,8 @@ import ai_search as ais
 ais = importlib.reload(ais)  # (위와 같은 이유)
 import calc_tools as ct
 ct = importlib.reload(ct)  # (위와 같은 이유)
+import sales_calc as slc
+slc = importlib.reload(slc)  # (위와 같은 이유)
 import requests
 import streamlit as st
 from requests.adapters import HTTPAdapter
@@ -484,7 +486,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.02 14:56"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.02 17:05"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -4382,7 +4384,7 @@ def render_fin_hub():
         with st.container(key="fin_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
             c1, c2 = st.columns([1, 4], vertical_alignment="center")
             c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-            mode = c2.radio("조회 방식", ["개별", "국내", "해외", "AI 검색"], horizontal=True, key="fin_mode", label_visibility="collapsed")
+            mode = c2.radio("조회 방식", ["개별", "국내", "해외", "차 판매", "AI 검색"], horizontal=True, key="fin_mode", label_visibility="collapsed")
         track_choice("fin_mode", "재무 분석")
         if mode == "AI 검색":
             render_fin_ai_search()
@@ -4390,8 +4392,131 @@ def render_fin_hub():
             render_financials()
         elif mode == "국내":
             render_industry()
+        elif mode == "차 판매":
+            render_car_sales()
         else:
             render_overseas()
+
+
+# ---- 현대차·기아 월별 판매실적 (sales 브랜치: sales_data.py가 DART '영업(잠정)실적' 공시의 판매대수 표를 모음) ----
+SALES_BRANCH = "sales"
+SALES_SHORT = {"현대자동차": "현대차", "기아": "기아"}
+SALES_TODAY_DAYS = 3  # 오늘의 현황(자동차)에 '이달 판매'를 공시 뒤 며칠 보여줄지
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_sales():
+    res = requests.get(f"https://raw.githubusercontent.com/{DATA_REPO}/{SALES_BRANCH}/sales.json", timeout=(10, 30))
+    res.raise_for_status()
+    return res.json()
+
+
+def get_sales():
+    """모아 둔 판매실적 {회사: {YYYY-MM: {국내, 해외, [특수], 합계, released}}} (자료가 있는 회사만). 없으면 None"""
+    try:
+        data = _fetch_sales()
+    except Exception:
+        return None
+    corps = {c: (v or {}).get("months") or {} for c, v in (data.get("corps") or {}).items()} if isinstance(data, dict) else {}
+    corps = {c: m for c, m in corps.items() if m}
+    return corps or None
+
+
+def sales_cards(sales, corps=None):
+    """회사마다 가장 최근 달 판매 + 1~N월 누적 카드"""
+    cards = []
+    for corp in corps or list(sales):
+        months = sales.get(corp) or {}
+        if not months:
+            continue
+        last = max(months)
+        cur, yoy = slc.value(months, last, "합계"), slc.yoy_of(months, last, "합계")
+        cum = slc.ytd(months, last, "합계")
+        cum_yoy = slc.disclosed(months, last, "cum_yoy", "합계")
+        if cum_yoy is None:
+            cum_yoy = slc.pct(cum, slc.ytd(months, slc.ym_add(last, -12), "합계"))
+        name = SALES_SHORT.get(corp, corp)
+        cards.append((f"{name} {int(last[5:])}월 판매", f"{cur:,}대", f"{px_pct(yoy)} (전년동월比)" if yoy is not None else None, None))
+        if cum is not None:
+            cards.append((f"{name} 1~{int(last[5:])}월 누적", f"{cum:,}대", f"{px_pct(cum_yoy)} (전년比)" if cum_yoy is not None else None, None))
+    return cb_cards(cards)
+
+
+def sales_chart(sales, part, corps, n=25):
+    """최근 n개월 판매대수 선 그래프 (회사별)"""
+    series = {}
+    for corp in corps:
+        months = sales.get(corp) or {}
+        if not months:
+            continue
+        rows = list(reversed(slc.month_rows(months, part, max(months), n)))
+        series[SALES_SHORT.get(corp, corp)] = pd.Series([r["cur"] for r in rows], index=pd.to_datetime([r["ym"] for r in rows], format="%Y-%m"))
+    px_line_chart(px_long(series), "대", fmt="%Y-%m", axis_fmt="%y.%m")
+
+
+def render_car_sales():
+    """재무 분석 > 차 판매: 현대차·기아가 매월 초 공시하는 판매대수(국내·해외)를 월별·연도별로"""
+    sales = get_sales()
+    if not sales:
+        st.info("판매실적 자료를 아직 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.")
+        return
+    corps = [c for c in slc.SALES_CORPS if c in sales]
+    last = max(max(sales[c]) for c in corps)
+    released = max(str((sales[c].get(max(sales[c])) or {}).get("released", "")) for c in corps)
+    st.caption(f"현대차·기아가 매월 초 DART에 공시하는 판매대수(잠정)예요 · 최근 {last.replace('-', '.')} ({released} 공시)")
+    st.markdown(sales_cards(sales, corps), unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    view = c1.radio("보기", ["월별", "연도별"], horizontal=True, key="sales_view")
+    part = c2.radio("구분", ["합계", "국내", "해외"], horizontal=True, key="sales_part",
+                    help="국내 = 내수 판매, 해외 = 해외 판매(수출·현지 생산 포함). 기아의 특수(군수·상용특장, 2023년부터)는 합계에만 들어 있어요.")
+    track_choice("sales_view", "차 판매 보기")
+    track_choice("sales_part", "차 판매 구분")
+    names = [SALES_SHORT.get(c, c) for c in corps]
+    if view == "월별":
+        rows = []
+        for k in range(25):
+            ym = slc.ym_add(last, -k)
+            row = {"월": ym.replace("-", ".")}
+            have = False
+            for corp, nm in zip(corps, names):
+                m = sales[corp]
+                cur = slc.value(m, ym, part)
+                have = have or cur is not None
+                row[nm] = "-" if cur is None else f"{cur:,}"
+                row[f"{nm} 전년比"] = px_pct(slc.yoy_of(m, ym, part)) if cur is not None else "-"
+                row[f"{nm} 전월比"] = px_pct(slc.mom_of(m, ym, part)) if cur is not None else "-"
+            if have:
+                rows.append(row)
+        table = pd.DataFrame(rows)
+        with st.container(border=True):
+            st.markdown(f"##### 월별 판매 ({part}, 대)")
+            st.dataframe(table.style.map(cb_style, subset=[c for c in table.columns if c.endswith("比")]), hide_index=True,
+                         height=min(len(table) + 1, 14) * 35 + 3)
+            sales_chart(sales, part, corps)
+    else:
+        mm = int(last[5:])
+        same = f"1~{mm}월"
+        years = sorted({ym[:4] for c in corps for ym in sales[c]}, reverse=True)
+        rows = []
+        for y in years:
+            row = {"연도": y}
+            for corp, nm in zip(corps, names):
+                yr = {r["year"]: r for r in slc.year_rows(sales[corp], part, last)}.get(y) or {}
+                row[f"{nm} 연간"] = "-" if yr.get("full") is None else f"{yr['full']:,}"
+                row[f"{nm} {same}"] = "-" if yr.get("same") is None else f"{yr['same']:,}"
+                row[f"{nm} {same} 전년比"] = px_pct(yr.get("same_yoy"))
+            if any(v != "-" for k, v in row.items() if k != "연도"):  # 자료가 거의 없는 해(예: 12월만 있는 첫해)는 뺀다
+                rows.append(row)
+        table = pd.DataFrame(rows)
+        with st.container(border=True):
+            st.markdown(f"##### 연도별 판매 ({part}, 대)")
+            st.dataframe(table.style.map(cb_style, subset=[c for c in table.columns if c.endswith("比")]), hide_index=True,
+                         height=min(len(table) + 1, 14) * 35 + 3)
+            st.caption(f"'{same}'은 해마다 같은 기간(1월~{mm}월) 누계예요. 올해와 같은 기간끼리 비교할 때 보세요. 연간은 12달 자료가 다 있을 때만 보여요.")
+    st.download_button("표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name=f"차판매_{view}_{part}.csv", mime="text/csv", key="sales_dl")
+    st.caption("판매 안내", help="DART '영업(잠정)실적(공정공시)'의 판매대수 표를 그대로 모은 것이에요(가마감 잠정치라 확정치와 조금 다를 수 있어요). "
+               "차종별·지역별 판매는 공시에 없어 회사 보도자료를 보세요. 증감률과 누적은 공시에 적힌 값을 그대로 써요(회사가 지난달 숫자를 나중에 고치기도 해서, 달마다 더한 값과 조금 다를 수 있어요). "
+               "옛 공시(2016~2017년 등)는 CKD(반조립) 판매를 뺀 수치라고 적혀 있어요.")
 
 
 def render_industry():
@@ -9155,6 +9280,15 @@ def render_brief_result(b):
                 st.dataframe(bs, hide_index=True, height=(len(bs) + 1) * 35 + 3,
                              column_config={"기간": st.column_config.TextColumn("기간", width=95)})
 
+    if b["corp"] in slc.SALES_CORPS:  # 현대차·기아: 매월 공시하는 판매대수
+        sales = get_sales()
+        if sales and sales.get(b["corp"]):
+            with st.container(border=True):
+                st.markdown("##### 월별 판매 (대)")
+                st.markdown(sales_cards(sales, [b["corp"]]), unsafe_allow_html=True)
+                sales_chart(sales, "합계", [b["corp"]], n=13)
+                st.caption("매월 초 공시하는 판매대수(잠정)예요. 국내·해외 나눠 보기와 연도별 비교는 재무 분석 '차 판매'에서 볼 수 있어요.")
+
     with st.container(border=True):
         st.markdown("##### 최근 3개월 주요 공시")
         if errs.get("disc"):
@@ -11503,6 +11637,29 @@ def today_rows(updated, since_txt, _rec):
     return [r for r in _rec["items"] if not (r.get("k") == "통신" and str(r.get("d", ""))[:10] >= day0 and is_sports(r.get("t", ""), keys))]
 
 
+def today_sales_line(now):
+    """자동차 섹터: 현대차·기아 월별 판매 공시가 나온 뒤 SALES_TODAY_DAYS일 동안 '이달 판매' 한 줄 (HTML) 또는 None"""
+    sales = get_sales()
+    if not sales:
+        return None
+    since = (now.date() - timedelta(days=SALES_TODAY_DAYS - 1)).isoformat()
+    parts, label = [], ""
+    for corp in slc.SALES_CORPS:
+        months = sales.get(corp) or {}
+        if not months:
+            continue
+        last = max(months)
+        rec = months[last]
+        if str(rec.get("released", "")) < since:
+            continue
+        cur = rec.get("합계")
+        parts.append(f"{SALES_SHORT.get(corp, corp)} <b>{cur:,}대</b> ({px_pct(slc.yoy_of(months, last, '합계'))})")
+        label = f"{int(last[5:])}월 판매"
+    if not parts:
+        return None
+    return f'<div class="td-lbl">{label} <small>전년동월比 · 재무 분석 \'차 판매\'에서 자세히</small></div><div>' + " · ".join(parts) + "</div>"
+
+
 def render_today():
     """탭: 오늘의 현황 - 고른 섹터마다 단독·통신 기사, 공시, 특징주를 모아 보여준다(매시간 모아 둔 자료라 새로 검색하지 않아요)."""
     rec = get_stored("recent.json")
@@ -11546,6 +11703,10 @@ def _render_today_body(rec):
                 up, down = tdc.movers(snap, codes_by[sec], 2)
                 if up or down:
                     st.markdown(movers_html(up, down, when), unsafe_allow_html=True)
+            if sec == "자동차":
+                line = today_sales_line(now)
+                if line:
+                    st.markdown(line, unsafe_allow_html=True)
             if earnings_names(sec):
                 events = today_earnings(sec, str(now.date()))
                 if events:
