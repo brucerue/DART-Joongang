@@ -47,6 +47,7 @@ if not hasattr(tdc, "PERIODS"):  # 앱이 켜진 채로 배포되면 서버가 �
     tdc = importlib.reload(tdc)
 import trade_calc as tc
 tc = importlib.reload(tc)  # (위와 같은 이유)
+TC_SIG = hashlib.md5(open(tc.__file__, "rb").read()).hexdigest()[:10]  # trade_calc.py 내용 지문 (계산 규칙이 바뀌면 저장해 둔 결과를 새로 만들게)
 import ai_search as ais
 ais = importlib.reload(ais)  # (위와 같은 이유)
 import calc_tools as ct
@@ -449,7 +450,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.02 12:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.02 12:43"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9974,7 +9975,7 @@ def _fetch_groups():
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def _groups_country(updated, months):
+def _groups_country(updated, months, rule=""):
     g = _fetch_groups()
     data = get_trade()
     names = {c: v[0] for c, v in (data or {}).get("country", {}).items()}
@@ -9989,7 +9990,7 @@ def get_groups_country(data, metrics=()):
         g = _fetch_groups()
         if not tc.groups_usable(g, data["months"]):
             return None
-        return _groups_country(str(g.get("updated", "")), tuple(data["months"]))
+        return _groups_country(str(g.get("updated", "")), tuple(data["months"]), TC_SIG)  # trade_calc.py가 바뀌면(배포) 저장해 둔 결과를 쓰지 않고 다시 계산
     except Exception:
         return None
 
