@@ -16,36 +16,54 @@ def pct_text(v):
     return (v if v[0] in "+-" or float(v) == 0 else "+" + v) + "%"
 
 
-def parse_sales(text):
-    """공시 원문 글(표 칸은 ' | ', 줄은 줄바꿈) -> {year, month, monthly: [(이름, 대수글자, 전년比, 전월比)],
-    cum: [(이름, 대수글자, 전년比)], cum_label} 또는 None(판매대수 표가 없는 공시).
-    표 칸: 당기, 전기, 전기대비%, 전환여부, 전년동기, 전년동기대비%, 전환여부 (누적 표는 당기누적, -, -, -, 전년동기누적, 증감%, -)"""
-    cells = [c.strip().rstrip("|").strip() for c in text.split("\n")]
-    m = re.search(r"당기실적\s*\|?\s*\n\s*(\d{4})-(\d{2})-\d{2}", text)
+def _month_of(header):
+    """표 머리글 '당기실적 (2019년12월)' / "당기실적 ('25.8월)" -> (연도, 월) 또는 None"""
+    h = header.replace(" ", "")
+    m = re.search(r"(\d{4})년(\d{1,2})월", h) or re.search(r"'(\d{2})\.(\d{1,2})월", h)
     if not m:
         return None
-    year, month = m.group(1), str(int(m.group(2)))
-    out = {"year": year, "month": month, "monthly": [], "cum": [], "cum_label": f"1~{month}월"}
+    y = m.group(1)
+    return (y if len(y) == 4 else "20" + y), str(int(m.group(2)))
+
+
+def parse_sales(text):
+    """공시 원문 글(표 칸은 ' | ') -> {year, month, monthly: [(이름, 대수글자, 전년比, 전월比)], cum: [(이름, 대수글자, 전년比)], cum_label}
+    또는 None(판매대수 표가 없는 공시). 표 양식이 해마다 달라(칸 5개 또는 흑자적자전환여부까지 7개) 머리글로 칸 위치를 찾는다."""
+    cells = [" ".join(c.split()) for c in text.split("|")]
+    period = re.search(r"당기실적\s*\|?\s*\n\s*(\d{4})-(\d{2})-\d{2}", text)
+    ym = (period.group(1), str(int(period.group(2)))) if period else None
+    monthly, cum = [], []
     k = 0
     while k < len(cells):
         head = cells[k].replace(" ", "")
         if not (head.startswith("구분") and "단위:대" in head):
             k += 1
             continue
-        hdr = cells[k + 1:k + 8]
-        cum = any("누적" in h for h in hdr)
-        k += 8
-        while k + 7 < len(cells):
+        k += 1
+        hdr = []
+        while k < len(cells) and cells[k].replace(" ", "") not in SALES_LABELS and len(hdr) < 9:
+            hdr.append(cells[k].replace(" ", ""))
+            k += 1
+        width = len(hdr)
+        is_cum = any("누적" in h for h in hdr)
+        yoy_i = next((i for i, h in enumerate(hdr) if "전년동기" in h and ("증감" in h or "대비" in h) and "실적" not in h), None)
+        mom_i = next((i for i, h in enumerate(hdr) if h.startswith("전기대비")), None)
+        if not is_cum and ym is None and hdr:
+            ym = _month_of(hdr[0])
+        while k + width < len(cells) + 1:
             name = SALES_LABELS.get(cells[k].replace(" ", ""))
-            row = cells[k + 1:k + 8]
-            if not name or not re.fullmatch(r"\d[\d,]*", row[0]):
+            row = cells[k + 1:k + 1 + width]
+            if not name or len(row) < width or not re.fullmatch(r"\d[\d,]*", row[0]):
                 break
-            if cum:
-                out["cum"].append((name, row[0], pct_text(row[5])))
+            yoy = pct_text(row[yoy_i]) if yoy_i is not None else None
+            if is_cum:
+                cum.append((name, row[0], yoy))
             else:
-                out["monthly"].append((name, row[0], pct_text(row[5]), pct_text(row[2])))
-            k += 8
-    return out if out["monthly"] else None
+                monthly.append((name, row[0], yoy, pct_text(row[mom_i]) if mom_i is not None else None))
+            k += 1 + width
+    if not monthly or not ym:
+        return None
+    return {"year": ym[0], "month": ym[1], "monthly": monthly, "cum": cum, "cum_label": f"1~{ym[1]}월"}
 
 
 def to_int(s):

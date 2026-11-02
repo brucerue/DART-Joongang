@@ -66,11 +66,22 @@ def doc_text(key, rcept_no, get=requests.get):
     return nd.fetch_doc_text(key, rcept_no)
 
 
+def parser_sig():
+    """sales_calc.py 내용 지문"""
+    import hashlib
+    with open(slc.__file__, "rb") as f:
+        return hashlib.md5(f.read()).hexdigest()[:10]
+
+
 def collect(prev, key, since, max_docs, get=requests.get, text_of=None, now=None):
     now = now or datetime.now(KST)
     text_of = text_of or (lambda no: doc_text(key, no))
+    sig = parser_sig()
+    seen = dict(prev.get("seen", {}))
+    if prev.get("parser") != sig:  # 읽는 규칙(sales_calc.py)이 바뀌면 전에 건너뛴·실패한 공시를 다시 읽는다
+        seen = {k: v for k, v in seen.items() if v == "ok"}
     data = {"corps": {c: {"months": dict((prev.get("corps", {}).get(c) or {}).get("months", {}))} for c in slc.SALES_CORPS},
-            "seen": dict(prev.get("seen", {}))}
+            "seen": seen, "parser": sig}
     done, read, failed = 0, 0, 0
     for corp, code in slc.SALES_CORPS.items():
         months = data["corps"][corp]["months"]

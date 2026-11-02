@@ -25,6 +25,14 @@ print(d)
 check("10월 판매 329,773대 (전년比 -6.3% · 전월比 +6.4%)" in d, "현대차: 부호 없는 원문 증감률에 + 붙임")
 check("국내 49,042대(-8.9%) · 해외 280,731대(-5.9%)" in d and "특수" not in d, "현대차: 국내·해외")
 check("1~10월 누적 3,218,586대 (전년比 -6.9%)" in d, "현대차: 누적")
+# 옛 양식: 칸 5개(흑자적자전환여부 없음), 맨 위 '실적기간' 없음(머리글에서 달을 읽음), '내수'
+old16 = nd.parse_sales(open(FIX + "/sales_hyundai_2016.txt", encoding="utf-8").read())
+check(old16 and (old16["year"], old16["month"]) == ("2016", "12") and old16["monthly"][-1] == ("합계", "496,907", "-3.7%", "+5.3%"), f"2016년 현대차 양식 {old16 and old16['monthly'][-1]}")
+check(old16 and old16["monthly"][0][0] == "국내" and old16["cum"][-1] == ("합계", "4,860,049", "-2.1%"), "2016년: 내수 -> 국내, 누적")
+k25 = nd.parse_sales(open(FIX + "/sales_kia_2025.txt", encoding="utf-8").read())
+check(k25 and (k25["year"], k25["month"]) == ("2025", "8") and ("특수", "562", "-12.9%", "+12.0%") in k25["monthly"], "2025년 기아 양식('25.8월)")
+import sales_calc as slc
+check(slc.sales_record(k25) == {"ym": "2025-08", "국내": 43501, "해외": 209887, "특수": 562, "합계": 253950}, "저장용 숫자")
 # 알람 흐름: 원문을 받아 제목·수치 줄을 붙임
 nd.fetch_doc_text = lambda key, no: {"1": kia, "2": hy}[no]
 items = [{"key": "1", "title": "[기아] 영업(잠정)실적(공정공시)", "corp": "기아", "earn": "별도", "rcept_dt": "20261102", "url": "u1", "publisher": "DART"},
