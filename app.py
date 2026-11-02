@@ -449,7 +449,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.02 09:15"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.02 12:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -10063,6 +10063,15 @@ def trade_flash(data):
         return None
 
 
+def flash_month(ym):
+    """산업부 보도자료 잠정치 중 그 달(ym 'YYYY-MM')의 자료 또는 None"""
+    try:
+        fm = (_fetch_flash().get("months") or {}).get(ym)
+    except Exception:
+        return None
+    return fm if isinstance(fm, dict) and fm.get("items") else None
+
+
 def trade_eok(v):
     """달러 -> '659.0억달러'"""
     return "-" if v is None else f"{v / 1e8:,.1f}억달러"
@@ -11301,8 +11310,17 @@ def render_trade_group_rank(data, i):
         kind_label = c1.radio("구분", ["수출", "수입"], horizontal=True, key="tr_m_gkind")
         order = c2.radio("정렬", ["증감률", "증감액"], horizontal=True, key="tr_m_gorder")
         rows = tc.group_month_rows(gc, months, i, "exp" if kind_label == "수출" else "imp")
+        source = "산업부 20대 주력 품목 기준이에요(미리 모아 둔 자료). 증감은 전년 같은 달 대비예요."
+        if not rows:  # 관세청 품목별 자료가 아직 없는 달(보통 다음 달 중순에 나옴) -> 산업부 보도자료 잠정치(수출만)
+            fm = flash_month(months[i])
+            if fm and kind_label == "수출":
+                rows = tc.flash_item_rows(fm)
+                source = f"관세청 품목별 자료가 아직 없어 산업부 보도자료({fm.get('released', '')} 발표) 잠정치로 보여줘요. 증감은 전년 같은 달 대비예요."
+            elif fm:
+                st.info("산업부 보도자료에는 20대 품목 수출만 있어요. 수입은 관세청 품목별 자료가 나오면(보통 다음 달 중순) 보여요.")
+                return
         if not rows:
-            st.info("이 달의 20대 품목 자료가 없어요.")
+            st.info("이 달의 20대 품목 자료가 아직 없어요. 관세청 품목별 자료는 보통 다음 달 중순에 나와요.")
             return
         key = "chg" if order == "증감률" else "diff"
         rows.sort(key=lambda r: (r[key] is None, -(r[key] or 0)))
@@ -11310,7 +11328,7 @@ def render_trade_group_rank(data, i):
                                "전년 동월": trade_eok(r["prev"]) if r["prev"] is not None else "-", "증감률": px_pct(r["chg"]),
                                "증감액": "-" if r["diff"] is None else f"{r['diff'] / 1e8:+,.1f}억달러"} for n, r in enumerate(rows, 1)])
         st.dataframe(trade_styled(table, ["증감률", "증감액"]), hide_index=True, height=min(len(table) + 1, 21) * 35 + 3)
-        st.caption("산업부 20대 주력 품목 기준이에요(미리 모아 둔 자료). 증감은 전년 같은 달 대비예요.")
+        st.caption(source)
 
 
 def render_trade_monthly(data):

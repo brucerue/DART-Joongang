@@ -823,9 +823,22 @@ def groups_usable(g, months):
                 and months and g["months"][-1] >= months[-1])
 
 
+def groups_empty_months(g):
+    """groups.json에서 모든 품목·국가의 수출·수입이 0인 달 (관세청 품목별 국가별 자료는 보통 다음 달 중순에 나와, 그 전엔 0으로 저장된다)"""
+    months = g.get("months") or []
+    total = [0] * len(months)
+    for per in (g.get("data") or {}).values():
+        for e, im in per.values():
+            for k in range(len(months)):
+                total[k] += (e[k] or 0) + (im[k] or 0)
+    return {m for m, t in zip(months, total) if not t}
+
+
 def groups_country(g, months, names=None):
     """groups.json -> {품목: {국가코드: [이름, 수출[], 수입[]]}} (달러, months 순서. groups에 없는 달은 None). sum_arrays·rank_entries_arrays에 그대로 쓴다"""
     gi = {m: i for i, m in enumerate(g["months"])}
+    for m in groups_empty_months(g):  # 관세청 품목별 국가별 자료가 아직 안 나온 달(모두 0)은 '없는 달'로
+        gi.pop(m, None)
     pos = [gi.get(m) for m in months]
     out = {}
     for name, per in g["data"].items():
@@ -835,6 +848,17 @@ def groups_country(g, months, names=None):
                        [None if k is None else e[k] * 1000 for k in pos],
                        [None if k is None else im[k] * 1000 for k in pos]]
         out[name] = d
+    return out
+
+
+def flash_item_rows(fm):
+    """산업부 보도자료 잠정치의 20대 품목 수출 -> group_month_rows와 같은 모양 (보도자료는 백만 달러 -> 달러)"""
+    out = []
+    for name, v in (fm.get("items") or {}).items():
+        if not v or v[-1] is None:
+            continue
+        cur, prev = v[-1] * 1e6, (v[0] * 1e6 if len(v) >= 13 and v[0] is not None else None)
+        out.append({"name": name, "cur": cur, "prev": prev, "chg": pct(cur, prev) if prev else None, "diff": None if prev is None else cur - prev})
     return out
 
 
