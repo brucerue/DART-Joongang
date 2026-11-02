@@ -16,7 +16,7 @@ jobs:
           python - <<'PY'
           import news_digest as nd
           from datetime import datetime
-          now = datetime.now(nd.KST)
+          now = datetime(2026, 10, 30, 18, 0, tzinfo=nd.KST)
           feed = nd.fetch_dart_feed(now)
           items = []
           for s in nd.SECTORS:
