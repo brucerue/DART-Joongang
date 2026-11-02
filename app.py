@@ -5662,6 +5662,7 @@ def gn_filter_bar(pre, title_box=True):
 
 def render_global_news():
     """뉴스 탭 > 외신: 기업별(영문 별칭) / 한국 관련(본문까지) — 매시 모아 둔 기사를 섹터만 고르면 바로 보여 주고, 같은 기사는 묶고 한글 제목을 함께"""
+    st.caption("기사 원문을 보려면 해당 언론사 로그인이 필요할 수 있어요.")
     view = st.radio("외신 보기", ["기업별", "한국 관련"], horizontal=True, key="gn_view", label_visibility="collapsed",
                     help="기업별 = 고른 기업 이름이 제목에 든 기사. 한국 관련 = 한국(South Korea·Korean·Seoul)과 섹터 낱말이 함께 나오는 기사를 본문까지 찾아요.")
     track_choice("gn_view", "외신 보기")
