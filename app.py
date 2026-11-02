@@ -8580,35 +8580,6 @@ BRIEF_TREND_DAYS = 7  # 동향 요약에 보내는 단독·통신 기사: 최근
 BRIEF_WIRE_MAX = 15  # 동향 요약에 보내는 통신 기사 묶음 수
 BRIEF_DISC_MAX = 12  # 보여줄 주요 공시 수
 
-AI_BRIEF_SYSTEM = (
-    "너는 중앙일보 산업부 기자의 취재 준비를 돕는 보조자다. 사용자가 준 자료(실적·재무, 최근 주요 공시 제목)만 근거로 쓴다. "
-    "자료에 없는 숫자·사실·원인·전망·시장 반응·뉴스 내용은 절대 만들지 않는다. 숫자는 자료 표기 그대로 옮기고 새로 계산하지 않는다. "
-    "공시 제목만으로는 내용을 알 수 없으니 제목에서 읽히는 것까지만 말하고, 내용은 원문 확인이 필요하다고 적는다. "
-    "원인·배경은 단정하지 말고 '확인 필요'로 표시한다. 한국어, 짧고 명확한 기사체로 쓴다."
-)
-
-
-def df_lines(df, cols=None):
-    """표 -> 'a | b | c' 줄 목록 (AI에 보낼 글)."""
-    if df is None or df.empty:
-        return []
-    cols = [c for c in (cols or list(df.columns)) if c in df.columns]
-    return [" | ".join(str(v) for v in row) for row in df[cols].itertuples(index=False)]
-
-
-def brief_ai_prompt(b):
-    parts = [fin_ai_text(b["corp"], b["records"], "연도별")] if b.get("records") else [f"기업: {b['corp']}\n(실적 자료 없음)"]
-    if b.get("disc") is not None and not b["disc"].empty:
-        parts.append("[최근 3개월 주요 공시 제목]\n" + "\n".join(df_lines(b["disc"], ["접수일", "보고서명"])))
-    return (
-        "\n\n".join(parts)
-        + "\n\n위 자료만 근거로, 이 기업을 취재하는 산업부 기자를 위해 아래 형식으로 써라. 자료가 부족한 항목은 건너뛴다.\n"
-        "**한 줄 요약**: 지금 이 기업을 어떻게 봐야 하는지 한 문장\n"
-        "**취재 포인트 3가지**: 각 항목은 '- 포인트: 한 문장 (근거: 자료의 숫자·공시명)' 형식. 근거가 어느 자료(실적·공시)인지 밝혀라\n"
-        "**물어볼 것**: 자료만으로 알 수 없어 회사나 취재원에게 확인해야 할 질문 2~3개 (- 로 시작)"
-    )
-
-
 BRIEF_TREND_NEWS_MAX = 12  # 동향 요약에 보내는 일반 기사 묶음 수
 BRIEF_CLS = {"Y": "유가증권시장", "K": "코스닥", "N": "코넥스", "E": "기타"}
 # 회사 개요 요약에 보내는 보고서 부분과 부분별 최대 글자 수
@@ -9172,27 +9143,6 @@ def render_brief_result(b):
     render_brief_timeline(b)
     render_brief_trend(b)
 
-    with st.container(border=True):
-        st.markdown("##### AI 취재 포인트")
-        if not AI_PROVIDER:
-            st.caption("AI 취재 포인트를 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude) 또는 GEMINI_API_KEY(Gemini)를 추가해주세요.")
-            return
-        prompt = brief_ai_prompt(b)
-        sig = hashlib.sha1(prompt.encode("utf-8")).hexdigest()
-        if log_if(st.button("위 자료로 취재 포인트 뽑기", key="brief_ai_go", type="primary"), "브리핑 AI 취재 포인트"):
-            with st.spinner("자료를 종합하는 중입니다... (10~30초)"):
-                try:
-                    (text, used) = ai_cached(("brief", sig), lambda: ai_generate(prompt, system=AI_BRIEF_SYSTEM))
-                except AiError as e:
-                    st.error(str(e))
-                else:
-                    st.session_state["brief_ai"] = {"sig": sig, "text": text, "model": used}
-        saved = st.session_state.get("brief_ai")
-        if saved and saved["sig"] == sig:
-            st.markdown(md_safe(saved["text"]))
-            st.caption(f"AI 분석 · 위 실적·공시 자료만 근거로 한 해석이에요. 공시는 제목만 보고 판단한 것이라 원문 확인이 필요해요")
-        else:
-            st.caption("누르면 위 실적·공시 자료를 종합해 취재 포인트와 확인할 질문을 정리해 줘요. (뉴스는 포함하지 않아요)")
 
 def render_brief():
     """탭: 기업 브리핑 - 회사 하나의 실적·공시·뉴스를 한 화면에."""
@@ -9206,7 +9156,6 @@ def render_brief():
             st.error("기업명을 입력해주세요.")
         else:
             st.session_state.pop("brief", None)
-            st.session_state.pop("brief_ai", None)
             st.session_state.pop("brief_ov", None)
             st.session_state.pop("brief_trend", None)
             code = lookup_corp_code(corp, "brief")
