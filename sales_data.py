@@ -77,11 +77,10 @@ def collect(prev, key, since, max_docs, get=requests.get, text_of=None, now=None
     now = now or datetime.now(KST)
     text_of = text_of or (lambda no: doc_text(key, no))
     sig = parser_sig()
-    seen = dict(prev.get("seen", {}))
-    if prev.get("parser") != sig:  # 읽는 규칙(sales_calc.py)이 바뀌면 전에 건너뛴·실패한 공시를 다시 읽는다
-        seen = {k: v for k, v in seen.items() if v == "ok"}
+    if prev.get("parser") != sig:  # 읽는 규칙(sales_calc.py)이 바뀌면 처음부터 다시 읽는다 (두 회사 10년이 원문 약 350건)
+        prev = {}
     data = {"corps": {c: {"months": dict((prev.get("corps", {}).get(c) or {}).get("months", {}))} for c in slc.SALES_CORPS},
-            "seen": seen, "parser": sig}
+            "seen": dict(prev.get("seen", {})), "parser": sig}
     done, read, failed = 0, 0, 0
     for corp, code in slc.SALES_CORPS.items():
         months = data["corps"][corp]["months"]

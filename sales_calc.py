@@ -4,8 +4,8 @@ import re
 
 SALES_CORPS = {"현대자동차": "00164742", "기아": "00106641"}  # 매월 판매대수를 공시하는 회사: DART 이름 -> 고유번호
 SALES_PARTS = ("국내", "해외", "특수", "합계")  # 표의 구분 (특수 = 기아 군수·상용특장, 2023년부터)
-SALES_LABELS = {"국내": "국내", "내수": "국내", "판매대수(내수)": "국내", "해외": "해외", "판매대수(해외)": "해외",
-                "특수": "특수", "판매대수(특수)": "특수", "계": "합계", "합계": "합계", "판매대수(계)": "합계"}  # 판매대수 표의 줄 이름 -> 우리 이름
+SALES_LABELS = {"국내": "국내", "내수": "국내", "판매대수(내수)": "국내", "해외": "해외", "판매대수(해외)": "해외", "수출": "해외",
+                "특수": "특수", "판매대수(특수)": "특수", "계": "합계", "합계": "합계", "판매대수(계)": "합계"}  # 판매대수 표의 줄 이름 -> 우리 이름 (2017년 현대차는 해외를 '수출'로 적음, 해외공장 판매 포함)
 
 
 def pct_text(v):
@@ -19,7 +19,7 @@ def pct_text(v):
 def _month_of(header):
     """표 머리글 '당기실적 (2019년12월)' / "당기실적 ('25.8월)" -> (연도, 월) 또는 None"""
     h = header.replace(" ", "")
-    m = re.search(r"(\d{4})년(\d{1,2})월", h) or re.search(r"'(\d{2})\.(\d{1,2})월", h)
+    m = re.search(r"(\d{4})년(\d{1,2})월", h) or re.search(r"'(\d{2})[.년](\d{1,2})월", h)  # 2019년12월 / '25.8월 / '17년11월
     if not m:
         return None
     y = m.group(1)
@@ -61,7 +61,7 @@ def parse_sales(text):
             else:
                 monthly.append((name, row[0], yoy, pct_text(row[mom_i]) if mom_i is not None else None))
             k += 1 + width
-    if not monthly or not ym:
+    if not ym or not any(n == "합계" for n, *_ in monthly):  # 합계 줄까지 못 읽었으면(모르는 줄 이름 등) 저장하지 않는다
         return None
     return {"year": ym[0], "month": ym[1], "monthly": monthly, "cum": cum, "cum_label": f"1~{ym[1]}월"}
 
@@ -75,8 +75,6 @@ def sales_record(parsed):
     rec = {"ym": f"{parsed['year']}-{int(parsed['month']):02d}"}
     for name, num, _, _ in parsed["monthly"]:
         rec[name] = to_int(num)
-    if "합계" not in rec:
-        rec["합계"] = sum(rec.get(p, 0) for p in SALES_PARTS[:3])
     return rec
 
 

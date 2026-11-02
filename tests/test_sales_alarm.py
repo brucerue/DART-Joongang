@@ -31,7 +31,10 @@ check(old16 and (old16["year"], old16["month"]) == ("2016", "12") and old16["mon
 check(old16 and old16["monthly"][0][0] == "국내" and old16["cum"][-1] == ("합계", "4,860,049", "-2.1%"), "2016년: 내수 -> 국내, 누적")
 k25 = nd.parse_sales(open(FIX + "/sales_kia_2025.txt", encoding="utf-8").read())
 check(k25 and (k25["year"], k25["month"]) == ("2025", "8") and ("특수", "562", "-12.9%", "+12.0%") in k25["monthly"], "2025년 기아 양식('25.8월)")
+h17 = nd.parse_sales(open(FIX + "/sales_hyundai_2017.txt", encoding="utf-8").read())
 import sales_calc as slc
+check(h17 and slc.sales_record(h17) == {"ym": "2017-07", "국내": 59614, "해외": 273566, "합계": 333180}, "2017년 현대차: '수출' 줄 = 해외")
+check(nd.parse_sales("구분(단위:대,%) | 당기실적 (2017년7월) | 전기 | 증감 | 전년 | 증감 | 내수 | 1 | 2 | 3 | 4 | 5 | 모르는줄 | 1 | 2 | 3 | 4 | 5 |") is None, "합계 줄을 못 읽으면 저장 안 함")
 check(slc.sales_record(k25) == {"ym": "2025-08", "국내": 43501, "해외": 209887, "특수": 562, "합계": 253950}, "저장용 숫자")
 # 알람 흐름: 원문을 받아 제목·수치 줄을 붙임
 nd.fetch_doc_text = lambda key, no: {"1": kia, "2": hy}[no]
