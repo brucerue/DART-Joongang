@@ -49,7 +49,7 @@ SALES = {"corps": {"현대자동차": {"months": {**{f"2025-{k:02d}": {"국내":
                                          **{f"2026-{k:02d}": {"국내": 49000, "해외": 280000, "합계": 329000, "released": today.isoformat() if k == 10 else "2026-01-01"} for k in range(1, 11)}}},
                    "기아": {"months": {f"2026-{k:02d}": {"국내": 51000, "해외": 239000, "특수": 900, "합계": 290900, "released": today.isoformat() if k == 10 else "2026-01-01"} for k in range(1, 11)}}}}
 import pandas as pd
-CSV = "corp_code,corp_name,stock_code\n00126380,삼성전자,005930\n"
+CSV = "corp_code,corp_name,stock_code\n00126380,삼성전자,005930\n00164742,현대자동차,005380\n00106641,기아,000270\n"
 class RR:
     status_code = 200; text = "{}"; content = b"{}"; ok = True
     def __init__(s, p=None): s._p = p if p is not None else {}
@@ -63,25 +63,28 @@ def app_get(url, *a, **k):
     return RR()
 requests.get = app_get
 class FakeDart:
-    def __init__(self, key): self.corp_codes = pd.DataFrame({"corp_code": ["00126380"], "corp_name": ["삼성전자"], "stock_code": ["005930"]})
+    def __init__(self, key): self.corp_codes = pd.DataFrame({"corp_code": ["00126380", "00164742", "00106641"], "corp_name": ["삼성전자", "현대자동차", "기아"], "stock_code": ["005930", "005380", "000270"]})
     def __getattr__(self, n): return lambda *a, **k: pd.DataFrame()
 sys.modules["OpenDartReader"] = types.SimpleNamespace(OpenDartReader=FakeDart)
 from streamlit.testing.v1 import AppTest
 at = AppTest.from_file(REPO + "/app.py", default_timeout=300); at.run()
-at.radio(key="fin_mode").set_value("차 판매").run()
-check(not at.exception, f"차 판매: 오류 없음 {[str(e.value)[:150] for e in at.exception]}")
-frames = [d.value for d in at.dataframe]
-mon = [f for f in frames if "월" in f.columns]
-check(mon and list(mon[0].columns)[:4] == ["월", "현대차", "현대차 전년比", "현대차 전월比"] and mon[0].iloc[0]["월"] == "2026.10" and mon[0].iloc[0]["현대차"] == "329,000", "월별 표: 최근 달부터, 회사별 대수·전년比")
-check(mon and mon[0].iloc[0]["현대차 전년比"] == "-0.3%" and mon[0].iloc[0]["기아 전년比"] == "-", "전년比 (기아는 전년 자료 없으면 -)")
+check("차 판매" not in list(at.radio(key="fin_mode").options), "재무 분석에 '차 판매' 메뉴는 없음")
+recs = [{"label": f"{y}", "sort": f"{y}", "rev": 1e14, "op": 1e13, "net": 1e13, "rev_yoy": 1.0, "op_yoy": 1.0, "net_yoy": 1.0, "bs": {}, "link": "x"} for y in (2024, 2025)]
+at.session_state["result"] = {"corp": "현대자동차", "records": recs, "period": "연도별"}; at.run()
+check(not at.exception, f"현대차 조회: 오류 없음 {[str(e.value)[:150] for e in at.exception]}")
 md = "".join(m.value for m in at.markdown)
-check("현대차 10월 판매" in md and "329,000대" in md and "1~10월 누적" in md, "카드: 이번 달·누적")
+check("현대차 판매 실적" in md and "현대차 10월 판매" in md and "329,000대" in md and "1~10월 누적" in md, "현대차를 조회하면 판매 실적이 함께 (카드)")
+mon = [d.value for d in at.dataframe if "월" in d.value.columns]
+check(mon and list(mon[0].columns) == ["월", "판매(합계)", "전년比", "전월比"] and mon[0].iloc[0]["월"] == "2026.10" and mon[0].iloc[0]["판매(합계)"] == "329,000", "월별 표")
+check(mon and mon[0].iloc[0]["전년比"] == "-0.3%", "전년比")
 at.radio(key="sales_part").set_value("국내").run()
 mon = [d.value for d in at.dataframe if "월" in d.value.columns]
-check(mon and mon[0].iloc[0]["기아"] == "51,000", "구분: 국내")
+check(mon and mon[0].iloc[0]["판매(국내)"] == "49,000", "구분: 국내")
 at.radio(key="sales_view").set_value("연도별").run()
 yr = [d.value for d in at.dataframe if "연도" in d.value.columns]
-check(not at.exception and yr and "현대차 1~10월" in yr[0].columns and yr[0].iloc[1]["현대차 연간"] == "600,000", f"연도별 표 {yr and list(yr[0].columns)}")
+check(not at.exception and yr and list(yr[0].columns) == ["연도", "연간", "1~10월", "1~10월 전년比"] and yr[0].iloc[1]["연간"] == "600,000", f"연도별 표 {yr and list(yr[0].columns)}")
+at.session_state["result"] = {"corp": "삼성전자", "records": recs, "period": "연도별"}; at.run()
+check("판매 실적" not in "".join(m.value for m in at.markdown), "다른 기업은 판매 실적 없음")
 # 오늘의 현황 한 줄 (공시 난 지 3일 안)
 at2 = AppTest.from_file(REPO + "/app.py", default_timeout=300); at2.run()
 from importlib import import_module

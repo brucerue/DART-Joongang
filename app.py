@@ -486,7 +486,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.02 17:05"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.02 17:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -4273,6 +4273,9 @@ def render_financials():
 
     if not result["records"]:
         st.warning("조회된 데이터가 없습니다. 기업명(종목코드)과 연도를 확인해주세요.")
+        if result["corp"] in slc.SALES_CORPS:
+            with st.container(border=True):
+                render_car_sales(result["corp"])
         return
 
     with st.container(border=True):
@@ -4345,6 +4348,10 @@ def render_financials():
                     height=(len(more) + 1) * 35 + 3,
                 )
 
+    if result["corp"] in slc.SALES_CORPS:  # 현대차·기아: 매월 공시하는 판매대수도 함께
+        with st.container(border=True):
+            render_car_sales(result["corp"])
+
     with st.container(border=True):
         render_fin_ai(result)
 
@@ -4384,7 +4391,7 @@ def render_fin_hub():
         with st.container(key="fin_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
             c1, c2 = st.columns([1, 4], vertical_alignment="center")
             c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-            mode = c2.radio("조회 방식", ["개별", "국내", "해외", "차 판매", "AI 검색"], horizontal=True, key="fin_mode", label_visibility="collapsed")
+            mode = c2.radio("조회 방식", ["개별", "국내", "해외", "AI 검색"], horizontal=True, key="fin_mode", label_visibility="collapsed")
         track_choice("fin_mode", "재무 분석")
         if mode == "AI 검색":
             render_fin_ai_search()
@@ -4392,8 +4399,6 @@ def render_fin_hub():
             render_financials()
         elif mode == "국내":
             render_industry()
-        elif mode == "차 판매":
-            render_car_sales()
         else:
             render_overseas()
 
@@ -4454,16 +4459,18 @@ def sales_chart(sales, part, corps, n=25):
     px_line_chart(px_long(series), "대", fmt="%Y-%m", axis_fmt="%y.%m")
 
 
-def render_car_sales():
-    """재무 분석 > 차 판매: 현대차·기아가 매월 초 공시하는 판매대수(국내·해외)를 월별·연도별로"""
+def render_car_sales(corp):
+    """재무 분석 '개별'에서 현대차·기아를 조회하면 실적 아래에: 매월 초 공시하는 판매대수(국내·해외)를 월별·연도별로"""
     sales = get_sales()
-    if not sales:
-        st.info("판매실적 자료를 아직 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.")
+    if not sales or not sales.get(corp):
         return
-    corps = [c for c in slc.SALES_CORPS if c in sales]
-    last = max(max(sales[c]) for c in corps)
-    released = max(str((sales[c].get(max(sales[c])) or {}).get("released", "")) for c in corps)
-    st.caption(f"현대차·기아가 매월 초 DART에 공시하는 판매대수(잠정)예요 · 최근 {last.replace('-', '.')} ({released} 공시)")
+    corps = [corp]
+    months = sales[corp]
+    last = max(months)
+    released = str((months.get(last) or {}).get("released", ""))
+    short = SALES_SHORT.get(corp, corp)
+    st.markdown(f"##### {short} 판매 실적 (대)")
+    st.caption(f"매월 초 DART에 공시하는 판매대수(잠정)예요 · 최근 {last.replace('-', '.')} ({released} 공시)")
     st.markdown(sales_cards(sales, corps), unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     view = c1.radio("보기", ["월별", "연도별"], horizontal=True, key="sales_view")
@@ -4471,49 +4478,31 @@ def render_car_sales():
                     help="국내 = 내수 판매, 해외 = 해외 판매(수출·현지 생산 포함). 기아의 특수(군수·상용특장, 2023년부터)는 합계에만 들어 있어요.")
     track_choice("sales_view", "차 판매 보기")
     track_choice("sales_part", "차 판매 구분")
-    names = [SALES_SHORT.get(c, c) for c in corps]
     if view == "월별":
         rows = []
         for k in range(25):
             ym = slc.ym_add(last, -k)
-            row = {"월": ym.replace("-", ".")}
-            have = False
-            for corp, nm in zip(corps, names):
-                m = sales[corp]
-                cur = slc.value(m, ym, part)
-                have = have or cur is not None
-                row[nm] = "-" if cur is None else f"{cur:,}"
-                row[f"{nm} 전년比"] = px_pct(slc.yoy_of(m, ym, part)) if cur is not None else "-"
-                row[f"{nm} 전월比"] = px_pct(slc.mom_of(m, ym, part)) if cur is not None else "-"
-            if have:
-                rows.append(row)
+            cur = slc.value(months, ym, part)
+            if cur is None:
+                continue
+            rows.append({"월": ym.replace("-", "."), f"판매({part})": f"{cur:,}",
+                         "전년比": px_pct(slc.yoy_of(months, ym, part)), "전월比": px_pct(slc.mom_of(months, ym, part))})
         table = pd.DataFrame(rows)
-        with st.container(border=True):
-            st.markdown(f"##### 월별 판매 ({part}, 대)")
-            st.dataframe(table.style.map(cb_style, subset=[c for c in table.columns if c.endswith("比")]), hide_index=True,
-                         height=min(len(table) + 1, 14) * 35 + 3)
-            sales_chart(sales, part, corps)
+        st.dataframe(table.style.map(cb_style, subset=["전년比", "전월比"]), hide_index=True, height=min(len(table) + 1, 14) * 35 + 3)
+        sales_chart(sales, part, corps)
     else:
         mm = int(last[5:])
         same = f"1~{mm}월"
-        years = sorted({ym[:4] for c in corps for ym in sales[c]}, reverse=True)
         rows = []
-        for y in years:
-            row = {"연도": y}
-            for corp, nm in zip(corps, names):
-                yr = {r["year"]: r for r in slc.year_rows(sales[corp], part, last)}.get(y) or {}
-                row[f"{nm} 연간"] = "-" if yr.get("full") is None else f"{yr['full']:,}"
-                row[f"{nm} {same}"] = "-" if yr.get("same") is None else f"{yr['same']:,}"
-                row[f"{nm} {same} 전년比"] = px_pct(yr.get("same_yoy"))
+        for yr in slc.year_rows(months, part, last):
+            row = {"연도": yr["year"], "연간": "-" if yr.get("full") is None else f"{yr['full']:,}",
+                   same: "-" if yr.get("same") is None else f"{yr['same']:,}", f"{same} 전년比": px_pct(yr.get("same_yoy"))}
             if any(v != "-" for k, v in row.items() if k != "연도"):  # 자료가 거의 없는 해(예: 12월만 있는 첫해)는 뺀다
                 rows.append(row)
         table = pd.DataFrame(rows)
-        with st.container(border=True):
-            st.markdown(f"##### 연도별 판매 ({part}, 대)")
-            st.dataframe(table.style.map(cb_style, subset=[c for c in table.columns if c.endswith("比")]), hide_index=True,
-                         height=min(len(table) + 1, 14) * 35 + 3)
-            st.caption(f"'{same}'은 해마다 같은 기간(1월~{mm}월) 누계예요. 올해와 같은 기간끼리 비교할 때 보세요. 연간은 12달 자료가 다 있을 때만 보여요.")
-    st.download_button("표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name=f"차판매_{view}_{part}.csv", mime="text/csv", key="sales_dl")
+        st.dataframe(table.style.map(cb_style, subset=[f"{same} 전년比"]), hide_index=True, height=min(len(table) + 1, 14) * 35 + 3)
+        st.caption(f"'{same}'은 해마다 같은 기간(1월~{mm}월) 누계예요. 올해와 같은 기간끼리 비교할 때 보세요. 연간은 12달 자료가 다 있을 때만 보여요.")
+    st.download_button("판매 표 내려받기 (CSV)", table.to_csv(index=False).encode("utf-8-sig"), file_name=f"{short}_판매_{view}_{part}.csv", mime="text/csv", key="sales_dl")
     st.caption("판매 안내", help="DART '영업(잠정)실적(공정공시)'의 판매대수 표를 그대로 모은 것이에요(가마감 잠정치라 확정치와 조금 다를 수 있어요). "
                "차종별·지역별 판매는 공시에 없어 회사 보도자료를 보세요. 증감률과 누적은 공시에 적힌 값을 그대로 써요(회사가 지난달 숫자를 나중에 고치기도 해서, 달마다 더한 값과 조금 다를 수 있어요). "
                "옛 공시(2016~2017년 등)는 CKD(반조립) 판매를 뺀 수치라고 적혀 있어요.")
@@ -5829,7 +5818,7 @@ def render_global_news():
     if view == "한국 관련":
         render_gn_korea()
         return
-    st.markdown('<span class="sec-lbl">섹터 (여러 개 선택 가능)</span>', unsafe_allow_html=True)
+    st.markdown('<span class="sec-lbl">섹터 (복수 선택 가능)</span>', unsafe_allow_html=True)
     st.pills("섹터", list(GLOBAL_SECTORS), selection_mode="multi", key="gn_groups", on_change=fill_gn_terms, label_visibility="collapsed",
              help="재무 분석 '해외'와 같은 기업이에요. 고르면 매시 모아 둔 기사가 바로 보여요.")
     period, in_title, want_ko = gn_filter_bar("gn")
@@ -5903,7 +5892,7 @@ def render_global_news():
 def render_gn_korea():
     """외신 '한국 관련': 섹터를 고르면 매시 모아 둔 기사를 바로, '지금 새로 검색'은 그 자리에서 다시 찾는다.
     (한국 낱말) AND (섹터 낱말)로 본문까지 찾은 기사를 제목에 한국이 나온 것과 본문에만 나온 것으로 나눠 보여 준다"""
-    st.markdown('<span class="sec-lbl">섹터 (여러 개 선택 가능)</span>', unsafe_allow_html=True)
+    st.markdown('<span class="sec-lbl">섹터 (복수 선택 가능)</span>', unsafe_allow_html=True)
     st.pills("섹터", list(KOREA_TOPICS), selection_mode="multi", key="gnk_groups", label_visibility="collapsed",
              help="섹터마다 영어 낱말(예: 반도체 = chip·chipmaker·semiconductor·memory)과 한국(South Korea·Korean·Seoul)이 함께 나오는 외신이에요. 고르면 매시 모아 둔 기사가 바로 보여요.")
     period, _, want_ko = gn_filter_bar("gnk", title_box=False)
@@ -6024,7 +6013,7 @@ def apply_team(team, options, target, after=None):
         after()
 
 
-def team_buttons(prefix, options, target, after=None, label="섹터 (여러 개 선택 가능)"):
+def team_buttons(prefix, options, target, after=None, label="섹터 (복수 선택 가능)"):
     """섹터 선택칸의 제목 줄: 왼쪽에 제목, 오른쪽에 팀 칩. 누르면 그 팀의 섹터가 한꺼번에 선택되고, 이후에는 하나씩 더하거나 뺄 수 있다."""
     with st.container(key=f"{prefix}_secbar"):  # 모바일에서도 한 줄 (CSS: secbar)
         cols = st.columns([1] + [1] * len(TEAM_PRESETS), vertical_alignment="center")
@@ -9287,7 +9276,7 @@ def render_brief_result(b):
                 st.markdown("##### 월별 판매 (대)")
                 st.markdown(sales_cards(sales, [b["corp"]]), unsafe_allow_html=True)
                 sales_chart(sales, "합계", [b["corp"]], n=13)
-                st.caption("매월 초 공시하는 판매대수(잠정)예요. 국내·해외 나눠 보기와 연도별 비교는 재무 분석 '차 판매'에서 볼 수 있어요.")
+                st.caption("매월 초 공시하는 판매대수(잠정)예요. 국내·해외 나눠 보기와 연도별 비교는 재무 분석에서 조회하면 함께 나와요.")
 
     with st.container(border=True):
         st.markdown("##### 최근 3개월 주요 공시")
@@ -11657,7 +11646,7 @@ def today_sales_line(now):
         label = f"{int(last[5:])}월 판매"
     if not parts:
         return None
-    return f'<div class="td-lbl">{label} <small>전년동월比 · 재무 분석 \'차 판매\'에서 자세히</small></div><div>' + " · ".join(parts) + "</div>"
+    return f'<div class="td-lbl">{label} <small>전년동월比 · 재무 분석에서 조회하면 자세히</small></div><div>' + " · ".join(parts) + "</div>"
 
 
 def render_today():
