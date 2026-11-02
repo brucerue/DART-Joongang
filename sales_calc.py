@@ -70,11 +70,25 @@ def to_int(s):
     return int(str(s).replace(",", ""))
 
 
+def _pct_num(t):
+    return None if not t else float(t.rstrip("%"))
+
+
 def sales_record(parsed):
-    """parse_sales 결과 -> 저장용 {'ym': 'YYYY-MM', '국내': n, '해외': n, ['특수': n,] '합계': n}"""
-    rec = {"ym": f"{parsed['year']}-{int(parsed['month']):02d}"}
-    for name, num, _, _ in parsed["monthly"]:
+    """parse_sales 결과 -> 저장용 {'ym': 'YYYY-MM', '국내': n, '해외': n, ['특수': n,] '합계': n,
+    'yoy': {구분: 공시의 전년比 %}, 'mom': {구분: 전월比 %}, 'cum': {구분: 1~당월 누적(공시)}, 'cum_yoy': {구분: %}}
+    증감률·누적은 공시에 적힌 값을 쓴다(회사가 지난달 숫자를 나중에 고쳐 모은 숫자로 계산하면 조금 달라짐)"""
+    rec = {"ym": f"{parsed['year']}-{int(parsed['month']):02d}", "yoy": {}, "mom": {}, "cum": {}, "cum_yoy": {}}
+    for name, num, yoy, mom in parsed["monthly"]:
         rec[name] = to_int(num)
+        if _pct_num(yoy) is not None:
+            rec["yoy"][name] = _pct_num(yoy)
+        if _pct_num(mom) is not None:
+            rec["mom"][name] = _pct_num(mom)
+    for name, num, yoy in parsed["cum"]:
+        rec["cum"][name] = to_int(num)
+        if _pct_num(yoy) is not None:
+            rec["cum_yoy"][name] = _pct_num(yoy)
     return rec
 
 
@@ -93,8 +107,27 @@ def value(months, ym, part):
     return (months.get(ym) or {}).get(part)
 
 
+def disclosed(months, ym, key, part):
+    """공시에 적힌 값 (key: 'yoy'·'mom'·'cum'·'cum_yoy') 또는 None"""
+    return ((months.get(ym) or {}).get(key) or {}).get(part)
+
+
+def yoy_of(months, ym, part):
+    """전년比 %: 공시 값, 없으면 모은 숫자로 계산"""
+    v = disclosed(months, ym, "yoy", part)
+    return v if v is not None else pct(value(months, ym, part), value(months, ym_add(ym, -12), part))
+
+
+def mom_of(months, ym, part):
+    v = disclosed(months, ym, "mom", part)
+    return v if v is not None else pct(value(months, ym, part), value(months, ym_add(ym, -1), part))
+
+
 def ytd(months, ym, part):
-    """ym 해의 1월~ym 누계. 그 사이에 빠진 달이 있으면 None"""
+    """ym 해의 1월~ym 누계: 공시의 누적 값, 없으면 달마다 더함(빠진 달이 있으면 None)"""
+    got = disclosed(months, ym, "cum", part)
+    if got is not None:
+        return got
     y, m = ym[:4], int(ym[5:])
     vals = [value(months, f"{y}-{k:02d}", part) for k in range(1, m + 1)]
     return None if any(v is None for v in vals) else sum(vals)
@@ -108,7 +141,7 @@ def month_rows(months, part, last, n=13):
         cur = value(months, ym, part)
         if cur is None:
             continue
-        out.append({"ym": ym, "cur": cur, "yoy": pct(cur, value(months, ym_add(ym, -12), part)), "mom": pct(cur, value(months, ym_add(ym, -1), part))})
+        out.append({"ym": ym, "cur": cur, "yoy": yoy_of(months, ym, part), "mom": mom_of(months, ym, part)})
     return out
 
 
@@ -121,5 +154,6 @@ def year_rows(months, part, last):
         full = ytd(months, f"{y}-12", part)
         same = ytd(months, f"{y}-{mm}", part)
         prev_same = ytd(months, f"{int(y) - 1}-{mm}", part)
-        out.append({"year": y, "full": full, "same": same, "same_yoy": pct(same, prev_same)})
+        same_yoy = disclosed(months, f"{y}-{mm}", "cum_yoy", part)
+        out.append({"year": y, "full": full, "same": same, "same_yoy": same_yoy if same_yoy is not None else pct(same, prev_same)})
     return out

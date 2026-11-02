@@ -33,9 +33,14 @@ k25 = nd.parse_sales(open(FIX + "/sales_kia_2025.txt", encoding="utf-8").read())
 check(k25 and (k25["year"], k25["month"]) == ("2025", "8") and ("특수", "562", "-12.9%", "+12.0%") in k25["monthly"], "2025년 기아 양식('25.8월)")
 h17 = nd.parse_sales(open(FIX + "/sales_hyundai_2017.txt", encoding="utf-8").read())
 import sales_calc as slc
-check(h17 and slc.sales_record(h17) == {"ym": "2017-07", "국내": 59614, "해외": 273566, "합계": 333180}, "2017년 현대차: '수출' 줄 = 해외")
+r17 = slc.sales_record(h17) if h17 else {}
+check({k: r17.get(k) for k in ("ym", "국내", "해외", "합계")} == {"ym": "2017-07", "국내": 59614, "해외": 273566, "합계": 333180}, "2017년 현대차: '수출' 줄 = 해외")
 check(nd.parse_sales("구분(단위:대,%) | 당기실적 (2017년7월) | 전기 | 증감 | 전년 | 증감 | 내수 | 1 | 2 | 3 | 4 | 5 | 모르는줄 | 1 | 2 | 3 | 4 | 5 |") is None, "합계 줄을 못 읽으면 저장 안 함")
-check(slc.sales_record(k25) == {"ym": "2025-08", "국내": 43501, "해외": 209887, "특수": 562, "합계": 253950}, "저장용 숫자")
+r25 = slc.sales_record(k25)
+check({k: r25.get(k) for k in ("ym", "국내", "해외", "특수", "합계")} == {"ym": "2025-08", "국내": 43501, "해외": 209887, "특수": 562, "합계": 253950}, "저장용 숫자")
+check(r25["yoy"]["합계"] == 0.8 and r25["mom"]["국내"] == -3.4 and r25["cum"]["합계"] == 2104293 and r25["cum_yoy"]["합계"] == 1.7, "공시의 증감률·누적도 저장")
+m = {"2025-08": r25}
+check(slc.yoy_of(m, "2025-08", "합계") == 0.8 and slc.ytd(m, "2025-08", "합계") == 2104293, "증감률·누적은 공시 값 우선")
 # 알람 흐름: 원문을 받아 제목·수치 줄을 붙임
 nd.fetch_doc_text = lambda key, no: {"1": kia, "2": hy}[no]
 items = [{"key": "1", "title": "[기아] 영업(잠정)실적(공정공시)", "corp": "기아", "earn": "별도", "rcept_dt": "20261102", "url": "u1", "publisher": "DART"},
