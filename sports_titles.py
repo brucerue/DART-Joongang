@@ -74,19 +74,20 @@ def feed_items(xml_bytes):
 
 
 def merge(prev, fresh, today):
-    """이전 목록 + 이번 제목 -> 30일 안의 목록 (같은 제목은 한 번만)"""
+    """이전 목록 + 이번 제목 -> 30일 안의 목록 (같은 제목은 한 번만). fresh: [(제목, 날짜[, 출처 '스포츠'|'전국'])]
+    출처(s)가 '스포츠'인 제목은 앱·알람이 '비슷한 제목'까지 걸러 낸다(전국 제목은 산업 기사와 비슷한 게 많아 똑같은 제목만)."""
     cutoff = (dt.date.fromisoformat(today) - dt.timedelta(days=KEEP_DAYS)).isoformat()
     by_key = {}
     for it in prev.get("items", []):
         if it.get("d", "") >= cutoff and it.get("k"):
             by_key[it["k"]] = it
-    for title, day in fresh:
+    for title, day, *src in fresh:
         k = title_key(title)
         if not k:
             continue
         old = by_key.get(k)
-        if old is None or day > old["d"]:
-            by_key[k] = {"k": k, "t": title, "d": day}
+        if old is None or day > old["d"] or (src and old.get("s") != src[0] and src[0] == "스포츠"):
+            by_key[k] = {"k": k, "t": title, "d": max(day, old["d"]) if old else day, **({"s": src[0]} if src else {})}
     items = sorted(by_key.values(), key=lambda x: (x["d"], x["k"]), reverse=True)
     return {"updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes"), "items": items}
 
@@ -104,7 +105,7 @@ def main():
         except ValueError:
             prev = {}
     try:
-        fresh = [it for url in RSS_URLS for it in feed_items(fetch_rss(url=url))]  # 둘 중 하나라도 못 읽으면 이번엔 목록을 그대로 둔다
+        fresh = [(*it, "스포츠" if "sports" in url else "전국") for url in RSS_URLS for it in feed_items(fetch_rss(url=url))]  # 둘 중 하나라도 못 읽으면 이번엔 목록을 그대로 둔다
     except requests.RequestException as e:
         if prev.get("items") and is_fresh(prev):  # 한두 번 놓쳐도 목록은 그대로 두고 넘어간다 (오래 안 되면 실패로 알림)
             with open(args.out, "w", encoding="utf-8") as f:

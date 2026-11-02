@@ -77,10 +77,10 @@ def load_app_data():
     consts, funcs = {}, {}
     want_consts = {"LETTER_NAMES", "WORD_READINGS", "PUBLISHERS", "SIMILAR_TITLE", "NEWS_ALIASES", "NAME_READINGS",
                    "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "ALARM_DEFAULT_MODES", "TEAM_PRESETS", "HEAVY_NAME", "HEAVY_PARTS", "SECTOR_RENAMES",
-                   "PROV_REV_LABELS", "PROV_OP_LABELS", "SPORTS_WORDS", "NEWS_BLOCK_TERMS", "NEWS_NOT_MATCH",
+                   "PROV_REV_LABELS", "PROV_OP_LABELS", "SPORTS_WORDS", "SPORTS_SCORE_PAT", "SPORTS_SIMILAR", "NEWS_BLOCK_TERMS", "NEWS_NOT_MATCH",
                    "OVERSEAS_GROUPS", "FOREIGN_ENGLISH", "OVERSEAS_NAMES"}  # 뒤의 셋: 외신 수집(collect_data.py)의 해외 섹터 기업
     want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "news_tokens", "same_news_event", "disclosure_key",
-                  "parse_amount_cell", "parse_provisional", "doc_text_from_zip", "is_sports", "is_blocked", "key_in_title"}  # 뒤의 셋: 잠정실적 원문 읽기 (앱 '재무 조회'와 같은 규칙)
+                  "parse_amount_cell", "parse_provisional", "doc_text_from_zip", "is_sports", "sports_index", "is_blocked", "key_in_title"}  # 뒤의 셋: 잠정실적 원문 읽기 (앱 '재무 조회'와 같은 규칙)
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
@@ -688,7 +688,8 @@ def _sports_feed_keys():
                 res = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (news-digest)"}, timeout=(10, 30))
                 res.raise_for_status()
                 root = ET.fromstring(res.content)
-                keys += [A["title_key"](t) for t in (it.findtext("title") or "" for it in root.iter("item")) if t.strip()]
+                mark = "^" if "sports" in url else ""  # '^' = 스포츠 RSS (비슷한 제목까지 거름, 전국은 똑같은 제목만)
+                keys += [mark + A["title_key"](t) for t in (it.findtext("title") or "" for it in root.iter("item")) if t.strip()]
                 break
             except Exception as e:
                 if attempt == 2:
@@ -698,7 +699,7 @@ def _sports_feed_keys():
     try:
         res = requests.get(SPORTS_TITLES_URL, timeout=(10, 30))
         res.raise_for_status()
-        keys += [it["k"] for it in res.json().get("items", []) if it.get("k")]
+        keys += [("^" if it.get("s") == "스포츠" else "") + it["k"] for it in res.json().get("items", []) if it.get("k")]
     except Exception as e:
         print(f"모아 둔 스포츠·전국 제목 목록을 읽지 못해 그 부분은 건너뜁니다: {e}", file=sys.stderr)
     return tuple(dict.fromkeys(keys))

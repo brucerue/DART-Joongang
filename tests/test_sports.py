@@ -46,3 +46,12 @@ def get2(url,*a,**k):
 st.requests.get=get2; print("두 RSS:",run(None),urls)
 titles=[i["t"] for i in json.load(open(out))["items"]]
 print("스포츠 5 + 전국 3 =", len(titles), any("전국 사건" in t for t in titles) and any("프로농구" in t for t in titles))
+# 출처 표시: 스포츠 RSS 제목은 s='스포츠', 전국은 s='전국' (앱·알람은 스포츠 제목만 비슷한 제목까지 거름)
+items=json.load(open(out))["items"]
+src={i["t"][:6]: i.get("s") for i in items}
+assert all(i.get("s")==("전국" if "전국 사건" in i["t"] else "스포츠") for i in items), items
+# 예전에 출처 없이 모은 제목이 스포츠 RSS에 다시 나오면 '스포츠'로 표시가 붙는다
+k=st.title_key("[프로농구] 경기 0")
+m=st.merge({"items":[{"k":k,"t":"[프로농구] 경기 0","d":"2026-10-23"}]},[("[프로농구] 경기 0","2026-10-23","스포츠")],"2026-10-23")
+assert m["items"][0].get("s")=="스포츠", m
+print("출처 표시 ok")

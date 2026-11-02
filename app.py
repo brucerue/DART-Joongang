@@ -449,7 +449,7 @@ TEAM_PRESETS = {
 }
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.10.31 16:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.02 09:15"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3445,7 +3445,8 @@ def is_exclusive(title):
 
 # 통신 기사에서 뺄 스포츠 낱말. 기업명(예: 현대모비스 농구단, LG 농구팀)이 들어간 스포츠 기사가 기업 기사로 잡히는 것을 막는다.
 SPORTS_WORDS = ("농구", "야구", "축구", "배구", "프로골프", "골프대회", "K리그", "KBO", "레이싱", "연패", "연승", "e스포츠",
-                "LPGA", "KLPGA", "PGA", "챔피언십", "레이디스 챔피언", "올림픽", "아시안게임", "마라톤", "테니스", "배드민턴")  # 뒤 줄: 연합뉴스 사진 기사는 스포츠 RSS에 없어 낱말로 거른다
+                "LPGA", "KLPGA", "PGA", "챔피언십", "레이디스 챔피언", "올림픽", "아시안게임", "마라톤", "테니스", "배드민턴",
+                "한국시리즈", "플레이오프", "포스트시즌", "V리그", "프로배구", "프로야구")  # 뒤 줄: 연합뉴스 사진 기사는 스포츠 RSS에 없어 낱말로 거른다
 
 
 NEWS_BLOCK_TERMS = ("현대차증권", "기아대책")  # 검색어 '현대차'·'기아'에 걸리지만 다른 회사·단체의 기사라서 아예 뺀다
@@ -3463,14 +3464,48 @@ def drop_blocked(items):
 SPORTS_TITLES_URL = "https://raw.githubusercontent.com/brucerue/DART-Joongang/sports-titles/sports_titles.json"  # 연합뉴스 스포츠·전국 RSS 제목 (매시간, 30일)
 
 
+SPORTS_SCORE_PAT = r"\d{1,3}\s*[-:대]\s*\d{1,3}\s*(?:으로|로)?\s*(?:제압|완승|완파|대파|격파|역전승|승리|꺾)"  # '3-1 제압'처럼 경기 점수
+SPORTS_SIMILAR = 0.7  # 스포츠 RSS 제목과 이만큼 비슷하면 같은 기사 (구글 뉴스가 제목을 줄이거나 바꿔 싣는 경우).
+# 목록에서 앞에 '^'가 붙은 제목만(연합 스포츠 RSS) 비슷한 제목까지 본다. 전국(지방) 제목은 산업 기사와 비슷한 게 많아 똑같은 제목만 맞춘다.
+
+
+def sports_index(feed_keys, _memo={}):
+    """스포츠 RSS 제목들 -> 4글자 조각별 제목 번호 (비슷한 제목 후보를 빨리 찾기 위함). 같은 목록은 한 번만 만든다."""
+    got = _memo.get(id(feed_keys))
+    if got is not None and got[0] is feed_keys:
+        return got[1]
+    idx = {}
+    for n, fk in enumerate(feed_keys):
+        if not fk.startswith("^"):
+            continue
+        for i in range(len(fk) - 3):
+            idx.setdefault(fk[i:i + 4], set()).add(n)
+    _memo.clear()
+    _memo[id(feed_keys)] = (feed_keys, idx)
+    return idx
+
+
 def is_sports(title, feed_keys=()):
-    """스포츠·전국(지방 소식) 기사인지 (통신 기사 제외용). 낱말 목록에 걸리거나, 연합뉴스 스포츠·전국 RSS에 실린 제목이면 True.
-    feed_keys: 스포츠 RSS 제목의 비교용 글자(title_key). 구글 뉴스 제목 끝에 '- 연합뉴스'가 붙어도 앞부분으로 맞춘다."""
+    """스포츠·전국(지방 소식) 기사인지 (통신 기사 제외용). 낱말 목록·경기 점수에 걸리거나, 연합뉴스 스포츠·전국 RSS에 실린 제목이면 True.
+    feed_keys: 스포츠 RSS 제목의 비교용 글자(title_key). 구글 뉴스 제목 끝에 '- 연합뉴스'가 붙거나 제목이 조금 바뀌어도 비슷하면 맞춘다."""
     t = str(title).lower()
-    if any(w.lower() in t for w in SPORTS_WORDS):
+    if any(w.lower() in t for w in SPORTS_WORDS) or re.search(SPORTS_SCORE_PAT, t):
         return True
     k = title_key(title)
-    return any(len(fk) >= 8 and k.startswith(fk) for fk in feed_keys)
+    if any(len(fk) >= 8 and k.startswith(fk.lstrip("^")) for fk in feed_keys):
+        return True
+    if len(k) < 10 or not feed_keys:
+        return False
+    idx = sports_index(feed_keys)
+    hits = {}
+    for i in range(len(k) - 3):
+        for n in idx.get(k[i:i + 4], ()):
+            hits[n] = hits.get(n, 0) + 1
+    for n in sorted((n for n, c in hits.items() if c >= 3), key=lambda n: -hits[n])[:10]:  # 겹치는 조각이 많은 후보만 비교
+        k2 = re.sub(r"(?:종합\d*보?|\d보)$", "", feed_keys[n][1:])
+        if difflib.SequenceMatcher(None, k, k2).ratio() >= SPORTS_SIMILAR:
+            return True
+    return False
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -3479,7 +3514,7 @@ def load_sports_keys():
     try:
         res = requests.get(SPORTS_TITLES_URL, timeout=(10, 30))
         res.raise_for_status()
-        return tuple(it["k"] for it in res.json().get("items", []) if it.get("k"))
+        return tuple(("^" if it.get("s") == "스포츠" else "") + it["k"] for it in res.json().get("items", []) if it.get("k"))  # '^' = 스포츠 RSS (비슷한 제목까지 거름)
     except Exception:
         return ()
 
@@ -11456,6 +11491,15 @@ def movers_html(up, down, when):
     return f'<div class="td-lbl">특징주 <small>{html.escape(when)}</small></div><div class="td-movers">{chips}</div>'
 
 
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
+def today_rows(updated, since_txt, _rec):
+    """오늘의 현황에 쓸 줄: 모아 둘 때 못 거른 스포츠·전국 통신 기사(그 뒤에 목록에 오른 제목)를 볼 때 한 번 더 뺀다.
+    최근 이틀 통신 기사만 검사한다(자료가 갱신될 때마다 한 번)."""
+    keys = load_sports_keys()
+    day0 = since_txt[:10]
+    return [r for r in _rec["items"] if not (r.get("k") == "통신" and str(r.get("d", ""))[:10] >= day0 and is_sports(r.get("t", ""), keys))]
+
+
 def render_today():
     """탭: 오늘의 현황 - 고른 섹터마다 단독·통신 기사, 공시, 특징주를 모아 보여준다(매시간 모아 둔 자료라 새로 검색하지 않아요)."""
     rec = get_stored("recent.json")
@@ -11478,7 +11522,7 @@ def _render_today_body(rec):
     if not groups:
         st.info("섹터나 팀을 하나 이상 골라 주세요.")
         return
-    rows = rec["items"]
+    rows = today_rows(updated, since.strftime("%Y-%m-%d %H:%M"), rec)
     prices = get_prices()
     snap, when, codes_by = None, "", {}
     if prices:
