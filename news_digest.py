@@ -507,6 +507,68 @@ def earnings_detail(rows):
     return html.escape("\n".join(lines), quote=False)
 
 
+SALES_LABELS = {"국내": "국내", "내수": "국내", "판매대수(내수)": "국내", "해외": "해외", "판매대수(해외)": "해외",
+                "특수": "특수", "판매대수(특수)": "특수", "계": "합계", "합계": "합계", "판매대수(계)": "합계"}  # 판매대수 표의 줄 이름 -> 메시지 이름
+
+
+def _pct_text(v):
+    """'7.5' -> '+7.5%', '-8.9' -> '-8.9%' (원문 숫자 그대로, 부호만 붙임). 숫자가 아니면 None"""
+    v = str(v).strip().replace(" ", "")
+    if not re.fullmatch(r"[+-]?\d+(?:\.\d+)?", v):
+        return None
+    return (v if v[0] in "+-" or float(v) == 0 else "+" + v) + "%"
+
+
+def parse_sales(text):
+    """현대차·기아처럼 매월 '영업(잠정)실적' 공시로 내는 판매대수 표 -> {year, month, monthly: [(이름, 대수, 전년比, 전월比)],
+    cum: [(이름, 대수, 전년比)], cum_label} 또는 None. 표 칸: 당기, 전기, 전기대비%, 전환여부, 전년동기, 전년동기대비%, 전환여부"""
+    cells = [c.strip().rstrip("|").strip() for c in text.split("\n")]
+    m = re.search(r"당기실적\s*\|?\s*\n\s*(\d{4})-(\d{2})-\d{2}", text)
+    if not m:
+        return None
+    year, month = m.group(1), str(int(m.group(2)))
+    out = {"year": year, "month": month, "monthly": [], "cum": [], "cum_label": f"1~{month}월"}
+    k = 0
+    while k < len(cells):
+        head = cells[k].replace(" ", "")
+        if not (head.startswith("구분") and "단위:대" in head):
+            k += 1
+            continue
+        hdr = cells[k + 1:k + 8]
+        cum = any("누적" in h for h in hdr)
+        k += 8
+        while k + 7 < len(cells):
+            name = SALES_LABELS.get(cells[k].replace(" ", ""))
+            row = cells[k + 1:k + 8]
+            if not name or not re.fullmatch(r"\d[\d,]*", row[0]):
+                break
+            if cum:
+                out["cum"].append((name, row[0], _pct_text(row[5])))
+            else:
+                out["monthly"].append((name, row[0], _pct_text(row[5]), _pct_text(row[2])))
+            k += 8
+    return out if out["monthly"] else None
+
+
+def sales_detail(sales):
+    """판매대수 -> 메시지 줄 (HTML). 예: '10월 판매 329,773대 (전년比 -6.3% · 전월比 +6.4%)' / '국내 … · 해외 …' / '1~10월 누적 …'"""
+    def cmp_(*pairs):
+        got = " · ".join(f"{n} {v}" for n, v in pairs if v)
+        return f" ({got})" if got else ""
+    mon = {n: (c, y, q) for n, c, y, q in sales["monthly"]}
+    lines = []
+    if "합계" in mon:
+        c, y, q = mon["합계"]
+        lines.append(f"   {sales['month']}월 판매 {c}대" + cmp_(("전년比", y), ("전월比", q)))
+    parts = [f"{n} {c}대" + (f"({y})" if y else "") for n, (c, y, q) in mon.items() if n != "합계"]
+    if parts:
+        lines.append("   " + " · ".join(parts))
+    tot = [(c, y) for n, c, y in sales["cum"] if n == "합계"]
+    if tot:
+        lines.append(f"   {sales['cum_label']} 누적 {tot[0][0]}대" + cmp_(("전년比", tot[0][1])))
+    return html.escape("\n".join(lines), quote=False)
+
+
 def earnings_title(item, text):
     """'[현대차] 2026년 3분기 잠정실적 (연결)' 처럼 짧게. 분기를 못 읽으면 원래 보고서명 그대로"""
     try:
@@ -547,10 +609,15 @@ def enrich_earnings(items, seen, now, dry=False):
         if status == "ok":
             rows = parse_earnings(text)
             title = earnings_title(group[0], text)
-            detail = earnings_detail(rows) if rows else html.escape("   (수치를 읽지 못했어요 · 원문에서 확인해 주세요)", quote=False)
+            sales = None if rows else parse_sales(text)  # 현대차·기아의 월별 판매대수 공시 (매출·영업이익 칸은 비어 있음)
+            if sales:
+                title = f"[{group[0]['corp']}] {sales['year']}년 {sales['month']}월 판매실적{' (정정)' if group[0].get('fix') else ''}"
+                detail = sales_detail(sales)
+            else:
+                detail = earnings_detail(rows) if rows else html.escape("   (수치를 읽지 못했어요 · 원문에서 확인해 주세요)", quote=False)
             for it in group:
                 it["title"], it["detail"] = title, detail
-            print(f"  잠정실적 {no}: {title} / {'수치 읽음' if rows else '수치 못 읽음'}")
+            print(f"  잠정실적 {no}: {title} / {'수치 읽음' if rows else '판매대수 읽음' if sales else '수치 못 읽음'}")
             continue
         if status == "wait":
             wkey = f"wait|{no}"
