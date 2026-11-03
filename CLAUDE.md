@@ -36,7 +36,7 @@
 - `.github/workflows/sync_config.yml`: app.py/news_digest.py 푸시 + 매시 17분에 구글 스크립트로 동기화.
 - 기능 사용 통계: `app.py`의 `log_use`/`log_if`/`track_choice`가 Streamlit Secrets `APPS_SCRIPT_URL`(Apps Script 웹앱 주소+?key=…)로 기능 이름·시각·세션 번호만 POST(`{use:true,…}`) → `Code.gs`의 `handleUse_`가 구글 시트 '사용기록'(속성 USAGE_SHEET_ID)에 추가, `usageStats_`(GET `?usage=1&days=N`)가 집계. 앱 `?lab=1` 맨 아래 관리자 탭 '사용 통계'가 읽음. `?lab=1`·`?me=1`로 연 세션은 본인(me=1)으로 보내 집계에서 뺄 수 있음. 새 기능을 만들면 조회 버튼에 `log_if(...)`, 보기 라디오에 `track_choice(...)`를 붙일 것.
 - `apps_script/Code.gs`(텔레그램 명령·승인·백업), `apps_script/worker.js`(Cloudflare Worker). 수정 후 Apps Script는 **새 버전으로 배포**해야 반영됨.
-- 문서: `업데이트_기록.md`(기능 변경 로그), `뉴스_자동발송_사용법.md`, `관리자_명령어_정리.md`, `앱_데이터모으기_사용법.md`, `apps_script/*.md`.
+- 문서: `섹터_키워드.md`(섹터·팀·검색 기업·키워드·재무 기업 한눈에 보기. `sector_keywords.py`가 app.py에서 만듦 — 섹터·키워드를 바꾸면 `python sector_keywords.py`로 다시 만들어 같은 커밋에 넣는다. `tests/test_sector_doc.py`가 최신인지 확인), `업데이트_기록.md`(기능 변경 로그), `뉴스_자동발송_사용법.md`, `관리자_명령어_정리.md`, `앱_데이터모으기_사용법.md`, `apps_script/*.md`.
 
 ## 주의할 함정
 - 준비 중 섹터·팀: `app.py`의 `LAB_SECTORS`(제약·바이오)·`LAB_TEAMS`(바이오팀)는 관리자 주소(`?lab=1`, `LAB_ON`)에서만 화면에 보인다. `INDUSTRY_GROUPS`·`NEWS_SECTORS` 리터럴에는 들어 있어 수집기·시세 수집은 모아 둔다. `ALARM_SECTORS`·`TEAM_PRESETS` 리터럴(텔레그램과 동기화)에는 없다. 공개하려면 LAB_SECTORS에서 빼고 순서 목록(`NEWS_SECTORS`·`CAL_GROUPS`)·알람(`ALARM_SECTORS` 끝에 추가: 신청 링크가 순서로 해석됨)·팀(`TEAM_PRESETS`, Code.gs 같은 표)에 넣는다(유통팀은 2026.11 공개).
