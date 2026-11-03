@@ -486,7 +486,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.04 00:25"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.04 08:16"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9415,10 +9415,23 @@ def render_brief_tail(b, trend=False):
         render_brief_trend(b)
 
 
+def lazy_section(label, key):
+    """펼칠 때만 내용을 그리는 칸 -> 펼쳐져 있으면 그 칸(with로 씀), 접혀 있으면 None.
+    새 Streamlit은 펼치기(expander)의 열림 상태를 알려 주고, 그걸 지원하지 않는 옛 Streamlit에선 켜고 끄는 스위치로 대신한다
+    (Streamlit Cloud는 처음 설치한 버전을 계속 쓸 수 있어서 둘 다 되게)."""
+    try:
+        exp = st.expander(label, key=key, on_change="rerun")
+    except TypeError:
+        return st.container(border=True) if st.toggle(label, key=key) else None
+    if not hasattr(exp, "open"):
+        return exp
+    return exp if exp.open else None
+
+
 def render_fin_brief(corp):
     """재무 분석 '개별' 조회 결과 위: '회사 브리핑' 펼치기 (예전 기업 브리핑 탭). 펼칠 때만 시세·공시·뉴스를 불러온다."""
-    exp = st.expander("📌 회사 브리핑 — 회사 개요·시세·같은 섹터 비교·최근 공시·단독 뉴스·AI 요약", key="fin_brief_open", on_change="rerun")
-    if not getattr(exp, "open", False):
+    exp = lazy_section("📌 회사 브리핑 — 회사 개요·시세·같은 섹터 비교·최근 공시·단독 뉴스·AI 요약", "fin_brief_open")
+    if exp is None:
         return
     with exp:
         b = st.session_state.get("brief")
@@ -11821,8 +11834,8 @@ def render_today():
 
 def render_today_board():
     """오늘의 현황 맨 아래: 섹터별 시세판 (예전 주가 분석 탭의 시세판, 2026.11 합침). 펼칠 때만 그린다."""
-    exp = st.expander("📈 섹터별 시세판 — 평균 등락률·오른/내린 종목·종목별 시세", key="td_board_open", on_change="rerun")
-    if not getattr(exp, "open", False):
+    exp = lazy_section("📈 섹터별 시세판 — 평균 등락률·오른/내린 종목·종목별 시세", "td_board_open")
+    if exp is None:
         return
     with exp:
         data = get_prices()
