@@ -484,7 +484,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.03 16:17"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.03 21:28"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -6279,6 +6279,27 @@ def news_topup(kind, terms, updated, yna_only):
     return out
 
 
+NEWS_PUB_CATS = {"종합일간지": "종합일간지", "경제지": "경제지", "통신사": "통신", "방송사": "방송"}  # 언론사 구분(PUBLISHERS) -> '일반' 언론사 선택 이름
+
+
+def pub_category(item):
+    """기사 -> 언론사 구분(종합일간지·경제지·통신사·방송사). 모아 둔 기사는 구분이 없어 언론사 이름으로 찾는다."""
+    cat = item.get("category")
+    if cat in NEWS_PUB_CATS:
+        return cat
+    return next((c for _, (n, c) in PUBLISHERS.items() if n == item.get("publisher")), None)
+
+
+def filter_clusters_by_pub(clusters, cats):
+    """묶음마다 고른 언론사 구분의 기사만 남긴다 (대표 기사가 빠지면 남은 기사 중 첫 번째가 대표). 다 빠진 묶음은 뺀다."""
+    out = []
+    for c in clusters:
+        keep = [i for i in [c["rep"]] + c["others"] if pub_category(i) in cats]
+        if keep:
+            out.append(dict(c, rep=keep[0], others=keep[1:]))
+    return out
+
+
 def render_news_search(kind):
     """통신/단독/일반 공통 화면: 섹터 고르기 + 검색어 + 기간 -> 기사 묶음 목록. 일반 = 단독과 같은 검색에서 '단독' 표기 조건만 뺀 것."""
     cfg = NEWS_KINDS[kind]
@@ -6324,6 +6345,15 @@ def render_news_search(kind):
             help="마지막으로 모아 둔 뒤에 나온 기사를 네이버 뉴스에서 찾아 더해요. 검색어당 한 번만 불러 빨라요." if topup_mode else "고친 검색어·조건으로 구글·네이버에서 새로 검색해요.",
             key=f"{k}_submit",  # 이름이 바뀌어도(검색어를 고친 그 순간) 같은 버튼으로 알아보게
         ) or st.session_state.pop("news_run", False), f"뉴스 최신 더 찾기: {kind}" if topup_mode else f"뉴스 조회: {kind}")
+
+    pub_cats = list(NEWS_PUB_CATS)
+    if kind == "일반":  # 검색어 밑: 언론사 선택 (처음엔 접어 두고, 펴면 네 구분이 모두 골라져 있음)
+        if st.toggle("언론사 선택", key=f"{k}_pub_on", help="펴면 종합일간지·경제지·통신·방송이 모두 골라져 있어요. 빼고 싶은 구분을 눌러 해제하세요."):
+            st.session_state.setdefault(f"{k}_pub_cats", list(NEWS_PUB_CATS))
+            st.pills("언론사", list(NEWS_PUB_CATS), selection_mode="multi", key=f"{k}_pub_cats", label_visibility="collapsed",
+                     format_func=lambda c: NEWS_PUB_CATS[c])
+            track_choice(f"{k}_pub_cats", "일반 언론사 선택")
+            pub_cats = list(st.session_state.get(f"{k}_pub_cats") or [])
 
     groups = [g for g in news_groups_of(kind) if g in NEWS_SECTORS]
     terms_now = parse_news_terms(text)
@@ -6441,6 +6471,15 @@ def render_news_search(kind):
     if not res:
         return
     clusters = res["clusters"]
+    if kind == "일반" and len(pub_cats) < len(NEWS_PUB_CATS):  # 언론사 선택으로 일부 구분만
+        if not pub_cats:
+            st.info("언론사 구분을 하나 이상 골라 주세요.")
+            return
+        clusters = filter_clusters_by_pub(clusters, pub_cats)
+        res = dict(res, clusters=clusters, kept=sum(1 + len(c["others"]) for c in clusters))
+        if not clusters:
+            st.warning("고른 언론사의 기사가 없어요. 언론사 선택을 넓혀 보세요.")
+            return
     if not clusters:
         st.warning(
             "조건에 맞는 기사가 없습니다. '제목만 검색'을 끄거나 기간을 늘려보세요."

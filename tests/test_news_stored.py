@@ -14,7 +14,9 @@ REC = {"updated": d(0.5), "items": [
     {"t": "[단독] 현대모비스 자율주행 센서 수주", "u": "https://x/3", "p": "한국경제", "k": "단독", "d": d(2), "s": ["자동차"], "g": ["현대모비스"]},
     {"t": "삼성전자 HBM4 양산", "u": "https://x/4", "p": "연합뉴스", "k": "통신", "d": d(1), "s": ["반도체"], "g": ["삼성전자"]}]}
 GEN = {"updated": d(0.5), "sector": "차·배터리", "items": [
-    {"t": "현대차 노조 임금협상 타결", "u": "https://y/1", "p": "중앙일보", "k": "일반", "d": d(3), "s": ["차·배터리"], "g": ["현대차"]}]}
+    {"t": "현대차 노조 임금협상 타결", "u": "https://y/1", "p": "중앙일보", "k": "일반", "d": d(3), "s": ["차·배터리"], "g": ["현대차"]},
+    {"t": "기아 전기차 판매 신기록", "u": "https://y/2", "p": "한국경제", "k": "일반", "d": d(4), "s": ["차·배터리"], "g": ["기아"]},
+    {"t": "삼성SDI 배터리 공장 증설", "u": "https://y/3", "p": "KBS", "k": "일반", "d": d(5), "s": ["차·배터리"], "g": ["삼성SDI"]}]}
 gname = "general/" + hashlib.md5("차·배터리".encode()).hexdigest()[:10] + ".json"
 GETS = []
 # 기업 목록에 S-Oil·NAVER를 넣어 실제처럼 '에쓰오일'·'네이버'가 등록명으로 바뀌게 한다
@@ -102,6 +104,14 @@ GETS.clear()
 at.radio(key="news_mode").set_value("일반").run()
 at.button_group(key="nw_일반_groups").set_value("차·배터리").run()
 check(not at.exception and "현대차 노조 임금협상 타결" in md(at), f"일반: 섹터별 파일에서 바로 {[str(e.value)[:100] for e in at.exception]}")
+# 언론사 선택: 처음엔 접혀 있고 다 보임 -> 펴면 네 구분 모두 골라져 있음 -> 경제지·방송 빼면 중앙일보만
+check(not [p for p in at.get("button_group") if getattr(p, "key", "") == "nw_일반_pub_cats"] and "기아 전기차 판매 신기록" in md(at) and "삼성SDI 배터리" in md(at), "언론사 선택: 처음엔 숨김, 모든 언론사")
+at.toggle(key="nw_일반_pub_on").set_value(True).run()
+check(sorted(at.session_state["nw_일반_pub_cats"]) == sorted(["종합일간지", "경제지", "통신사", "방송사"]), "펴면 네 구분 모두 선택")
+at.button_group(key="nw_일반_pub_cats").set_value(["종합일간지", "통신사"]).run()
+check(not at.exception and "현대차 노조 임금협상 타결" in md(at) and "기아 전기차 판매 신기록" not in md(at) and "삼성SDI 배터리" not in md(at), "경제지·방송 해제 -> 종합일간지 기사만")
+at.toggle(key="nw_일반_pub_on").set_value(False).run()
+check("기아 전기차 판매 신기록" in md(at), "접으면 다시 모든 언론사")
 at.radio(key="nw_일반_period").set_value("일주일").run()
 check("최근 3일치만" in caps(at) and form_btn(at, "일반").label == "뉴스 조회", "일반 일주일은 '뉴스 조회'(새로 검색) + 안내")
 print("실패", fails); sys.exit(1 if fails else 0)
