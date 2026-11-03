@@ -483,7 +483,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.03 12:17"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.03 12:29"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -6031,8 +6031,11 @@ STORED_FMT = "%Y-%m-%dT%H:%M"
 STORED_KINDS = ["통신", "단독", "공시"]
 
 
+RENAMES_SIG = repr(sorted(SECTOR_RENAMES.items()))  # 섹터 이름표 바꾸기 규칙의 지문: 규칙이 바뀌면(배포) 저장해 둔 결과를 쓰지 않고 다시 읽는다
+
+
 @st.cache_data(ttl=600, show_spinner=False)
-def _fetch_stored(name):
+def _fetch_stored(name, renames_sig=""):
     res = requests.get(f"https://raw.githubusercontent.com/{DATA_REPO}/{DATA_BRANCH}/{name}", timeout=20)
     res.raise_for_status()
     data = res.json()  # 실패(예외)는 캐시에 남지 않아 다음 조회 때 다시 시도한다
@@ -6045,7 +6048,7 @@ def _fetch_stored(name):
 def get_stored(name):
     """모아 둔 자료(recent.json: 최근 7일 / archive.json: 6개월). 못 읽으면 None."""
     try:
-        data = _fetch_stored(name)
+        data = _fetch_stored(name, RENAMES_SIG)
         return data if isinstance(data, dict) and isinstance(data.get("items"), list) else None
     except Exception:
         return None
