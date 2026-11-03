@@ -823,6 +823,18 @@ def item_line(it, more=""):
     return line + ("\n" + it["detail"] if it.get("detail") else "")
 
 
+def disclosure_clusters(items):
+    """공시 -> 묶음. 같은 날 같은 회사가 같은 제목으로 낸 공시(예: 기업설명회 안내를 날짜별로 두 번)는 한 줄로 묶고 '(+N건)'으로 보여 준다."""
+    groups = {}
+    for it in items:
+        k = (it.get("day", ""), title_key(it["title"]))
+        if k in groups:
+            groups[k]["others"].append(it)
+        else:
+            groups[k] = {"rep": it, "others": []}
+    return list(groups.values())
+
+
 def build_messages(mode, now, sections, earn_only=False):
     """sections: [(섹터, [묶음...], 숨겨진 묶음 수)] -> 텔레그램 메시지 목록(보이는 글자 기준 4,000자 이하, 넘으면 여러 통)
     간략하게 보이도록 섹터 제목 없이 기사만 줄로 나열한다(같은 기사가 여러 섹터에 걸리면 한 번만)."""
@@ -1618,7 +1630,7 @@ def main():
                     placed.update(ks)
                     placed_all.update(ks)
                     fresh.append(i)
-                clusters = [{"rep": i, "others": []} for i in fresh] if mode == "공시" else cluster_news(fresh)
+                clusters = disclosure_clusters(fresh) if mode == "공시" else cluster_news(fresh)
                 if sector in quiet_secs:
                     for c in clusters:
                         quiet_keys += [k for it in [c["rep"]] + c["others"] for k in sent_keys(chat, mode, it)]
