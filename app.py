@@ -116,6 +116,8 @@ INDUSTRY_GROUPS = {
 LAB_SECTORS = ("제약·바이오",)
 LAB_TEAMS = {"바이오팀": ["제약·바이오"]}
 LAB_ON = st.query_params.get("lab", "") == "1"
+# 덜 쓰는 기능(2026.11 정리): 지우지 않고 관리자 주소(?lab=1)에서만 보인다. 시험(ALL_TABS=1)에서도 보인다.
+SHOW_HIDDEN = LAB_ON or os.environ.get("ALL_TABS", "") == "1"
 # 산업 뉴스·공시 분석·실적 캘린더·오늘의 현황·텔레그램 알람의 섹터에서는 여러 섹터를 하나로 묶는다 (재무 조회·주가는 위 INDUSTRY_GROUPS 그대로):
 # 조선·해운 / 방산 / 철강 -> '중후장대', 자동차 / 배터리 -> '차·배터리', 정유·석화 / 에너지 -> '에너지·화학', 반도체 / 전자 -> '반도체·전자' (2026.11)
 HEAVY_NAME = "중후장대"
@@ -484,7 +486,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.03 22:07"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.03 22:22"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -4276,6 +4278,8 @@ def render_financials():
                 render_car_sales(result["corp"])
         return
 
+    render_fin_brief(result["corp"])
+
     with st.container(border=True):
         st.markdown(f"##### {result['corp']} 실적")  # 아래 '재무상태'와 같은 크기의 소제목
         unit = st.radio("단위", list(UNITS), horizontal=True, key="fin_unit", label_visibility="collapsed")  # 기본 억원, 조원으로 바꿀 수 있음
@@ -4410,7 +4414,7 @@ def render_fin_hub():
         with st.container(key="fin_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
             c1, c2 = st.columns([1, 4], vertical_alignment="center")
             c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-            mode = c2.radio("조회 방식", ["개별", "국내", "해외", "AI 검색"], horizontal=True, key="fin_mode", label_visibility="collapsed")
+            mode = c2.radio("조회 방식", ["개별", "국내", "해외"] + (["AI 검색"] if SHOW_HIDDEN else []), horizontal=True, key="fin_mode", label_visibility="collapsed")
         track_choice("fin_mode", "재무 분석")
         if mode == "AI 검색":
             render_fin_ai_search()
@@ -8964,7 +8968,7 @@ def brief_trend_linkify(text, sources):
     return re.sub(r"\[(\d+(?:\s*[,，]\s*\d+)*)\]", one, text)
 
 
-def collect_brief(name, code, progress):
+def collect_brief(name, code, progress, records=True):
     """회사 하나의 브리핑 재료. 항목 하나가 실패해도 나머지는 보여주도록 항목별로 오류를 담는다."""
     b = {"corp": name, "code": code, "errors": {}, "asof": datetime.now(KST)}
     corps = [(name, code)]
@@ -8986,7 +8990,7 @@ def collect_brief(name, code, progress):
         b["quote"] = step("시세를 불러오는 중...", "quote", lambda: collect_quote(stock) if stock else None)
     else:
         b["quote"] = False  # 키 없음
-    b["records"] = step("실적을 불러오는 중...", "fin", lambda: collect_yearly(code, end - BRIEF_YEARS + 1, end, lambda: None))
+    b["records"] = step("실적을 불러오는 중...", "fin", lambda: collect_yearly(code, end - BRIEF_YEARS + 1, end, lambda: None)) if records else []
 
     def disclosures():
         rows, total, _ = collect_disclosures(code, TODAY - timedelta(days=BRIEF_DISC_DAYS), TODAY, "")
@@ -9335,8 +9339,9 @@ def render_brief_glance(b, hero=""):
         st.markdown(f'<div class="cb-latest">{"".join(items)}</div>', unsafe_allow_html=True)
 
 
-def render_brief_result(b):
-    hero = f'<div class="cb-hero"><div class="t">{html.escape(b["corp"])} 브리핑</div><div class="s">{b["asof"]:%Y.%m.%d %H:%M} 기준 · 연결 기준</div></div>'
+def render_brief_result(b, in_fin=False):
+    """in_fin: 재무 분석 '개별'의 회사 브리핑 펼치기 안 (실적·월별 판매·타임라인은 재무 분석 화면에 이미 있어 뺀다)"""
+    hero = "" if in_fin else f'<div class="cb-hero"><div class="t">{html.escape(b["corp"])} 브리핑</div><div class="s">{b["asof"]:%Y.%m.%d %H:%M} 기준 · 연결 기준</div></div>'
     errs = b["errors"]
 
     render_brief_glance(b, hero)
@@ -9352,6 +9357,9 @@ def render_brief_result(b):
             render_quote(b.get("quote"))
     render_brief_peers(b)
 
+    if in_fin:
+        render_brief_tail(b, trend=True)
+        return
     with st.container(border=True):
         st.markdown(f"##### 실적 (최근 {BRIEF_YEARS}년, 억원)")
         if errs.get("fin"):
@@ -9376,6 +9384,14 @@ def render_brief_result(b):
                 sales_chart(sales, "합계", [b["corp"]], n=13)
                 st.caption("매월 초 공시하는 판매대수(잠정)예요. 국내·해외 나눠 보기와 연도별 비교는 재무 분석에서 조회하면 함께 나와요.")
 
+    render_brief_tail(b)
+    render_brief_timeline(b)
+    render_brief_trend(b)
+
+
+def render_brief_tail(b, trend=False):
+    """브리핑 아래쪽: 최근 3개월 주요 공시·최근 한 달 단독 뉴스 (재무 분석 펼치기에선 AI 동향 요약까지)"""
+    errs = b["errors"]
     with st.container(border=True):
         st.markdown("##### 최근 3개월 주요 공시")
         if errs.get("disc"):
@@ -9395,9 +9411,38 @@ def render_brief_result(b):
             st.info("최근 한 달 동안 제목에 [단독]이 붙은 기사가 없어요.")
         else:
             st.markdown(news_html(b["news"]), unsafe_allow_html=True)
+    if trend:
+        render_brief_trend(b)
 
-    render_brief_timeline(b)
-    render_brief_trend(b)
+
+def render_fin_brief(corp):
+    """재무 분석 '개별' 조회 결과 위: '회사 브리핑' 펼치기 (예전 기업 브리핑 탭). 펼칠 때만 시세·공시·뉴스를 불러온다."""
+    exp = st.expander("📌 회사 브리핑 — 회사 개요·시세·같은 섹터 비교·최근 공시·단독 뉴스·AI 요약", key="fin_brief_open", on_change="rerun")
+    if not getattr(exp, "open", False):
+        return
+    with exp:
+        b = st.session_state.get("brief")
+        if not b or b.get("corp") != corp:
+            code = resolve_corp_code(corp)
+            if not code:
+                st.info("이 기업의 DART 정보를 찾지 못했어요.")
+                return
+            st.session_state.pop("brief_ov", None)
+            st.session_state.pop("brief_trend", None)
+            bar = st.progress(0.0, text="브리핑을 만드는 중입니다...")
+            steps = [0]
+
+            def progress(label):
+                steps[0] += 1
+                bar.progress(min(steps[0] / 7, 1.0), text=label)
+
+            try:
+                b = collect_brief(corp, code, progress, records=False)
+            finally:
+                bar.empty()
+            st.session_state["brief"] = b
+            log_use("재무 분석 회사 브리핑")
+        render_brief_result(b, in_fin=True)
 
 
 def render_brief():
@@ -9682,7 +9727,7 @@ def render_disclosure_hub():
     with st.container(key="disc_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
         c1, c2 = st.columns([1, 4], vertical_alignment="center")
         c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["오늘의 공시", "기업", "섹터", "AI 검색"], horizontal=True, key="disc_mode", label_visibility="collapsed")
+        mode = c2.radio("조회 방식", ["오늘의 공시", "기업", "섹터"] + (["AI 검색"] if SHOW_HIDDEN else []), horizontal=True, key="disc_mode", label_visibility="collapsed")
     track_choice("disc_mode", "공시 분석")
     if mode == "AI 검색":
         render_disc_ai_search()
@@ -10162,7 +10207,7 @@ def render_stock():
         return
     dates = sc.dates_of(data)
     with st.container(key="px_mode_bar"):  # '조회 방식' 글자 없이 선택지만 (폰에서도 네 개가 한 줄에 들어가게)
-        mode = st.radio("조회 방식", ["장중 현황", "시세판", "업계 비교", "이벤트"], horizontal=True, key="px_mode", label_visibility="collapsed",
+        mode = st.radio("조회 방식", ["장중 현황", "시세판"] + (["업계 비교", "이벤트"] if SHOW_HIDDEN else []), horizontal=True, key="px_mode", label_visibility="collapsed",
                         help=f"종가는 KRX 일별 자료 {dates.min():%Y.%m.%d} ~ {dates.max():%Y.%m.%d} ({len(dates)}거래일, 평일 아침 갱신)  \n장중은 야후 파이낸스 5분봉(비공식)을 장중 15분마다 갱신")
     track_choice("px_mode", "주가 분석")
     if mode == "시세판":
@@ -12299,6 +12344,8 @@ def render_usage_stats():
 
 
 TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 분석", "주가 분석", "공시 분석", "산업 뉴스", "AI 무역 통계", "실적 캘린더", "정기보고서", "재계 순위"]
+# 기업 브리핑은 재무 분석 '개별'에 합쳤고(회사 브리핑 펼치기), 정기보고서·재계 순위는 덜 써서 관리자 주소에서만 (2026.11 정리)
+TAB_NAMES = [t for t in TAB_NAMES if SHOW_HIDDEN or t not in ("기업 브리핑", "정기보고서", "재계 순위")]
 SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 맨 아래(알람 버튼 밑)에 관리자 탭 '타임라인'·'사용 통계'가 보임 (위 탭 줄은 그대로)
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 산업 뉴스 탭을 먼저 연다
 def warm_stored_news():

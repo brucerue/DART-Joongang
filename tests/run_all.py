@@ -36,7 +36,7 @@ def main():
         start = time.time()
         try:
             env = dict(os.environ)
-            if not t.name.startswith("test_lazy_tabs"):  # 앱 화면 시험은 탭을 모두 그려 두고 확인한다 (보이는 탭만 그리기는 test_lazy_tabs가 따로 확인)
+            if not t.name.startswith(("test_lazy_tabs", "test_diet")):  # 앱 화면 시험은 탭을 모두 그려 두고 확인한다 (보이는 탭만 그리기는 test_lazy_tabs가 따로 확인)
                 env["ALL_TABS"] = "1"
             r = subprocess.run(cmd, cwd=work, capture_output=True, text=True, timeout=TIMEOUT, env=env)
             out, rc = r.stdout + r.stderr, r.returncode
