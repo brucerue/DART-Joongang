@@ -51,7 +51,7 @@ check("Old Nvidia story" not in titles and "Nvidia kept" in titles, "7일 지난
 row = next(r for r in gj["items"] if r["t"] == "Nvidia beats estimates")
 check(row["c"] == ["Nvidia"] and row["ko"] == "[한글] Nvidia beats estimates", f"기업 표시·한글 제목 {row}")
 check("Nvidia kept" not in TRANSLATED, "이미 옮긴 제목은 다시 안 옮김")
-kj = json.load(open(os.path.join(out, gc.file_name("korea", "반도체")), encoding="utf-8"))
+kj = json.load(open(os.path.join(out, gc.file_name("korea", "반도체·전자")), encoding="utf-8"))
 check([r["t"] for r in kj["items"]] == ["South Korea chip exports jump"], f"한국 관련: 기사 아닌 모음은 빼고 저장 {[r['t'] for r in kj['items']]}")
 check(all(os.path.exists(os.path.join(out, gc.file_name("korea", s2))) for s2 in gc.KOREA_TOPICS), "한국 관련 섹터마다 파일")
 check(any('-"North Korea"' in q for q in GQ), "북한 기사 빼는 검색식")
@@ -62,7 +62,7 @@ os.environ["DART_API_KEY"] = "x" * 40
 os.environ.pop("ANTHROPIC_API_KEY", None); os.environ.pop("GEMINI_API_KEY", None)
 import pandas as pd
 CSV = "corp_code,corp_name,stock_code\n" + "\n".join([f"0{i:07d},비상장사{i}," for i in range(52000)] + ["00126380,삼성전자,005930"]) + "\n"
-FILES = {gc.file_name("global", "반도체"): gj, gc.file_name("korea", "반도체"): kj}
+FILES = {gc.file_name("global", "반도체"): gj, gc.file_name("korea", "반도체·전자"): kj}
 APP_G = []
 class AR:
     status_code = 200; text = "{}"; ok = True; content = b"{}"
@@ -96,7 +96,7 @@ md = " ".join(m.value for m in at.markdown)
 check(not at.exception and "Nvidia beats estimates" in md and "[한글] Nvidia beats estimates" in md, f"기업별: 섹터만 골라도 모아 둔 외신 + 한글 제목 {[str(e.value)[:100] for e in at.exception]}")
 check(not APP_G and any("모아 둔 기사" in c.value for c in at.caption), "구글을 부르지 않고 '모아 둔 기사' 표시")
 at.radio(key="gn_view").set_value("한국 관련").run()
-at.button_group(key="gnk_groups").set_value(["반도체"]).run()
+at.button_group(key="gnk_groups").set_value(["반도체·전자"]).run()
 md = " ".join(m.value for m in at.markdown)
 check(not at.exception and "South Korea chip exports jump" in md and not APP_G, "한국 관련: 섹터만 골라도 모아 둔 기사")
 print("실패", fails); sys.exit(1 if fails else 0)

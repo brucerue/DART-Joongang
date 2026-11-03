@@ -4,7 +4,7 @@ FIX = str(_pl.Path(__file__).resolve().parent / "fixtures")  # 시험용 자료
 import os, sys, json, tempfile, datetime as dt
 sys.path.insert(0, REPO)
 os.environ["TELEGRAM_BOT_TOKEN"] = "tok"
-os.environ["DIGEST_SUBSCRIBERS"] = json.dumps([{"name": "가", "chat_id": "111", "sectors": ["차·배터리", "반도체"], "modes": ["통신", "일반", "공시"]}])
+os.environ["DIGEST_SUBSCRIBERS"] = json.dumps([{"name": "가", "chat_id": "111", "sectors": ["차·배터리", "항공"], "modes": ["통신", "일반", "공시"]}])
 os.environ.pop("PREFS_URL", None)
 import news_digest as nd
 class _R:
@@ -18,15 +18,15 @@ now = dt.datetime.now(nd.KST)
 ms = lambda t: int(t.timestamp() * 1000)
 def it(title, mins): return {"title": title, "url": "https://x/" + title, "publisher": "연합뉴스", "category": "통신사", "dt": now - dt.timedelta(minutes=mins), "tags": []}
 data = {("통신", "차·배터리"): [it("현대차 美 관세 협상 타결", 180), it("기아 EV5 유럽 출시", 30)],
-        ("통신", "반도체"): [it("LG엔솔 북미 공장 가동 중단", 180), it("삼성SDI 전고체 시제품 공개", 30)],
+        ("통신", "항공"): [it("LG엔솔 북미 공장 가동 중단", 180), it("삼성SDI 전고체 시제품 공개", 30)],
         ("일반", "차·배터리"): [it("현대모비스 자율주행 센서 개발", 180), it("KG모빌리티 신차 사전계약", 30)]}
 nd.collect = lambda mode, sector, cutoff, google=None: list(data.get((mode, sector), []))
 today = now.strftime("%Y%m%d"); yday = (now - dt.timedelta(days=1)).strftime("%Y%m%d")
 nd.fetch_dart_feed = lambda now, earn_only: []
 nd.disclosure_items = lambda feed, sector, earn_only: ([{"title": "[배터리사] 어제 공시", "url": "u1", "publisher": "DART", "key": "1", "day": yday},
-                                                       {"title": "[배터리사] 오늘 공시", "url": "u2", "publisher": "DART", "key": "2", "day": today}] if sector == "반도체" else [])
+                                                       {"title": "[배터리사] 오늘 공시", "url": "u2", "publisher": "DART", "key": "2", "day": today}] if sector == "항공" else [])
 # 배터리 섹터를 20분 전에, 일반 종류를 20분 전에 더했다고 가정
-prefs = {"111": {"added": {"s:반도체": ms(now - dt.timedelta(minutes=20)), "m:일반": ms(now - dt.timedelta(minutes=20))}}}
+prefs = {"111": {"added": {"s:항공": ms(now - dt.timedelta(minutes=20)), "m:일반": ms(now - dt.timedelta(minutes=20))}}}
 nd.load_prefs = lambda: prefs
 fails = []
 def check(c, m):

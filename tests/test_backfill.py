@@ -44,5 +44,5 @@ assert all(r["d"].startswith("2026-10-20") for r in store.values())
 
 # collect with injected google
 def gs(terms, domains, extra, cutoff): return [{"title":"반도체 뉴스","url":"https://x/1","publisher":"연합뉴스","category":"통신","dt":datetime(2026,9,20,tzinfo=nd.KST)}], None
-print(len(nd.collect("통신","반도체",datetime(2026,9,1,tzinfo=nd.KST),google=gs)))
+print(len(nd.collect("통신","반도체·전자",datetime(2026,9,1,tzinfo=nd.KST),google=gs)))
 print("OK")

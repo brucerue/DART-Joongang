@@ -56,7 +56,7 @@ check(not at.exception, f"예외 없음 {[str(e.value)[:120] for e in at.excepti
 labs = [t.label for t in at.tabs]
 check(labs[0] == "오늘의 현황", f"탭 {labs}")
 check(not at.session_state.get("td_groups") and any("섹터나 팀을 하나 이상" in i.value for i in at.info), f"처음엔 섹터 선택 없음 {list(at.session_state.get('td_groups') or [])}")
-at.session_state["td_groups"] = ["차·배터리", "중후장대", "정유·석화", "에너지"]; at.run()  # 모아 둔 줄은 옛 이름 '자동차' -> 읽을 때 차·배터리로
+at.session_state["td_groups"] = ["차·배터리", "중후장대", "에너지·화학"]; at.run()  # 모아 둔 줄은 옛 이름 '자동차' -> 읽을 때 차·배터리로
 md = " ".join(m.value for m in at.markdown)
 check("신형 전기차 공개" in md and "기아 미국 공장 증설" in md and "너무 오래된" not in md, "자동차 기사·단독 표시, 오래된 기사 제외")
 import re as _re
@@ -67,7 +67,7 @@ check("이후 · 자료 갱신" in cap, "기간은 24시간 고정 안내")
 # 묶기: 두 통신 기사는 한 묶음
 check("묶음 1건" in md, "같은 사건 통신 기사는 한 묶음")
 # 섹터 바꾸기
-at.button_group(key="td_groups").set_value(["반도체", "전자"]).run()
+at.button_group(key="td_groups").set_value(["반도체·전자"]).run()
 md = " ".join(m.value for m in at.markdown)
 check(not at.exception and "삼성전자 HBM4 양산" in md and "LG전자 신형 냉장고" in md and "신형 전기차 공개" not in md, "섹터를 바꾸면 그 섹터 기사만")
 check(not [r for r in at.radio if r.key == "td_period"], "기간 선택지 없음(24시간 고정)")

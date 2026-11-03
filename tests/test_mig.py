@@ -46,7 +46,7 @@ print({s["name"]: (s["sectors"], s["widened"]) for s in subs})
 check(subs[0]["sectors"] == ["중후장대"] and subs[0]["widened"] == ["중후장대"], "일부만 받던 사람 -> 중후장대, 넓어짐 표시")
 check(subs[1]["sectors"] == ["중후장대", "차·배터리"] and subs[1]["widened"] == ["차·배터리"], "세 섹터 모두 + 자동차 -> 중후장대는 표시 없음, 차·배터리는 넓어짐")
 check(subs[2]["sectors"] == ["차·배터리"] and subs[2]["widened"] == ["차·배터리"], "자동차만 -> 차·배터리 (넓어짐)")
-check(subs[3]["sectors"] == ["차·배터리", "중후장대", "정유·석화", "에너지"] and subs[3]["widened"] == [], "차팀")
+check(subs[3]["sectors"] == ["차·배터리", "중후장대", "에너지·화학"] and subs[3]["widened"] == [], "차팀")
 # 앱에서 /섹터로 저장해 둔 옛 이름
 prefs.clear(); prefs["9"] = {"sectors": ["방산", "자동차"]}
 ap = nd.apply_prefs([{"name": "x", "chat_id": "9", "sectors": ["차·배터리"], "modes": ["통신"]}], prefs)

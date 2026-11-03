@@ -59,9 +59,9 @@ GN_JUNK_RE = re.compile(r"Market Talk|Roundup|News Quiz|Breaking News|Live Updat
 KOREA_EXCLUDE = '-"North Korea" -"North Korean" -Pyongyang -"Kim Jong"'
 KOREA_TOPICS = {
     "차·배터리": ["automaker", "carmaker", "auto", "cars", "EV", "battery", "batteries", "cathode"],
-    "중후장대": ["shipbuilder", "shipbuilding", "shipyard", "defense", "arms", "steel"], "정유·석화": ["refiner", "refinery", "petrochemical", "oil"],
-    "에너지": ["nuclear", "reactor", "power grid", "energy", "LNG"], "반도체": ["chip", "chips", "chipmaker", "semiconductor", "memory"],
-    "IT·통신": ["telecom", "internet", "AI", "data center"], "전자": ["electronics", "smartphone", "display", "appliance"],
+    "중후장대": ["shipbuilder", "shipbuilding", "shipyard", "defense", "arms", "steel"],
+    "에너지·화학": ["refiner", "refinery", "petrochemical", "oil", "nuclear", "reactor", "power grid", "energy", "LNG"],
+    "IT·통신": ["telecom", "internet", "AI", "data center"], "반도체·전자": ["chip", "chips", "chipmaker", "semiconductor", "memory", "electronics", "smartphone", "display", "appliance"],
     "항공": ["airline", "aviation", "aircraft"], "재계": ["chaebol", "conglomerate", "tariff", "trade deal", "investment"],
 }
 KOREA_TITLE_RE = re.compile(r"(?<![A-Za-z])(South\s+Korea|Korea|Korean|Koreans|Seoul|Samsung|Hyundai|SK\s+hynix|Hynix|LG|Hanwha|POSCO|Kia|KEPCO|Naver|Kakao)(?![A-Za-z])", re.I)

@@ -48,7 +48,7 @@ SEEN_FILE = os.path.join(HERE, "digest_seen.json")
 PREFS_FILE = os.path.join(HERE, "digest_prefs.json")  # 받는 사람이 봇 명령으로 바꾼 설정(회차 사이에 캐시로 이어짐)
 
 # ---------- 설정: 받고 싶은 섹터·조회 방식 ----------
-SECTORS = ["차·배터리", "중후장대", "정유·석화", "에너지"]
+SECTORS = ["차·배터리", "중후장대", "에너지·화학"]
 MODES = ["통신", "단독", "일반", "공시"]  # 알람 종류(순서대로)
 DEFAULT_MODES = ["통신", "단독", "공시"]  # 종류를 안 적은 사람의 기본값. 일반(단독 표기 없는 기사 전부)은 양이 많아 직접 골라야 받는다
 ADDED_LOOKBACK_HOURS = 1  # 봇으로 섹터·종류를 새로 더하면 그 시각 이만큼 전 기사부터 보낸다 (공시는 시각이 없어 그날 것만)
@@ -1178,9 +1178,13 @@ def run_command(text, sub, prefs):
             aliases.setdefault(old, [A["HEAVY_NAME"]])
         for old in ("자동차", "배터리", "자동차배터리", "차", "차배터리"):  # 자동차·배터리는 차·배터리로 받는다
             aliases.setdefault(old, ["차·배터리"])
+        for old in ("정유·석화", "정유석화", "정유", "석화", "에너지", "에너지·소재", "에너지소재", "화학"):  # 정유·석화·에너지는 에너지·화학으로
+            aliases.setdefault(old, ["에너지·화학"])
+        for old in ("반도체", "전자"):  # 반도체·전자로
+            aliases.setdefault(old, ["반도체·전자"])
         chosen, bad = parse_choice(rest, options, aliases)
         if bad or not chosen:
-            head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 섹터를 같이 보내주세요. 예: /섹터 차배터리 반도체"
+            head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 섹터를 같이 보내주세요. 예: /섹터 차배터리 반도체전자"
             return f"{head}\n\n가능한 섹터: {', '.join(plain_name(o) for o in options)}\n팀: {', '.join(presets) or '-'} / 전체"
         mark_added(mine, "s", sub.get("sectors") or [], chosen)
         mine["sectors"] = chosen
