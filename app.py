@@ -483,7 +483,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.03 12:29"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.03 12:34"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8391,7 +8391,8 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .td-lbl { display: flex; align-items: baseline; gap: 0.45rem; font-size: 0.86rem; font-weight: 800; color: #0b2545; margin: 0.85rem 0 0.4rem; }
 .td-lbl small { font-size: 0.76rem; font-weight: 500; color: #7a8699; }
 .td-lbl.k1::before, .td-lbl.k2::before { content: ""; align-self: center; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: #f08c00; } .td-lbl.k2::before { background: #1c7ed6; }
-.td-movers { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.td-movers { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; margin-bottom: 0.35rem; }
+.td-movers .mv-part { font-size: 0.74rem; font-weight: 600; color: #7a8699; min-width: 3.6rem; }
 .td-movers .mv { display: inline-flex; align-items: baseline; gap: 0.3rem; font-size: 0.84rem; border-radius: 10px; padding: 0.25rem 0.6rem; }
 .td-movers .mv small { color: #7a8699; font-size: 0.72rem; }
 .td-movers .mv.up { background: #fdecec; color: #c92a2a; } .td-movers .mv.down { background: #e7f1fd; color: #1864ab; }
@@ -11565,15 +11566,19 @@ TODAY_TOP = {"단독": 5, "통신": 3}  # 섹터마다 먼저 보여주는 묶�
 
 
 def today_price_codes(data):
-    """뉴스 섹터 이름 -> 시세 자료의 종목코드 목록 (중후장대는 조선·해운+방산+철강, 차·배터리는 자동차+배터리)"""
+    """뉴스 섹터 이름 -> [(낱개 섹터 이름 또는 None, 종목코드 목록)]. 묶은 섹터(중후장대·차·배터리 등)는 낱개 섹터별로 나눠
+    특징주를 따로 고른다(합치기 전처럼 자동차 2+2, 배터리 2+2). 두 섹터에 있는 종목(삼성전자)은 앞 섹터에만."""
     by = px_sector_codes(data)
     out = {}
     for sec in NEWS_SECTORS:
-        names = list(MERGED_SECTORS.get(sec) or [sec])
-        codes = []
-        for n in names:
-            codes += [c for c in by.get(n, []) if c not in codes]
-        out[sec] = codes
+        parts = MERGED_SECTORS.get(sec)
+        groups, used = [], set()
+        for n in (parts or [sec]):
+            codes = [c for c in by.get(n, []) if c not in used]
+            used.update(codes)
+            if codes:
+                groups.append((n if parts else None, codes))
+        out[sec] = groups
     return out
 
 
@@ -11612,11 +11617,17 @@ def earnings_html(events):
     return "".join(rows)
 
 
-def movers_html(up, down, when):
-    chips = "".join(
-        f'<span class="mv {"up" if r["rate"] > 0 else "down"}"><b>{html.escape(str(r["name"]))}</b> {"▲" if r["rate"] > 0 else "▼"}{abs(r["rate"]):.2f}%'
-        f'<small>{r["close"]:,.0f}원</small></span>' for r in up + down)
-    return f'<div class="td-lbl">특징주 <small>{html.escape(when)}</small></div><div class="td-movers">{chips}</div>'
+def movers_html(groups, when):
+    """groups: [(낱개 섹터 이름 또는 None, 오른 종목들, 내린 종목들)] -> 특징주 칩 (묶은 섹터는 낱개 섹터 이름을 앞에 붙여 줄을 나눈다)"""
+    rows = []
+    for label, up, down in groups:
+        chips = "".join(
+            f'<span class="mv {"up" if r["rate"] > 0 else "down"}"><b>{html.escape(str(r["name"]))}</b> {"▲" if r["rate"] > 0 else "▼"}{abs(r["rate"]):.2f}%'
+            f'<small>{r["close"]:,.0f}원</small></span>' for r in up + down)
+        if chips:
+            head = f'<span class="mv-part">{html.escape(label)}</span>' if label else ""
+            rows.append(f'<div class="td-movers">{head}{chips}</div>')
+    return f'<div class="td-lbl">특징주 <small>{html.escape(when)}</small></div>' + "".join(rows) if rows else ""
 
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
@@ -11691,9 +11702,9 @@ def _render_today_body(rec):
             pills = "".join(f'<span class="td-pill {cls}">{k} <b>{cnt[k]}</b></span>' for k, cls in (("단독", "k1"), ("통신", "k2"), ("공시", "k3")))
             st.markdown(f'<div class="td-head"><span class="n">{html.escape(sec)}</span><span class="pills">{pills}</span></div>', unsafe_allow_html=True)
             if snap is not None and codes_by.get(sec):
-                up, down = tdc.movers(snap, codes_by[sec], 2)
-                if up or down:
-                    st.markdown(movers_html(up, down, when), unsafe_allow_html=True)
+                block = movers_html([(label, *tdc.movers(snap, codes, 2)) for label, codes in codes_by[sec]], when)
+                if block:
+                    st.markdown(block, unsafe_allow_html=True)
             if sec == CAR_NAME:
                 line = today_sales_line(now)
                 if line:
