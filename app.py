@@ -11622,8 +11622,8 @@ def movers_html(groups, when):
     rows = []
     for label, up, down in groups:
         chips = "".join(
-            f'<span class="mv {"up" if r["rate"] > 0 else "down"}"><b>{html.escape(str(r["name"]))}</b> {"▲" if r["rate"] > 0 else "▼"}{abs(r["rate"]):.2f}%'
-            f'<small>{r["close"]:,.0f}원</small></span>' for r in up + down)
+            f'<span class="mv {"up" if r["rate"] > 0 else "down"}"><b>{html.escape(str(r["name"]))}</b> {"▲" if r["rate"] > 0 else "▼"}{abs(r["rate"]):.2f}%</span>'
+            for r in up + down)  # 금액(종가)은 빼고 등락률만
         if chips:
             head = f'<span class="mv-part">{html.escape(label)}</span>' if label else ""
             rows.append(f'<div class="td-movers">{head}{chips}</div>')
