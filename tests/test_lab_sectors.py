@@ -20,12 +20,12 @@ class FakeDart:
 sys.modules["OpenDartReader"] = types.SimpleNamespace(OpenDartReader=FakeDart)
 from streamlit.testing.v1 import AppTest
 
-"""준비 중인 섹터(유통·식품·화장품·패션·제약·바이오)와 팀(유통팀·바이오팀)은 관리자 주소(?lab=1)에서만 보이고, 텔레그램 알람·팀 명령에는 없다"""
+"""준비 중인 섹터(유통·식품·뷰티·패션·제약·바이오)와 팀(유통팀·바이오팀)은 관리자 주소(?lab=1)에서만 보이고, 텔레그램 알람·팀 명령에는 없다"""
 fails = []
 def check(c, m):
     print(("  ✅ " if c else "  ❌ ") + m)
     if not c: fails.append(m)
-LAB = ["유통", "식품", "화장품·패션", "제약·바이오"]
+LAB = ["유통", "식품", "뷰티·패션", "제약·바이오"]
 def pills(at, key):
     return [p for p in at.get("button_group") if getattr(p, "key", None) == key]
 def options(at, key):
@@ -50,7 +50,7 @@ td2 = options(at2, "nw_통신_groups")
 check(all(x in td2 for x in LAB), f"관리자 주소: 산업 뉴스 섹터에 보임 {td2}")
 check({"nw_통신_team_유통팀", "nw_통신_team_바이오팀"} <= set(team_keys(at2, "nw_통신")), "관리자 주소: 유통팀·바이오팀 버튼")
 [b for b in at2.button if b.key == "nw_통신_team_유통팀"][0].click(); at2.run()
-check(list(at2.session_state["nw_통신_groups"]) == ["유통", "식품", "화장품·패션"], f"관리자 주소: 유통팀 누르면 세 섹터 {list(at2.session_state['nw_통신_groups'])}")
+check(list(at2.session_state["nw_통신_groups"]) == ["유통", "식품", "뷰티·패션"], f"관리자 주소: 유통팀 누르면 세 섹터 {list(at2.session_state['nw_통신_groups'])}")
 check(not at2.exception, "관리자 주소: 유통팀 선택 후 오류 없음")
 cal2 = options(at2, "cal_groups")
 check(all(x in cal2 for x in LAB), "관리자 주소: 실적 캘린더에 보임")

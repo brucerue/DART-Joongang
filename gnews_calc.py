@@ -58,7 +58,7 @@ KOREA_WORDS = ["South Korea", "South Korean", "Korean", "Seoul"]
 GN_JUNK_RE = re.compile(r"Market Talk|Roundup|News Quiz|Breaking News|Live Updates?|Newsletter|Podcast|Morning Bid|Stocks making the biggest moves|^Video|Crossword|World in Brief|The Morning|Evening Briefing|Daily Briefing", re.I)
 KOREA_EXCLUDE = '-"North Korea" -"North Korean" -Pyongyang -"Kim Jong"'
 KOREA_TOPICS = {
-    "자동차": ["automaker", "carmaker", "auto", "cars", "EV"], "배터리": ["battery", "batteries", "cathode"],
+    "차·배터리": ["automaker", "carmaker", "auto", "cars", "EV", "battery", "batteries", "cathode"],
     "중후장대": ["shipbuilder", "shipbuilding", "shipyard", "defense", "arms", "steel"], "정유·석화": ["refiner", "refinery", "petrochemical", "oil"],
     "에너지": ["nuclear", "reactor", "power grid", "energy", "LNG"], "반도체": ["chip", "chips", "chipmaker", "semiconductor", "memory"],
     "IT·통신": ["telecom", "internet", "AI", "data center"], "전자": ["electronics", "smartphone", "display", "appliance"],

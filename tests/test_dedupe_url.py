@@ -4,7 +4,7 @@ FIX = str(_pl.Path(__file__).resolve().parent / "fixtures")  # 시험용 자료
 import os, sys, json, tempfile, datetime as dt
 sys.path.insert(0, REPO)
 os.environ["TELEGRAM_BOT_TOKEN"] = "tok"
-os.environ["DIGEST_SUBSCRIBERS"] = json.dumps([{"name": "시험", "chat_id": "111", "sectors": ["자동차"], "modes": ["통신"]}])
+os.environ["DIGEST_SUBSCRIBERS"] = json.dumps([{"name": "시험", "chat_id": "111", "sectors": ["차·배터리"], "modes": ["통신"]}])
 os.environ.pop("PREFS_URL", None)
 import news_digest as nd
 import requests
@@ -29,7 +29,7 @@ def check(c, m):
     print(("  ✅ " if c else "  ❌ ") + m)
     if not c: fails.append(m)
 def run():
-    sys.argv = ["x", "--mode", "통신", "--sectors", "자동차"]
+    sys.argv = ["x", "--mode", "통신", "--sectors", "차·배터리"]
     n = len(sent)
     try: nd.main()
     except SystemExit: pass

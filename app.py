@@ -108,23 +108,25 @@ INDUSTRY_GROUPS = {
     # 아래 넷은 준비 중인 섹터(LAB_SECTORS): 관리자 주소(?lab=1)에서만 보인다. 자료는 다른 섹터처럼 모아 둔다
     "유통": ["롯데쇼핑", "신세계", "이마트", "현대백화점", "BGF리테일", "GS리테일", "호텔신라"],
     "식품": ["CJ제일제당", "오리온", "농심", "삼양식품", "롯데웰푸드", "오뚜기", "하이트진로", "롯데칠성음료"],
-    "화장품·패션": ["아모레퍼시픽", "LG생활건강", "에이피알", "코스맥스", "한국콜마", "F&F", "한섬"],
+    "뷰티·패션": ["아모레퍼시픽", "LG생활건강", "에이피알", "코스맥스", "한국콜마", "F&F", "한섬"],
     "제약·바이오": ["삼성바이오로직스", "셀트리온", "에스케이바이오팜", "SK바이오사이언스", "유한양행", "한미약품", "알테오젠", "녹십자", "대웅제약", "종근당"],
 }
 # 준비 중인 섹터·팀: 관리자 주소(?lab=1)에서만 화면에 보인다(텔레그램 알람에는 없음). 공개하려면 LAB_SECTORS에서 빼고 아래 순서 목록·ALARM_SECTORS·TEAM_PRESETS에 넣는다
-LAB_SECTORS = ("유통", "식품", "화장품·패션", "제약·바이오")
-LAB_TEAMS = {"유통팀": ["유통", "식품", "화장품·패션"], "바이오팀": ["제약·바이오"]}
+LAB_SECTORS = ("유통", "식품", "뷰티·패션", "제약·바이오")
+LAB_TEAMS = {"유통팀": ["유통", "식품", "뷰티·패션"], "바이오팀": ["제약·바이오"]}
 LAB_ON = st.query_params.get("lab", "") == "1"
-# 실적 캘린더의 섹터: 자동차와 배터리는 한 섹터로 묶는다
-# 산업 뉴스·공시 분석·실적 캘린더·텔레그램 알람의 섹터에서는 조선·해운 / 방산 / 철강을 '중후장대' 하나로 묶는다 (재무 조회·주가는 위 INDUSTRY_GROUPS 그대로)
+# 산업 뉴스·공시 분석·실적 캘린더·오늘의 현황·텔레그램 알람의 섹터에서는 여러 섹터를 하나로 묶는다 (재무 조회·주가는 위 INDUSTRY_GROUPS 그대로):
+# 조선·해운 / 방산 / 철강 -> '중후장대', 자동차 / 배터리 -> '차·배터리' (2026.11)
 HEAVY_NAME = "중후장대"
 HEAVY_PARTS = ("조선·해운", "방산", "철강")
-SECTOR_RENAMES = {"에너지·소재": "에너지"}  # 이름을 바꾼 섹터: 옛 이름으로 저장된 자료·알람 설정은 읽을 때 새 이름으로 (news_digest.py·Code.gs도 같은 표)
+CAR_NAME = "차·배터리"
+MERGED_SECTORS = {"중후장대": ["조선·해운", "방산", "철강"], "차·배터리": ["자동차", "배터리"]}  # 묶은 섹터 -> 재무·주가 섹터 (news_digest.py도 읽음)
+SECTOR_RENAMES = {"에너지·소재": "에너지", "자동차": "차·배터리", "배터리": "차·배터리", "자동차·배터리": "차·배터리", "화장품·패션": "뷰티·패션"}  # 이름을 바꾼 섹터: 옛 이름으로 저장된 자료·알람 설정은 읽을 때 새 이름으로 (news_digest.py·Code.gs도 같은 표)
 CAL_GROUPS = {name: list(INDUSTRY_GROUPS[name]) for name in ("정유·석화", "에너지", "반도체", "IT·통신", "전자", "항공")}
-CAL_GROUPS["자동차·배터리"] = INDUSTRY_GROUPS["자동차"] + INDUSTRY_GROUPS["배터리"]
-CAL_GROUPS[HEAVY_NAME] = [n for part in HEAVY_PARTS for n in INDUSTRY_GROUPS[part]]
+for _name, _parts in MERGED_SECTORS.items():
+    CAL_GROUPS[_name] = [n for part in _parts for n in INDUSTRY_GROUPS[part]]
 CAL_GROUPS.update({name: list(INDUSTRY_GROUPS[name]) for name in LAB_SECTORS})
-CAL_GROUPS = {k: CAL_GROUPS[k] for k in ("자동차·배터리", HEAVY_NAME, "정유·석화", "에너지", "반도체", "전자", "항공", "IT·통신") + (LAB_SECTORS if LAB_ON else ())}
+CAL_GROUPS = {k: CAL_GROUPS[k] for k in (CAR_NAME, HEAVY_NAME, "정유·석화", "에너지", "반도체", "전자", "항공", "IT·통신") + (LAB_SECTORS if LAB_ON else ())}
 if not LAB_ON:  # 일반 사용자에겐 준비 중인 섹터를 숨긴다 (재무·주가·공시·캘린더 화면)
     INDUSTRY_GROUPS = {k: v for k, v in INDUSTRY_GROUPS.items() if k not in LAB_SECTORS}
 INDUSTRY_PERIODS = ["연간", "1Q", "2Q", "3Q", "4Q"]
@@ -382,14 +384,11 @@ NEWS_SECTORS = {
         "기업": ["삼성전자", "삼전", "SK하이닉스", "하닉", "엔비디아", "마이크론", "TSMC", "인텔", "CXMT", "ASML", "AMAT", "난야", "도쿄일렉트론", "솔리다임", "키옥시아"],
         "키워드": ["반도체", "HBM", "파운드리"],
     },
-    "자동차": {
+    "차·배터리": {  # 자동차 + 배터리 (2026.11 합침, 텔레그램 알람도 같은 묶음)
         "기업": ["현대차", "기아", "현대모비스", "테슬라", "KG모빌리티", "르노", "르노코리아", "GM", "한국GM", "벤츠", "BMW",
-                 "한국앤컴퍼니", "한국타이어", "금호타이어", "넥센타이어"],
-        "키워드": ["전기차", "완성차", "수입차", "정의선"],
-    },
-    "배터리": {
-        "기업": ["LG에너지솔루션", "엔솔", "삼성SDI", "SK온", "에코프로비엠", "포스코퓨처엠", "엘앤에프", "CATL"],
-        "키워드": ["2차전지", "배터리", "전고체", "양극재", "음극재"],
+                 "한국앤컴퍼니", "한국타이어", "금호타이어", "넥센타이어",
+                 "LG에너지솔루션", "엔솔", "삼성SDI", "SK온", "에코프로비엠", "포스코퓨처엠", "엘앤에프", "CATL"],
+        "키워드": ["전기차", "완성차", "수입차", "정의선", "2차전지", "배터리", "전고체", "양극재", "음극재"],
     },
     "중후장대": {  # 조선·해운 + 방산 + 철강 (텔레그램 알람도 같은 묶음)
         "기업": ["HD현대", "HD한국조선해양", "HD현대중공업", "한화오션", "삼성중공업", "HMM",
@@ -433,7 +432,7 @@ NEWS_SECTORS = {
         "기업": ["CJ제일제당", "오리온", "농심", "삼양식품", "롯데웰푸드", "오뚜기", "하이트진로", "롯데칠성음료", "빙그레", "풀무원", "동원F&B"],
         "키워드": ["식품업계", "K푸드", "라면", "가공식품", "주류"],
     },
-    "화장품·패션": {
+    "뷰티·패션": {
         "기업": ["아모레퍼시픽", "LG생활건강", "에이피알", "코스맥스", "한국콜마", "F&F", "한섬", "올리브영", "신세계인터내셔날"],
         "키워드": ["K뷰티", "화장품", "패션업계"],
     },
@@ -443,7 +442,7 @@ NEWS_SECTORS = {
         "키워드": ["제약", "바이오", "신약", "기술수출", "바이오시밀러", "CDMO", "FDA"],
     },
 }
-NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in ("자동차", "배터리", HEAVY_NAME, "정유·석화", "에너지", "반도체", "전자", "항공", "재계", "IT·통신") + (LAB_SECTORS if LAB_ON else ())}  # 화면에 나오는 순서 (준비 중 섹터는 관리자 주소에서만)
+NEWS_SECTORS = {k: NEWS_SECTORS[k] for k in (CAR_NAME, HEAVY_NAME, "정유·석화", "에너지", "반도체", "전자", "항공", "재계", "IT·통신") + (LAB_SECTORS if LAB_ON else ())}  # 화면에 나오는 순서 (준비 중 섹터는 관리자 주소에서만)
 PUBLISHERS = {
     # 종합일간지
     "joongang.co.kr": ("중앙일보", "종합일간지"), "chosun.com": ("조선일보", "종합일간지"),
@@ -474,19 +473,19 @@ PUBLISHERS = {
 # 언론사 도메인 아래에 있어도 기사가 아닌 곳(커뮤니티·게시판 등)은 뺀다. 필요하면 여기에 추가하세요.
 # 텔레그램 알람 신청: 앱 맨 아래 '뉴스·공시 알람 받기'. 고른 섹터·종류를 t.me 링크의 start 값에 0/1로 담는다(순서를 바꾸면 news_digest.py의 해석도 달라지므로 끝에만 추가할 것)
 ALARM_BOT = "joongangbiz_bot"
-ALARM_SECTORS = ("자동차", "배터리", "중후장대", "정유·석화", "에너지", "반도체", "IT·통신", "전자", "항공", "재계")
+ALARM_SECTORS = ("차·배터리", "중후장대", "정유·석화", "에너지", "반도체", "IT·통신", "전자", "항공", "재계")
 ALARM_MODES = ("통신", "단독", "일반", "공시")  # 텔레그램 알람 종류(순서대로). 기본 신청값은 ALARM_DEFAULT_MODES
 ALARM_DEFAULT_MODES = ("통신", "단독", "공시")  # 일반(단독 표기 없는 기사 전부)은 양이 많아 원하는 사람만 고른다
 # 팀 프리셋: 팀 버튼을 누르면 이 섹터들이 한꺼번에 선택된다(텔레그램 받는 사람 설정의 "teams"도 같은 목록을 쓴다). 팀을 늘리려면 여기에 한 줄 추가
 TEAM_PRESETS = {
-    "차팀": ["자동차", "배터리", "중후장대", "정유·석화", "에너지"],
+    "차팀": ["차·배터리", "중후장대", "정유·석화", "에너지"],
     "재계팀": ["반도체", "전자", "항공", "재계"],
 }
 if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS 리터럴은 텔레그램 팀 명령과 같이 쓰므로 건드리지 않는다)
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.02 17:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.03 10:44"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5985,14 +5984,13 @@ def parse_news_terms(text):
 
 
 def team_sector_options(team, options):
-    """팀 프리셋의 섹터 -> 이 화면의 선택지 이름들. 실적 캘린더·공시 섹터는 '자동차·배터리'처럼 묶은 이름이라 그쪽으로 바꿔 준다."""
+    """팀 프리셋의 섹터 -> 이 화면의 선택지 이름들. 묶은 섹터(중후장대·차·배터리)를 따로 쓰는 화면(주가 장중 현황)에선 풀어 주고,
+    묶음을 쓰는 화면에선 옛 낱개 이름을 묶음으로 바꿔 준다."""
     out = []
     for sec in TEAM_PRESETS[team]:
-        name = sec if sec in options else next((o for o in options if sec in o.split("·") and "·" in o and sec in ("자동차", "배터리")), None)
-        if name is None and sec in HEAVY_PARTS and HEAVY_NAME in options:
-            name = HEAVY_NAME
-        if name is None and sec == HEAVY_NAME:  # 화면이 조선·해운/방산/철강을 따로 쓰면(주가 장중 현황) 셋으로 풀어 준다
-            for part in HEAVY_PARTS:
+        name = sec if sec in options else next((m for m, parts in MERGED_SECTORS.items() if sec in parts and m in options), None)
+        if name is None and sec in MERGED_SECTORS:  # 화면이 낱개 섹터(조선·해운/방산/철강, 자동차/배터리)를 쓰면 풀어 준다
+            for part in MERGED_SECTORS[sec]:
                 if part in options and part not in out:
                     out.append(part)
             continue
@@ -11563,11 +11561,11 @@ TODAY_TOP = {"단독": 5, "통신": 3}  # 섹터마다 먼저 보여주는 묶�
 
 
 def today_price_codes(data):
-    """뉴스 섹터 이름 -> 시세 자료의 종목코드 목록 (중후장대는 조선·해운+방산+철강)"""
+    """뉴스 섹터 이름 -> 시세 자료의 종목코드 목록 (중후장대는 조선·해운+방산+철강, 차·배터리는 자동차+배터리)"""
     by = px_sector_codes(data)
     out = {}
     for sec in NEWS_SECTORS:
-        names = list(HEAVY_PARTS) if sec == HEAVY_NAME else [sec]
+        names = list(MERGED_SECTORS.get(sec) or [sec])
         codes = []
         for n in names:
             codes += [c for c in by.get(n, []) if c not in codes]
@@ -11692,7 +11690,7 @@ def _render_today_body(rec):
                 up, down = tdc.movers(snap, codes_by[sec], 2)
                 if up or down:
                     st.markdown(movers_html(up, down, when), unsafe_allow_html=True)
-            if sec == "자동차":
+            if sec == CAR_NAME:
                 line = today_sales_line(now)
                 if line:
                     st.markdown(line, unsafe_allow_html=True)

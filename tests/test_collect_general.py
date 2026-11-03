@@ -15,23 +15,23 @@ check("IT·통신" in cd.SECTORS and set(cd.SECTORS) == set(nd.A["NEWS_SECTORS"]
 calls = []
 def fake_collect(mode, sector, cutoff, google=None):
     calls.append((mode, sector))
-    if sector != "자동차":
+    if sector != "차·배터리":
         return []
     t = {"통신": "현대차 통신 기사", "단독": "[단독] 현대차 단독 기사", "일반": "현대차 일반 기사"}[mode]
     return [{"title": t, "url": f"https://x/{mode}", "publisher": "중앙일보", "dt": now - timedelta(hours=1), "tags": ["현대차"]}]
 cd.nd.collect = fake_collect
 out = tempfile.mkdtemp()
-g = os.path.join(out, cd.general_file("자동차"))
+g = os.path.join(out, cd.general_file("차·배터리"))
 os.makedirs(os.path.dirname(g), exist_ok=True)
 old = (now - timedelta(days=5)).strftime(cd.FMT); keep = (now - timedelta(days=2)).strftime(cd.FMT)
-json.dump({"items": [{"t": "오래된 일반", "u": "https://old", "p": "a", "k": "일반", "d": old, "s": ["자동차"], "g": []},
-                     {"t": "이틀 전 일반", "u": "https://keep", "p": "a", "k": "일반", "d": keep, "s": ["자동차"], "g": []}]}, open(g, "w"))
+json.dump({"items": [{"t": "오래된 일반", "u": "https://old", "p": "a", "k": "일반", "d": old, "s": ["차·배터리"], "g": []},
+                     {"t": "이틀 전 일반", "u": "https://keep", "p": "a", "k": "일반", "d": keep, "s": ["차·배터리"], "g": []}]}, open(g, "w"))
 sys.argv = ["collect_data.py", "--out", out, "--modes", "통신,단독,일반"]  # 외신은 test_gn_collect.py에서
 cd.main()
 gen = json.load(open(g, encoding="utf-8"))
 titles = [r["t"] for r in gen["items"]]
 check(titles == ["현대차 일반 기사", "이틀 전 일반"], f"일반 파일: 새 기사 + 3일 안 기사만 {titles}")
-check(gen.get("sector") == "자동차" and gen.get("updated"), "일반 파일에 섹터·갱신 시각")
+check(gen.get("sector") == "차·배터리" and gen.get("updated"), "일반 파일에 섹터·갱신 시각")
 rec = json.load(open(os.path.join(out, "recent.json"), encoding="utf-8")); arc = json.load(open(os.path.join(out, "archive.json"), encoding="utf-8"))
 check(sorted(r["k"] for r in rec["items"]) == ["단독", "통신"] and all(r["k"] != "일반" for r in arc["items"]), "일반은 recent·archive에 안 들어감")
 check(all(os.path.exists(os.path.join(out, cd.general_file(s))) for s in cd.SECTORS), "섹터마다 일반 파일")

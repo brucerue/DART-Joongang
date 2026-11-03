@@ -89,10 +89,10 @@ check("판매 실적" not in "".join(m.value for m in at.markdown), "다른 기�
 at2 = AppTest.from_file(REPO + "/app.py", default_timeout=300); at2.run()
 from importlib import import_module
 check(not at2.exception, "기본 화면 오류 없음")
-at2.session_state["td_groups"] = ["자동차"]; at2.run()
+at2.session_state["td_groups"] = ["차·배터리"]; at2.run()
 md2 = "".join(m.value for m in at2.markdown)
-check(not at2.exception and "10월 판매" in md2 and "현대차 <b>329,000대</b> (-0.3%)" in md2 and "기아 <b>290,900대</b> (-)" in md2, "오늘의 현황 자동차: 공시 난 날 '10월 판매' 한 줄")
-at2.session_state["td_groups"] = ["배터리"]; at2.run()
+check(not at2.exception and "10월 판매" in md2 and "현대차 <b>329,000대</b> (-0.3%)" in md2 and "기아 <b>290,900대</b> (-)" in md2, "오늘의 현황 차·배터리: 공시 난 날 '10월 판매' 한 줄")
+at2.session_state["td_groups"] = ["반도체"]; at2.run()
 check("10월 판매" not in "".join(m.value for m in at2.markdown), "다른 섹터엔 없음")
 print("실패:", fails) if fails else print("모두 통과")
 sys.exit(1 if fails else 0)

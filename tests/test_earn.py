@@ -8,8 +8,8 @@ import requests
 T = REPO
 KST = timezone(timedelta(hours=9))
 os.environ.update(DART_API_KEY="x"*40, TELEGRAM_BOT_TOKEN="fake", DIGEST_SUBSCRIBERS=json.dumps(
-    [{"name": "기자", "chat_id": "111", "sectors": ["자동차"], "modes": ["단독", "공시"]},
-     {"name": "통신만", "chat_id": "222", "sectors": ["자동차"], "modes": ["통신"]}]))
+    [{"name": "기자", "chat_id": "111", "sectors": ["차·배터리"], "modes": ["단독", "공시"]},
+     {"name": "통신만", "chat_id": "222", "sectors": ["차·배터리"], "modes": ["통신"]}]))
 for k in ("PREFS_URL", "ADMIN_CHAT_ID", "TELEGRAM_CHAT_ID"): os.environ.pop(k, None)
 
 def doc_zip(body):

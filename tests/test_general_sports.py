@@ -11,7 +11,7 @@ rows = [it("현대차 신형 전기차 공개", "중앙일보", "종합일간지
         it("기아, 올림픽 공식 후원 연장", "연합뉴스", "통신사"), it("인천시 현대차 공장 인근 도로 확장", "연합뉴스", "통신사"), it("현대차 노조 교섭", "연합뉴스", "통신사")]
 nd.google_search = lambda terms, domains, extra, cutoff: (list(rows), None)
 nd._SPORTS_KEYS.clear(); nd._SPORTS_KEYS.append((nd.title_key("인천시 현대차 공장 인근 도로 확장"),))
-out = [i["title"] for i in nd.collect("일반", "자동차", now - dt.timedelta(hours=12))]
+out = [i["title"] for i in nd.collect("일반", "차·배터리", now - dt.timedelta(hours=12))]
 print(out)
 assert out == ["현대차 신형 전기차 공개", "현대차 노조 교섭"], out
 print("nd ok")

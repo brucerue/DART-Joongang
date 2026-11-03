@@ -48,7 +48,7 @@ SEEN_FILE = os.path.join(HERE, "digest_seen.json")
 PREFS_FILE = os.path.join(HERE, "digest_prefs.json")  # 받는 사람이 봇 명령으로 바꾼 설정(회차 사이에 캐시로 이어짐)
 
 # ---------- 설정: 받고 싶은 섹터·조회 방식 ----------
-SECTORS = ["자동차", "배터리", "중후장대", "정유·석화", "에너지"]
+SECTORS = ["차·배터리", "중후장대", "정유·석화", "에너지"]
 MODES = ["통신", "단독", "일반", "공시"]  # 알람 종류(순서대로)
 DEFAULT_MODES = ["통신", "단독", "공시"]  # 종류를 안 적은 사람의 기본값. 일반(단독 표기 없는 기사 전부)은 양이 많아 직접 골라야 받는다
 ADDED_LOOKBACK_HOURS = 1  # 봇으로 섹터·종류를 새로 더하면 그 시각 이만큼 전 기사부터 보낸다 (공시는 시각이 없어 그날 것만)
@@ -79,7 +79,7 @@ def load_app_data():
     tree = ast.parse(src)
     consts, funcs = {}, {}
     want_consts = {"LETTER_NAMES", "WORD_READINGS", "PUBLISHERS", "SIMILAR_TITLE", "NEWS_ALIASES", "NAME_READINGS",
-                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "ALARM_DEFAULT_MODES", "TEAM_PRESETS", "HEAVY_NAME", "HEAVY_PARTS", "SECTOR_RENAMES",
+                   "NEWS_SECTORS", "NEWS_ALWAYS_SEARCH", "INDUSTRY_GROUPS", "MAJOR_DISCLOSURES", "PUBLISHER_BLOCK", "ALARM_SECTORS", "ALARM_MODES", "ALARM_DEFAULT_MODES", "TEAM_PRESETS", "HEAVY_NAME", "HEAVY_PARTS", "MERGED_SECTORS", "SECTOR_RENAMES",
                    "PROV_REV_LABELS", "PROV_OP_LABELS", "SPORTS_WORDS", "SPORTS_SCORE_PAT", "SPORTS_SIMILAR", "NEWS_BLOCK_TERMS", "NEWS_NOT_MATCH",
                    "OVERSEAS_GROUPS", "FOREIGN_ENGLISH", "OVERSEAS_NAMES"}  # 뒤의 셋: 외신 수집(collect_data.py)의 해외 섹터 기업
     want_funcs = {"name_key", "is_exclusive", "title_key", "publisher_of", "cluster_news", "news_tokens", "same_news_event", "disclosure_key",
@@ -126,16 +126,19 @@ def aliases_of(term):
 
 
 def migrate_sectors(sectors):
-    """옛 섹터 이름(조선·해운, 방산, 철강)을 '중후장대'로, 이름이 바뀐 섹터(SECTOR_RENAMES)를 새 이름으로 바꾼다 (순서 유지, 중복 제거).
-    -> (새 목록, 세 섹터 중 일부만 받던 사람인지). 일부만 받던 사람은 묶음으로 넓어지므로 첫 회차에 조용히 기록만 한다."""
-    parts, name, renames = set(A["HEAVY_PARTS"]), A["HEAVY_NAME"], A.get("SECTOR_RENAMES") or {}
+    """옛 섹터 이름을 묶은 섹터(MERGED_SECTORS: 조선·해운·방산·철강 -> 중후장대, 자동차·배터리 -> 차·배터리)로,
+    이름이 바뀐 섹터(SECTOR_RENAMES)를 새 이름으로 바꾼다 (순서 유지, 중복 제거).
+    -> (새 목록, 일부만 받다가 넓어진 묶음 이름 목록). 넓어진 묶음은 첫 회차에 기존 기사를 조용히 기록만 한다(한꺼번에 몰려오지 않게)."""
+    merged, renames = A.get("MERGED_SECTORS") or {A["HEAVY_NAME"]: list(A["HEAVY_PARTS"])}, A.get("SECTOR_RENAMES") or {}
+    to_merged = {p: m for m, parts in merged.items() for p in parts}
     old = list(sectors or [])
     out = []
     for x in old:
-        y = name if x in parts else renames.get(x, x)  # 이름이 바뀐 섹터(에너지·소재 -> 에너지)도 새 이름으로
+        y = to_merged.get(x) or renames.get(x, x)  # 이름이 바뀐 섹터(에너지·소재 -> 에너지)도 새 이름으로
         if y not in out:
             out.append(y)
-    return out, bool(parts & set(old)) and not parts <= set(old)
+    widened = [m for m, parts in merged.items() if set(parts) & set(old) and not set(parts) <= set(old)]
+    return out, widened
 
 
 def sector_terms(sector):
@@ -330,7 +333,8 @@ def disclosure_items(feed, sector, earn_only=False, use_skip=True):
     """시장 전체 공시 중 섹터 기업의 '주요 공시'만 골라, 뉴스 항목과 같은 모양으로 돌려준다 (최신순).
     잠정실적은 같은 회사가 연결 기준을 냈으면 별도 기준은 빼고(중복), 수치를 붙일 수 있게 표시해 둔다.
     earn_only면 잠정실적만. use_skip: 알림에서 뺄 보고서(DISCLOSURE_SKIP)를 뺄지 (수집은 끔)."""
-    companies = [n for part in A["HEAVY_PARTS"] for n in A["INDUSTRY_GROUPS"].get(part, [])] if sector == A["HEAVY_NAME"] else A["INDUSTRY_GROUPS"].get(sector, [])
+    merged = A.get("MERGED_SECTORS") or {}
+    companies = [n for part in merged[sector] for n in A["INDUSTRY_GROUPS"].get(part, [])] if sector in merged else A["INDUSTRY_GROUPS"].get(sector, [])
     keys = {name_key(n) for n in companies}
     major = [A["disclosure_key"](w) for ws in A["MAJOR_DISCLOSURES"].values() for w in ws]
     skip = [A["disclosure_key"](w) for w in DISCLOSURE_SKIP] if use_skip else []
@@ -1172,9 +1176,11 @@ def run_command(text, sub, prefs):
         aliases["전체"] = options
         for old in ("조선·해운", "조선해운", "조선", "해운", "방산", "철강"):  # 옛 섹터 이름은 중후장대로 받는다
             aliases.setdefault(old, [A["HEAVY_NAME"]])
+        for old in ("자동차", "배터리", "자동차배터리", "차", "차배터리"):  # 자동차·배터리는 차·배터리로 받는다
+            aliases.setdefault(old, ["차·배터리"])
         chosen, bad = parse_choice(rest, options, aliases)
         if bad or not chosen:
-            head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 섹터를 같이 보내주세요. 예: /섹터 자동차 배터리"
+            head = f"알아듣지 못한 말: {', '.join(bad)}" if bad else "받을 섹터를 같이 보내주세요. 예: /섹터 차배터리 반도체"
             return f"{head}\n\n가능한 섹터: {', '.join(plain_name(o) for o in options)}\n팀: {', '.join(presets) or '-'} / 전체"
         mark_added(mine, "s", sub.get("sectors") or [], chosen)
         mine["sectors"] = chosen
@@ -1328,9 +1334,9 @@ def apply_prefs(subs, prefs, keep_paused=False):
             new["added"] = {k: datetime.fromtimestamp(v / 1000, KST) for k, v in added.items()
                             if isinstance(k, str) and k[:2] in ("s:", "m:") and isinstance(v, (int, float)) and v > 0}
         if mine.get("sectors"):
-            moved, partial = migrate_sectors(mine["sectors"])
+            moved, widened = migrate_sectors(mine["sectors"])
             new["sectors"] = [x for x in moved if x in A["NEWS_SECTORS"]] or sub["sectors"]
-            new["heavy_partial"] = partial
+            new["widened"] = widened
         if mine.get("modes"):
             new["modes"] = [x for x in mine["modes"] if x in MODES] or sub["modes"]
         h = mine.get("hours")
@@ -1413,14 +1419,14 @@ def load_subscribers():
         if bad_teams:
             raise SystemExit(f"{d.get('name', d.get('chat_id'))}: 알 수 없는 팀 {bad_teams} (가능: {', '.join(presets) or '없음'})")
         team_sectors = [x for t in teams for x in presets[t]]
-        explicit, partial = migrate_sectors(d.get("sectors") or [])  # 옛 이름(조선·해운·방산·철강)은 중후장대로
-        partial = partial and A["HEAVY_NAME"] not in team_sectors
+        explicit, widened = migrate_sectors(d.get("sectors") or [])  # 옛 이름(조선·해운·방산·철강, 자동차·배터리)은 묶음으로
+        widened = [m for m in widened if m not in team_sectors]
         sectors = list(dict.fromkeys(explicit + team_sectors)) or SECTORS  # 팀 + 개별 섹터를 합쳐서, 둘 다 없으면 전부
         modes = d.get("modes") or DEFAULT_MODES
         bad = [x for x in sectors if x not in A["NEWS_SECTORS"]] + [m for m in modes if m not in MODES]
         if bad:
             raise SystemExit(f"{d.get('name', d.get('chat_id'))}: 알 수 없는 섹터/모드 {bad}")
-        subs.append({"name": d.get("name") or str(d["chat_id"]), "chat_id": str(d["chat_id"]), "sectors": list(sectors), "modes": list(modes), "heavy_partial": partial})
+        subs.append({"name": d.get("name") or str(d["chat_id"]), "chat_id": str(d["chat_id"]), "sectors": list(sectors), "modes": list(modes), "widened": widened})
     return subs
 
 
@@ -1571,9 +1577,10 @@ def main():
     for sub in subs:
         chat = sub["chat_id"]
         parts = []  # [(모드, 섹션들, 새 기록 키들)]
-        base_key = f"migrate|heavy|{chat}"
-        baseline = bool(sub.get("heavy_partial")) and base_key not in seen and not dry and not args.force and not args.only
-        quiet_keys = []  # 중후장대로 묶이기 전 일부만 받던 사람: 넓어진 범위의 기존 기사는 보내지 않고 '받은 것으로만' 기록
+        base_keys = {m: f"migrate|{'heavy' if m == A['HEAVY_NAME'] else m}|{chat}" for m in sub.get("widened") or []}
+        quiet_secs = [m for m, k in base_keys.items() if k not in seen] if not dry and not args.force and not args.only else []
+        baseline = bool(quiet_secs)
+        quiet_keys = []  # 묶음(중후장대·차·배터리)으로 넓어진 사람: 넓어진 범위의 기존 기사는 보내지 않고 '받은 것으로만' 기록
         placed_all = set()  # 이 사람에게 이번 회차에 들어간 기사 (모든 종류)
         sent_titles = recent_sent_titles(seen, chat, now)  # 최근에 보낸 기사 제목 (비슷한 제목 거르기)
         for mode in sub["modes"]:
@@ -1607,7 +1614,7 @@ def main():
                     placed_all.update(ks)
                     fresh.append(i)
                 clusters = [{"rep": i, "others": []} for i in fresh] if mode == "공시" else cluster_news(fresh)
-                if baseline and sector == A["HEAVY_NAME"]:
+                if sector in quiet_secs:
                     for c in clusters:
                         quiet_keys += [k for it in [c["rep"]] + c["others"] for k in sent_keys(chat, mode, it)]
                     continue
@@ -1624,9 +1631,10 @@ def main():
         if baseline:
             for k in quiet_keys:
                 seen[k] = now.isoformat()
-            seen[base_key] = now.isoformat()
+            for m in quiet_secs:
+                seen[base_keys[m]] = now.isoformat()
             seen_dirty = True
-            print(f"[{sub['name']}] 섹터가 중후장대로 묶여 기존 기사 {len(quiet_keys)}건은 알림 없이 기록만 했어요")
+            print(f"[{sub['name']}] 섹터가 {', '.join(quiet_secs)}(으)로 묶여 기존 기사 {len(quiet_keys)}건은 알림 없이 기록만 했어요")
         if not parts:
             continue
         if sub.get("paused"):  # 멈춘 사람: 보내지 않고 '받은 것으로만' 기록한다 -> 켜면 그 뒤에 나온 것만 받는다

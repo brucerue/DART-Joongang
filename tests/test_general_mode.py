@@ -4,9 +4,9 @@ FIX = str(_pl.Path(__file__).resolve().parent / "fixtures")  # 시험용 자료
 import os, sys, json, tempfile, datetime as dt
 sys.path.insert(0, REPO)
 os.environ["TELEGRAM_BOT_TOKEN"] = "tok"
-os.environ["DIGEST_SUBSCRIBERS"] = json.dumps([{"name": "둘다", "chat_id": "111", "sectors": ["자동차"], "modes": ["통신", "일반"]},
-                                               {"name": "일반만", "chat_id": "222", "sectors": ["자동차"], "modes": ["일반"]},
-                                               {"name": "기본", "chat_id": "333", "sectors": ["자동차"]}])
+os.environ["DIGEST_SUBSCRIBERS"] = json.dumps([{"name": "둘다", "chat_id": "111", "sectors": ["차·배터리"], "modes": ["통신", "일반"]},
+                                               {"name": "일반만", "chat_id": "222", "sectors": ["차·배터리"], "modes": ["일반"]},
+                                               {"name": "기본", "chat_id": "333", "sectors": ["차·배터리"]}])
 os.environ.pop("PREFS_URL", None)
 import news_digest as nd
 class _R:
@@ -33,7 +33,7 @@ def check(c, m):
     print(("  ✅ " if c else "  ❌ ") + m)
     if not c: fails.append(m)
 subs = nd.load_subscribers() if hasattr(nd, "load_subscribers") else None
-sys.argv = ["x", "--sectors", "자동차"]
+sys.argv = ["x", "--sectors", "차·배터리"]
 try: nd.main()
 except SystemExit as e: print("exit", e)
 by = {}
@@ -47,14 +47,14 @@ t3 = "\n".join(by.get("333", []))
 check("노조 파업" not in t3 and "현대차 신형" in t3, "종류 미지정(기본): 통신만, 일반 없음")
 check(sorted(set(calls)) == ["단독", "일반", "통신"], f"조회 종류 {sorted(set(calls))}")
 # 15분 회차(--mode 단독)에는 일반을 조회하지 않는다
-calls.clear(); sent.clear(); sys.argv = ["x", "--mode", "단독", "--sectors", "자동차"]
+calls.clear(); sent.clear(); sys.argv = ["x", "--mode", "단독", "--sectors", "차·배터리"]
 try: nd.main()
 except SystemExit: pass
 check("일반" not in calls, f"단독 회차엔 일반 조회 없음 {calls}")
 # /종류 전체 = 통신·단독·공시
-r = nd.run_command("/종류 전체", {"sectors": ["자동차"], "modes": ["통신"], "chat_id": "111", "name": "둘다"}, {"111": {}})
+r = nd.run_command("/종류 전체", {"sectors": ["차·배터리"], "modes": ["통신"], "chat_id": "111", "name": "둘다"}, {"111": {}})
 print("  /종류 전체 ->", r)
 check(r and "통신, 단독, 일반, 공시" in r, "/종류 전체 = 넷 다")
-r = nd.run_command("/종류 통신 일반", {"sectors": ["자동차"], "modes": ["통신"], "chat_id": "111", "name": "둘다"}, {"111": {}})
+r = nd.run_command("/종류 통신 일반", {"sectors": ["차·배터리"], "modes": ["통신"], "chat_id": "111", "name": "둘다"}, {"111": {}})
 check(r and "통신, 일반" in r, f"/종류 통신 일반 -> {r}")
 print("실패", fails); sys.exit(1 if fails else 0)
