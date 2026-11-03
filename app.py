@@ -486,7 +486,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.03 22:22"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.04 00:25"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -4204,7 +4204,7 @@ def render_fin_ai(result):
         st.markdown(md_safe(saved["text"]))
         st.caption(f"AI 분석 · 위 표의 숫자만 근거로 한 해석이에요. 원인·배경은 취재로 확인하세요")
     else:
-        st.caption("누르면 위 표(실적·재무상태)를 종합해 흑자·적자 흐름, 수익성, 재무 건전성의 핵심 포인트를 정리해 줘요.")
+        st.caption("안내", help="누르면 위 표(실적·재무상태)를 종합해 흑자·적자 흐름, 수익성, 재무 건전성의 핵심 포인트를 정리해 줘요.")
 
 
 def render_financials():
@@ -5519,9 +5519,9 @@ def render_feed(by_sector=False):
     res = st.session_state.get(p)
     if not res:
         if by_sector:
-            st.caption("섹터를 고르고 날짜·시장을 정한 뒤 '공시 불러오기'를 누르세요. 고른 섹터의 기업이 그날 낸 공시를 골라 보여줍니다.")
+            st.caption("사용법", help="섹터를 고르고 날짜·시장을 정한 뒤 '공시 불러오기'를 누르세요. 고른 섹터의 기업이 그날 낸 공시를 골라 보여줍니다.")
         else:
-            st.caption("날짜와 시장을 고르고 '공시 불러오기'를 누르세요. 영업실적·공급계약·증자·합병·자기주식·지분 변동 공시를 골라 보여줍니다.")
+            st.caption("사용법", help="날짜와 시장을 고르고 '공시 불러오기'를 누르세요. 영업실적·공급계약·증자·합병·자기주식·지분 변동 공시를 골라 보여줍니다.")
         return
     if not res["rows"]:
         if by_sector:
@@ -5960,7 +5960,7 @@ def render_gn_korea():
     else:
         st.caption("이 기간에는 없어요.")
     st.markdown("##### 본문에 한국이 나온 기사")
-    st.caption("제목엔 한국이 없지만 구글이 본문에서 한국과 섹터 낱말을 함께 찾은 기사예요. 스치듯 언급된 경우도 있으니 원문으로 확인하세요.")
+    st.caption("본문 검색 안내", help="제목엔 한국이 없지만 구글이 본문에서 한국과 섹터 낱말을 함께 찾은 기사예요. 스치듯 언급된 경우도 있으니 원문으로 확인하세요.")
     if c_b:
         st.markdown(gn_clusters_md(c_b[:GN_BODY_SHOW], ko), unsafe_allow_html=True)
         if len(c_b) > GN_BODY_SHOW:
@@ -6512,7 +6512,7 @@ def render_news_search(kind):
         st.caption("오른쪽 위 복사 아이콘을 누르면 전체가 복사돼요.")
         st.code(news_copy_text(res, now), language=None, wrap_lines=True, height=320)  # 길면 상자 안에서 스크롤
     st.markdown(news_html(clusters, now), unsafe_allow_html=True)
-    st.caption("지금 주소를 북마크(또는 홈 화면에 추가)하면 다음에 열 때 같은 검색어로 바로 조회돼요.")
+    st.caption("북마크 안내", help="지금 주소를 북마크(또는 홈 화면에 추가)하면 다음에 열 때 같은 검색어로 바로 조회돼요.")
 
 
 def render_news():
@@ -9243,7 +9243,7 @@ def render_brief_peers(b):
                                f"등락률 ({when})": px_pct(r["rate"], 2), "1개월": px_pct(r["m1"]), "연초 이후": px_pct(r["ytd"])}
                               for i, r in enumerate(rows, 1)])
         st.dataframe(table.style.map(price_style, subset=[f"등락률 ({when})", "1개월", "연초 이후"]), hide_index=True)
-        st.caption("★ 이 기업 · 섹터 기업 목록은 앱의 섹터 구성이에요(비상장사 제외). 수익률은 KRX 등락률을 이어 붙인 값(배당 제외), 시총은 보통주+우선주예요.")
+        st.caption("표 설명", help="★ 이 기업 · 섹터 기업 목록은 앱의 섹터 구성이에요(비상장사 제외). 수익률은 KRX 등락률을 이어 붙인 값(배당 제외), 시총은 보통주+우선주예요.")
 
 
 def render_brief_timeline(b):
@@ -9648,7 +9648,7 @@ def tsv_text(df, drop=()):
 def copy_table_box(df, key, label="엑셀에 붙여넣기용 복사", drop=()):
     """표 아래 접이식 상자: 오른쪽 위 복사 아이콘을 누르고 엑셀 셀에 붙여넣으면 표 모양 그대로 들어간다(파일을 받을 필요 없음)"""
     with st.expander(label):
-        st.caption("오른쪽 위 복사 아이콘을 누르고, 엑셀·구글시트의 셀 하나를 눌러 붙여넣기(Ctrl+V) 하세요.")
+        st.caption("붙여넣기 안내", help="오른쪽 위 복사 아이콘을 누르고, 엑셀·구글시트의 셀 하나를 눌러 붙여넣기(Ctrl+V) 하세요.")
         st.code(tsv_text(df, drop), language=None, wrap_lines=False, height=260)
 
 
@@ -9727,7 +9727,7 @@ def render_disclosure_hub():
     with st.container(key="disc_mode_bar"):  # '조회 방식' 글자와 선택지를 한 줄에
         c1, c2 = st.columns([1, 4], vertical_alignment="center")
         c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
-        mode = c2.radio("조회 방식", ["오늘의 공시", "기업", "섹터"] + (["AI 검색"] if SHOW_HIDDEN else []), horizontal=True, key="disc_mode", label_visibility="collapsed")
+        mode = c2.radio("조회 방식", ["오늘의 공시", "기업"] + (["섹터", "AI 검색"] if SHOW_HIDDEN else []), horizontal=True, key="disc_mode", label_visibility="collapsed")  # 섹터·AI 검색은 관리자 주소에서만
     track_choice("disc_mode", "공시 분석")
     if mode == "AI 검색":
         render_disc_ai_search()
@@ -10849,7 +10849,7 @@ def render_trade_ai(data):
     if not AI_PROVIDER:
         st.info("AI 검색을 쓰려면 Streamlit Secrets에 ANTHROPIC_API_KEY(Claude) 또는 GEMINI_API_KEY(Gemini)를 추가해주세요.")
         return
-    st.caption("품목을 말로 설명하거나(예: 전기차) 질문하듯 쓰면(예: 2025년 미국으로 수출된 자동차 수출액) AI가 코드와 검색 조건을 제안해요. 확인하고 '조회'를 누르면 일반 검색과 같은 결과가 나와요.")
+    st.caption("사용법", help="품목을 말로 설명하거나(예: 전기차) 질문하듯 쓰면(예: 2025년 미국으로 수출된 자동차 수출액) AI가 코드와 검색 조건을 제안해요. 확인하고 '조회'를 누르면 일반 검색과 같은 결과가 나와요.")
     text = st.text_area("찾고 싶은 것", key="tr_ai_text", height=80, placeholder="예: 전기차  /  2025년 미국으로 수출된 자동차 수출액  /  올해 EU 반도체 수입")
     if log_if(st.button("AI에게 물어보기", type="primary", key="tr_ai_go"), "무역 AI 검색"):
         st.session_state.pop("tr_ai_query", None)
@@ -11044,7 +11044,7 @@ def trade_item_picker(data, pre):
         picked = st.multiselect("MTI 품목 — 이름이나 코드(1~6자리)를 입력해 검색", list(opts), key=f"{pre}mti", max_selections=6,
                                 placeholder="예: 반도체, 8312, 831110")
         items += [("mti", opts[p]) for p in picked]
-        st.caption("산업부(MOTIE)가 발표에 쓰는 품목 분류예요. 같은 이름이라도 HS 코드 하나가 아니라 여러 HS 코드를 묶은 것이에요(예: 반도체 = 집적회로·반도체 소자·웨이퍼 등). 자릿수가 짧을수록 넓은 묶음이에요.")
+        st.caption("MTI 안내", help="산업부(MOTIE)가 발표에 쓰는 품목 분류예요. 같은 이름이라도 HS 코드 하나가 아니라 여러 HS 코드를 묶은 것이에요(예: 반도체 = 집적회로·반도체 소자·웨이퍼 등). 자릿수가 짧을수록 넓은 묶음이에요.")
     if item_mode == "HS코드":
         opts = trade_hs_options(data)
         picked = st.multiselect("HS 품목 — 이름이나 코드로 검색 (목록에 없는 코드는 입력하고 엔터, 2·4·6·8·10자리)", list(opts), key=f"{pre}hs", max_selections=6,
@@ -11054,7 +11054,7 @@ def trade_item_picker(data, pre):
         if any(c is None for c in codes):
             st.caption("HS 코드는 숫자 2·4·6·8·10자리로 입력해 주세요. 맞지 않는 입력은 빼고 조회해요.")
         items += [("hs", c) for c in dict.fromkeys(c for c in codes if c)]
-        st.caption("HS 코드는 관세청 분류예요. 산업부 발표 기준(반도체·자동차 등)으로 보려면 '20대'나 'MTI코드'를 쓰세요.")
+        st.caption("HS 안내", help="HS 코드는 관세청 분류예요. 산업부 발표 기준(반도체·자동차 등)으로 보려면 '20대'나 'MTI코드'를 쓰세요.")
     return items, live, mti
 
 
@@ -11223,7 +11223,7 @@ def trade_hs_calls(parts, start, end):
 def render_trade_composition(data):
     """품목별 구성: 지역(국가·경제권·대륙)이 주고받은 품목의 구성을 HS 2자리(류)부터 보여주고, 눌러서 4·6·10자리로 내려간다"""
     months = data["months"]
-    st.caption("지역을 고르면 그 지역과 주고받은 품목의 구성을 큰 단위(HS 2자리 류)부터 보여주고, 아래 칸에서 골라 4·6·10자리 세부로 내려가요.")
+    st.caption("사용법", help="지역을 고르면 그 지역과 주고받은 품목의 구성을 큰 단위(HS 2자리 류)부터 보여주고, 아래 칸에서 골라 4·6·10자리 세부로 내려가요.")
     basis = st.radio("기준", ["HS", "20대"], horizontal=True, key="tr_c_basis",
                      help="'HS'는 HS 2자리(류)부터 4·6·10자리로 내려가며 봐요. '20대'는 산업부 20대 주력 품목별 구성이에요(미리 모아 둔 자료로 바로 나오고, 금액만 있어요).")
     reg_mode = st.radio("지역", ["국가", "경제권", "대륙"], horizontal=True, key="tr_c_reg")
@@ -11307,7 +11307,7 @@ def render_trade_composition_groups(data, cq, pre):
         st.info("이 조건으로 조회된 자료가 없어요. 기간이나 지역을 바꿔 보세요.")
         return
     top_n = None if cq["top"] == "전체" else int(cq["top"])
-    st.caption("산업부 20대 주력 품목 기준이에요(미리 모아 둔 자료, 금액만). 점유율은 20대 품목 합계 기준이고, 20대 품목 합은 지역 전체 수출입과 같지 않아요.")
+    st.caption("20대 품목 안내", help="산업부 20대 주력 품목 기준이에요(미리 모아 둔 자료, 금액만). 점유율은 20대 품목 합계 기준이고, 20대 품목 합은 지역 전체 수출입과 같지 않아요.")
     render_trade_multi_table("20대 품목별 구성", entries, metrics, top_n, cq["compare"], f"{pre}tab", denom=None, with_other=True)
 
 
@@ -11340,7 +11340,7 @@ def render_trade_composition_result(data, cq, pre):
     else:
         render_trade_multi_table("품목별 구성" + (f" ({path} 안)" if path else ""), entries, metrics, top_n, cq["compare"], f"{pre}tab")
     if length == 6:
-        st.caption("HS 6자리의 이름은 그 안에서 가장 큰 세부 품목의 이름으로 적었어요.")
+        st.caption("품목 이름 안내", help="HS 6자리의 이름은 그 안에서 가장 큰 세부 품목의 이름으로 적었어요.")
     mk = tc.RANK_METRICS[metrics[0]]
     top_rows, _ = tc.rank_table(entries, mk, top_n or 15, None, with_other=False)
     opts = [""] + [r["name"] for r in top_rows if r["rank"] is not None]
@@ -11699,7 +11699,7 @@ def render_trade():
                    help=f"관세청 수출입 통계(통관 기준, 달러)예요. 월별 확정치는 보통 다음 달 중순에 나와요.  \n"
                    f"월별 자료 {months[0].replace('-', '.')} ~ {months[-1].replace('-', '.')} · 자료 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}  \n"
                    "증감은 전년 같은 달 대비이고, 파랑은 늘어난 것·빨강은 줄어든 것이에요.")
-        view = st.radio("보기", TRADE_VIEWS, horizontal=True, key="tr_view", label_visibility="collapsed")
+        view = st.radio("보기", [v for v in TRADE_VIEWS if SHOW_HIDDEN or v not in ("10일", "국가")], horizontal=True, key="tr_view", label_visibility="collapsed")  # 10일·국가는 관리자 주소에서만 (2026.11 정리)
         track_choice("tr_view", "AI 무역 통계")
         {"AI 검색": render_trade_ai, "일반 검색": render_trade_search, "월간": render_trade_monthly, "10일": render_trade_tenday, "국가": render_trade_country}[view](data)
 
@@ -11812,9 +11812,25 @@ def render_today():
     rec = get_stored("recent.json")
     if rec is None:
         st.info("모아 둔 기사 자료를 아직 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.")
+        render_today_board()
         return
     with st.container(key="today_wrap"):
         _render_today_body(rec)
+    render_today_board()
+
+
+def render_today_board():
+    """오늘의 현황 맨 아래: 섹터별 시세판 (예전 주가 분석 탭의 시세판, 2026.11 합침). 펼칠 때만 그린다."""
+    exp = st.expander("📈 섹터별 시세판 — 평균 등락률·오른/내린 종목·종목별 시세", key="td_board_open", on_change="rerun")
+    if not getattr(exp, "open", False):
+        return
+    with exp:
+        data = get_prices()
+        if data is None:
+            st.info("시세 자료가 아직 없어요. 평일 아침 KRX 시세를 모아 둬요.")
+            return
+        log_use("오늘의 현황 시세판", once=True)
+        render_px_board(data)
 
 
 def _render_today_body(rec):
@@ -12345,7 +12361,7 @@ def render_usage_stats():
 
 TAB_NAMES = ["오늘의 현황", "기업 브리핑", "재무 분석", "주가 분석", "공시 분석", "산업 뉴스", "AI 무역 통계", "실적 캘린더", "정기보고서", "재계 순위"]
 # 기업 브리핑은 재무 분석 '개별'에 합쳤고(회사 브리핑 펼치기), 정기보고서·재계 순위는 덜 써서 관리자 주소에서만 (2026.11 정리)
-TAB_NAMES = [t for t in TAB_NAMES if SHOW_HIDDEN or t not in ("기업 브리핑", "정기보고서", "재계 순위")]
+TAB_NAMES = [t for t in TAB_NAMES if SHOW_HIDDEN or t not in ("기업 브리핑", "정기보고서", "재계 순위", "주가 분석")]  # 주가 분석 시세판은 오늘의 현황 맨 아래로
 SHOW_LAB = st.query_params.get("lab", "") == "1"  # 관리자용 주소: 주소 끝에 ?lab=1을 붙이면 맨 아래(알람 버튼 밑)에 관리자 탭 '타임라인'·'사용 통계'가 보임 (위 탭 줄은 그대로)
 # 관심 기업 주소(?news=... 또는 ?sector=...)로 들어오면 산업 뉴스 탭을 먼저 연다
 def warm_stored_news():
@@ -12380,6 +12396,11 @@ by_name = dict(zip(TAB_NAMES, tabs))
 TAB_RENDER = {"오늘의 현황": render_today, "기업 브리핑": render_brief, "재무 분석": render_fin_hub, "주가 분석": render_stock,
               "공시 분석": render_disclosure_hub, "산업 뉴스": render_news, "AI 무역 통계": render_trade, "실적 캘린더": render_calendar,
               "정기보고서": render_periodic, "재계 순위": render_chaebol}
+if LAZY_TABS:  # 탭을 열 때마다 사용 기록에 한 줄 (조회 버튼을 안 눌러도 어떤 탭을 보는지 알 수 있게)
+    _open_tab = st.session_state.get("main_tab") or TAB_NAMES[0]
+    if st.session_state.get("_tab_logged") != _open_tab:
+        st.session_state["_tab_logged"] = _open_tab
+        log_use(f"탭 열기: {_open_tab}")
 for _name in TAB_NAMES:
     _tab = by_name[_name]
     if not LAZY_TABS or getattr(_tab, "open", True):

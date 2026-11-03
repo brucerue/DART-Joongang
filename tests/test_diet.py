@@ -28,12 +28,21 @@ def check(c, m):
     if not c: fails.append(m)
 os.environ.pop("ALL_TABS", None)
 at = AppTest.from_file(REPO + "/app.py", default_timeout=300); at.run()
-labels = [t.label for t in at.tabs][:12]
-check(not at.exception and "기업 브리핑" not in labels and "정기보고서" not in labels and "재계 순위" not in labels and "재무 분석" in labels, f"공용 탭 {labels}")
+labels = [t.label for t in at.tabs][:6]
+check(not at.exception and labels == ["오늘의 현황", "재무 분석", "공시 분석", "산업 뉴스", "AI 무역 통계", "실적 캘린더"], f"공용 탭 6개 {labels}")
+check(at.session_state["_tab_logged"] == "오늘의 현황", "탭 열람 기록: 처음 연 탭")
+exps = [e for e in at.expander if "시세판" in str(e.label)]
+check(exps, "오늘의 현황 맨 아래 '섹터별 시세판' 펼치기")
+at.session_state["td_board_open"] = True; at.run()
+check(not at.exception, "시세판 펼쳐도 오류 없음")
 at.session_state["main_tab"] = "재무 분석"; at.run()
 check(list(at.radio(key="fin_mode").options) == ["개별", "국내", "해외"], "재무 분석: AI 검색 숨김")
 at.session_state["main_tab"] = "공시 분석"; at.run()
-check(list(at.radio(key="disc_mode").options) == ["오늘의 공시", "기업", "섹터"], "공시 분석: AI 검색 숨김")
+check(list(at.radio(key="disc_mode").options) == ["오늘의 공시", "기업"], "공시 분석: 섹터·AI 검색 숨김")
+check(at.session_state["_tab_logged"] == "공시 분석", "탭 열람 기록: 옮긴 탭")
+at.session_state["main_tab"] = "AI 무역 통계"; at.run()
+tv = [r for r in at.radio if r.key == "tr_view"]
+check(not tv or list(tv[0].options) == ["AI 검색", "일반 검색", "월간"], f"AI 무역 통계: 10일·국가 숨김 {list(tv[0].options) if tv else '(자료 없음)'}")
 # 재무 분석 개별: 회사 브리핑 펼치기
 at.session_state["main_tab"] = "재무 분석"; at.run()
 at.radio(key="fin_mode").set_value("개별").run()
@@ -49,7 +58,7 @@ check("최근 동향 요약" in md, "AI 동향 요약 칸 (AI 키가 없는 시�
 # 관리자 주소에선 그대로
 at2 = AppTest.from_file(REPO + "/app.py", default_timeout=300); at2.query_params["lab"] = "1"; at2.run()
 labels2 = [t.label for t in at2.tabs][:12]
-check({"기업 브리핑", "정기보고서", "재계 순위"} <= set(labels2), "관리자 주소: 숨긴 탭도 보임")
+check({"기업 브리핑", "정기보고서", "재계 순위", "주가 분석"} <= set(labels2), "관리자 주소: 숨긴 탭도 보임")
 at2.session_state["main_tab"] = "주가 분석"; at2.run()
 px = [r for r in at2.radio if r.key == "px_mode"]
 check(not px or list(px[0].options) == ["장중 현황", "시세판", "업계 비교", "이벤트"], "관리자 주소: 주가 네 보기")

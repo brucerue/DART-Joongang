@@ -162,7 +162,8 @@ check("HS 4자리 단위" in caps and f"위치: 전체 › {first}" in caps, "4�
 n1 = len(calls)
 sel = at.selectbox(key=f"tr_c_drill_{first}"); sel.select([o for o in sel.options if o != "(선택)"][0]).run()
 caps = " ".join(c.value for c in at.caption)
-check("HS 6자리 단위" in caps and len(calls) == n1 and "대표" not in caps and "가장 큰 세부 품목" in caps, "6자리로 내려가도 추가 호출 없음")
+helps = " ".join(str(getattr(c, "help", "") or "") for c in at.caption)
+check("HS 6자리 단위" in caps and len(calls) == n1 and "대표" not in caps and "가장 큰 세부 품목" in caps + helps, "6자리로 내려가도 추가 호출 없음")
 p6 = [c for c in at.caption if "위치:" in c.value][0].value.split("› ")[-1]
 sel = at.selectbox(key=f"tr_c_drill_{p6}"); sel.select([o for o in sel.options if o != "(선택)"][0]).run()
 caps = " ".join(c.value for c in at.caption)
