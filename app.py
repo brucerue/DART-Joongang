@@ -483,7 +483,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.03 12:34"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.03 13:17"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -4382,6 +4382,27 @@ def fill_industry():
         st.session_state["ind_corps"] = ", ".join(INDUSTRY_GROUPS[group])
 
 
+def ind_top_groups():
+    """재무 '국내' 섹터 고르기 첫 줄: 다른 탭과 같은 묶음 이름 -> 그 안의 낱개 섹터 (묶지 않은 섹터는 자기 하나)"""
+    out = {}
+    for sec in NEWS_SECTORS:
+        parts = [p for p in (MERGED_SECTORS.get(sec) or [sec]) if p in INDUSTRY_GROUPS]
+        if parts:
+            out[sec] = parts
+    for sec in INDUSTRY_GROUPS:  # 뉴스 섹터에 없는 낱개 섹터가 있으면 끝에
+        if not any(sec in v for v in out.values()):
+            out[sec] = [sec]
+    return out
+
+
+def pick_industry_top():
+    """첫 줄(묶음)을 고르면: 낱개가 하나면 바로 채우고, 여럿이면 둘째 줄에서 고르게 비워 둔다."""
+    parts = ind_top_groups().get(st.session_state.get("ind_top"), [])
+    st.session_state["ind_group"] = parts[0] if len(parts) == 1 else None
+    if len(parts) == 1:
+        fill_industry()
+
+
 def render_fin_hub():
     """탭: 재무 조회 - 기업 한 곳의 기간별 추이 / 국내 섹터 합산 / 해외 섹터(미국 SEC 등)를 고른다."""
     with st.container(key="fin_wrap"):
@@ -4507,9 +4528,14 @@ def render_car_sales(corp):
 
 def render_industry():
     """탭: 업종 합산 - 여러 회사의 같은 기간 실적을 모으고 합계를 낸다."""
-    groups = list(INDUSTRY_GROUPS)
+    tops = ind_top_groups()
     st.session_state.setdefault("ind_corps", "")  # 처음엔 섹터도 기업도 비워 둔다
-    st.radio("섹터", groups, index=None, horizontal=True, key="ind_group", on_change=fill_industry)  # 폼 밖: 고르면 아래 기업 칸이 바뀜
+    # 폼 밖: 고르면 아래 기업 칸이 바뀜. 첫 줄은 다른 탭과 같은 묶음, 묶음이면 둘째 줄에서 낱개 섹터(합산은 낱개 섹터로: 한 번에 10곳까지)
+    st.radio("섹터", list(tops), index=None, horizontal=True, key="ind_top", on_change=pick_industry_top)
+    parts = tops.get(st.session_state.get("ind_top"), [])
+    if len(parts) > 1:
+        st.radio("세부 섹터", parts, index=None, horizontal=True, key="ind_group", on_change=fill_industry,
+                 help="합산은 세부 섹터 단위로 해요(한 번에 10곳까지). 기업 칸에서 직접 빼거나 더할 수도 있어요.")
     ly, lp = latest_period()
     years = list(range(TODAY.year, 2014, -1))
     with st.form("ind_search"):
@@ -9873,6 +9899,11 @@ def px_sector_codes(data):
     return out
 
 
+def px_merged_sector_codes(data):
+    """주가 화면(시세판·장중 현황)의 섹터: 다른 탭과 같은 묶음(차·배터리·중후장대·에너지·화학·반도체·전자 …) -> {섹터: [종목코드]}"""
+    return {sec: [c for _, codes in groups for c in codes] for sec, groups in today_price_codes(data).items() if groups}
+
+
 def px_labels(data, sectors):
     """{종목코드: 분류 이름} - 섹터 기업은 섹터, 그 밖의 추적 종목은 재계 그룹"""
     label = {}
@@ -9977,7 +10008,7 @@ def render_px_board(data):
     """시세판: 섹터별 평균 등락률·오른/내린 종목 수·최고/최저, 섹터 기업 시세"""
     b = px_basis(data)
     snap = b["snap"]
-    sectors = px_sector_codes(data)
+    sectors = px_merged_sector_codes(data)
     summary = sc.sector_summary(snap, sectors)
     if not summary:
         st.info("이 기준에 보여줄 섹터 시세가 없어요.")
@@ -10004,7 +10035,7 @@ def render_px_intraday_now(data):
     if not sc.intraday_ready(intra, data):
         st.info("오늘 장중 자료가 아직 없어요. 평일 09:15부터 15분마다 들어와요 (장이 끝난 뒤에는 그날 마감까지의 흐름이 보여요).")
         return
-    sectors = px_sector_codes(data)
+    sectors = px_merged_sector_codes(data)
     labels = px_labels(data, sectors)
     day = intra["date"]
     last_end = sc.bar_end_text(intra["t"][-1], intra.get("interval", 5))
