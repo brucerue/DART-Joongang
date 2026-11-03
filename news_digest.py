@@ -137,7 +137,8 @@ def migrate_sectors(sectors):
         y = to_merged.get(x) or renames.get(x, x)  # 이름이 바뀐 섹터(에너지·소재 -> 에너지)도 새 이름으로
         if y not in out:
             out.append(y)
-    widened = [m for m, parts in merged.items() if set(parts) & set(old) and not set(parts) <= set(old)]
+    skip = {"타이어"}  # 재무·주가용 낱개 섹터일 뿐 뉴스·알람 섹터였던 적이 없음 (넓어짐 판단에서 뺀다)
+    widened = [m for m, parts in merged.items() if (set(parts) - skip) & set(old) and not (set(parts) - skip) <= set(old)]
     return out, widened
 
 

@@ -16,7 +16,7 @@ check("현대차" in terms["기업"] and "LG에너지솔루션" in terms["기업
 check(list(A["ALARM_SECTORS"]) == ["차·배터리", "중후장대", "에너지·화학", "IT·통신", "반도체·전자", "항공", "재계", "유통", "식품", "뷰티·패션"], "알람 섹터")
 check(A["TEAM_PRESETS"]["차팀"] == ["차·배터리", "중후장대", "에너지·화학"] and nd.SECTORS == A["TEAM_PRESETS"]["차팀"], "차팀·기본 섹터")
 check(A["TEAM_PRESETS"]["재계팀"] == ["반도체·전자", "항공", "재계"], "재계팀")
-check("자동차" in A["INDUSTRY_GROUPS"] and "배터리" in A["INDUSTRY_GROUPS"], "재무·주가는 자동차·배터리 따로")
+check("자동차" in A["INDUSTRY_GROUPS"] and "배터리" in A["INDUSTRY_GROUPS"] and A["INDUSTRY_GROUPS"]["타이어"] == ["한국앤컴퍼니", "한국타이어앤테크놀로지", "금호타이어", "넥센타이어"], "재무·주가는 자동차·배터리·타이어 따로")
 check(nd.migrate_sectors(["자동차", "항공"]) == (["차·배터리", "항공"], ["차·배터리"]), "옛 설정 '자동차'만 -> 차·배터리 (넓어짐 표시)")
 check(nd.migrate_sectors(["자동차", "배터리"]) == (["차·배터리"], []), "둘 다 받던 사람 -> 넓어짐 아님")
 check(nd.migrate_sectors(["방산"])[1] == ["중후장대"], "중후장대 옛 규칙 그대로")
