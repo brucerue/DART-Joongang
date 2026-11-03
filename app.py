@@ -484,7 +484,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.03 21:31"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.03 22:07"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8481,6 +8481,36 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 """
 
 st.set_page_config(page_title="산업 취재 도우미", layout="wide")
+
+
+
+# ---- 탭을 옮겨도 고른 값(섹터·기간·검색어 등)이 남게 ----
+# 보고 있는 탭만 그리면, 그리지 않은 탭의 위젯 값은 Streamlit이 지워 버린다. 그래서 실행할 때마다 위젯 값을 다시 저장해 둔다.
+# 버튼·내려받기·파일 올리기는 값을 저장할 수 없는 위젯이라, 그려질 때 키를 적어 두었다가 빼고 저장한다.
+import streamlit.delta_generator as _st_dg
+if not hasattr(_st_dg, "_NOSAVE_KEYS"):
+    _st_dg._NOSAVE_KEYS = set()
+for _fn in ("button", "download_button", "form_submit_button", "file_uploader", "data_editor", "camera_input", "chat_input"):
+    _orig = getattr(_st_dg.DeltaGenerator, _fn, None)
+    if _orig is None or getattr(_orig, "_nosave", False):
+        continue
+
+    def _wrap(orig):
+        def wrapped(self, *a, **kw):
+            if kw.get("key") is not None:
+                _st_dg._NOSAVE_KEYS.add(str(kw["key"]))
+            return orig(self, *a, **kw)
+        wrapped._nosave = True
+        return wrapped
+    setattr(_st_dg.DeltaGenerator, _fn, _wrap(_orig))
+    if hasattr(st, _fn) and hasattr(st, "_main"):
+        setattr(st, _fn, getattr(st._main, _fn))
+for _k in list(st.session_state.keys()):
+    if isinstance(_k, str) and not _k.startswith(("FormSubmitter", "_")) and _k not in _st_dg._NOSAVE_KEYS and "_drill_" not in _k:  # 내려가기 선택칸은 한 번 쓰는 동작이라 기억하지 않음
+        try:
+            st.session_state[_k] = st.session_state[_k]
+        except Exception:
+            pass
 st.markdown(STYLE, unsafe_allow_html=True)
 st.title("산업 취재 도우미")
 st.caption("credit.중앙일보 나상현")
@@ -12289,32 +12319,25 @@ def warm_stored_news():
 
 warm_stored_news()
 first_tab = "산업 뉴스" if apply_watchlist() else None
+# 보고 있는 탭만 그린다(예전엔 버튼 하나만 눌러도 10개 탭을 모두 다시 그렸음). 시험(ALL_TABS=1)이나 옛 Streamlit에선 모두 그린다.
+LAZY_TABS = os.environ.get("ALL_TABS", "") != "1"
 try:
-    tabs = st.tabs(TAB_NAMES, default=first_tab)
-except TypeError:  # 처음 열 탭 지정을 지원하지 않는 옛 Streamlit
-    tabs = st.tabs(TAB_NAMES)
+    tabs = st.tabs(TAB_NAMES, default=first_tab, key="main_tab", on_change="rerun") if LAZY_TABS else st.tabs(TAB_NAMES, default=first_tab)
+except TypeError:  # 탭 상태(key·on_change)를 지원하지 않는 옛 Streamlit
+    LAZY_TABS = False
+    try:
+        tabs = st.tabs(TAB_NAMES, default=first_tab)
+    except TypeError:
+        tabs = st.tabs(TAB_NAMES)
 by_name = dict(zip(TAB_NAMES, tabs))
-tab_today, tab_brief, tab_fin, tab_trade, tab_news, tab_disc, tab_cal, tab_periodic, tab_chaebol = (by_name[n] for n in ("오늘의 현황", "기업 브리핑", "재무 분석", "AI 무역 통계", "산업 뉴스", "공시 분석", "실적 캘린더", "정기보고서", "재계 순위"))
-with tab_today:
-    render_today()
-with tab_brief:
-    render_brief()
-with tab_fin:
-    render_fin_hub()
-with by_name["주가 분석"]:
-    render_stock()
-with tab_trade:
-    render_trade()
-with tab_news:
-    render_news()
-with tab_disc:
-    render_disclosure_hub()
-with tab_periodic:
-    render_periodic()
-with tab_cal:
-    render_calendar()
-with tab_chaebol:
-    render_chaebol()
+TAB_RENDER = {"오늘의 현황": render_today, "기업 브리핑": render_brief, "재무 분석": render_fin_hub, "주가 분석": render_stock,
+              "공시 분석": render_disclosure_hub, "산업 뉴스": render_news, "AI 무역 통계": render_trade, "실적 캘린더": render_calendar,
+              "정기보고서": render_periodic, "재계 순위": render_chaebol}
+for _name in TAB_NAMES:
+    _tab = by_name[_name]
+    if not LAZY_TABS or getattr(_tab, "open", True):
+        with _tab:
+            TAB_RENDER[_name]()
 # 모바일에서 표를 옆으로 밀 때 열 순서가 바뀌는 것을 막는다(Streamlit에 끄는 옵션이 없어 JS로 처리).
 # 머리글에서 시작한 드래그의 move 이벤트만 차단하고, 탭(정렬)·기본 스크롤은 그대로 둔다.
 _COL_LOCK_JS = """
