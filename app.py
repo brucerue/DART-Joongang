@@ -484,7 +484,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.03 21:28"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.03 21:31"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -6347,13 +6347,12 @@ def render_news_search(kind):
         ) or st.session_state.pop("news_run", False), f"뉴스 최신 더 찾기: {kind}" if topup_mode else f"뉴스 조회: {kind}")
 
     pub_cats = list(NEWS_PUB_CATS)
-    if kind == "일반":  # 검색어 밑: 언론사 선택 (처음엔 접어 두고, 펴면 네 구분이 모두 골라져 있음)
-        if st.toggle("언론사 선택", key=f"{k}_pub_on", help="펴면 종합일간지·경제지·통신·방송이 모두 골라져 있어요. 빼고 싶은 구분을 눌러 해제하세요."):
-            st.session_state.setdefault(f"{k}_pub_cats", list(NEWS_PUB_CATS))
-            st.pills("언론사", list(NEWS_PUB_CATS), selection_mode="multi", key=f"{k}_pub_cats", label_visibility="collapsed",
-                     format_func=lambda c: NEWS_PUB_CATS[c])
-            track_choice(f"{k}_pub_cats", "일반 언론사 선택")
-            pub_cats = list(st.session_state.get(f"{k}_pub_cats") or [])
+    if kind == "일반":  # 검색어 밑: 언론사 선택 (처음엔 네 구분이 모두 골라져 있고, 빼고 싶은 구분을 눌러 해제)
+        st.session_state.setdefault(f"{k}_pub_cats", list(NEWS_PUB_CATS))
+        st.pills("언론사", list(NEWS_PUB_CATS), selection_mode="multi", key=f"{k}_pub_cats",
+                 format_func=lambda c: NEWS_PUB_CATS[c], help="빼고 싶은 언론사 구분을 눌러 해제하세요.")
+        track_choice(f"{k}_pub_cats", "일반 언론사 선택")
+        pub_cats = list(st.session_state.get(f"{k}_pub_cats") or [])
 
     groups = [g for g in news_groups_of(kind) if g in NEWS_SECTORS]
     terms_now = parse_news_terms(text)
