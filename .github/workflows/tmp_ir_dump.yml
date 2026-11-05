@@ -1,0 +1,37 @@
+name: 임시 - IR 공시 원문 보기
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  t:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with: {python-version: "3.12"}
+      - run: pip install requests
+      - env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          TELEGRAM_BOT_TOKEN: unused
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir out
+          python - <<'PY'
+          import json, requests, news_digest as nd
+          key = nd.dart_key()
+          out = {}
+          for name, code in (("LIG", "00503668"), ("ECOPRO", "00536541")):
+              rows = []
+              for page in (1, 2, 3):
+                  jo = requests.get("https://opendart.fss.or.kr/api/list.json", params={"crtfc_key": key, "corp_code": code, "bgn_de": "20260901", "end_de": "20261105", "page_no": page, "page_count": 100}, timeout=30).json()
+                  rows += jo.get("list", [])
+                  if page >= int(jo.get("total_page", 1) or 1): break
+              ir = [r for r in rows if "기업설명회" in r.get("report_nm", "")]
+              docs = {}
+              for r in ir[:6]:
+                  try: docs[r["rcept_no"]] = nd.fetch_doc_text(key, r["rcept_no"])[:2500]
+                  except Exception as e: docs[r["rcept_no"]] = f"ERR {e}"
+              out[name] = {"all": [(r["rcept_dt"], r["report_nm"], r["rcept_no"]) for r in rows], "ir_docs": docs}
+          json.dump(out, open("out/ir.json", "w"), ensure_ascii=False, indent=1)
+          PY
+          cd out && git init -q -b tmp-ir && git config user.name bot && git config user.email b@b && git add . && git commit -qm d && git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" tmp-ir
