@@ -5,7 +5,7 @@ import ast, re, sys
 src = open(REPO + "/app.py", encoding="utf-8").read()
 ns = {"re": re}
 for n in ast.parse(src).body:
-    if (isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "IR_NDR_WORDS") or (isinstance(n, ast.FunctionDef) and n.name == "ir_is_ndr"):
+    if (isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") in ("IR_NDR_WORDS", "IR_NDR_SURE", "IR_CALL_WORDS")) or (isinstance(n, ast.FunctionDef) and n.name == "ir_is_ndr"):
         exec(compile(ast.Module([n], []), "x", "exec"), ns)
 fails = []
 def check(c, m):
@@ -16,6 +16,8 @@ DOCS = {  # 이름: (원문 일부, 개최목적, NDR인지)
     "한화에어로 10/30 NDR": ("3. 개최목적 | 2026년 3분기 경영실적 설명을 통한 투자자 이해도 제고 | 4. 개최방법 | 1대1 미팅 및 그룹 미팅 | 5. 후원기관 | DS투자증권 |",
                          "2026년 3분기 경영실적 설명을 통한 투자자 이해도 제고", True),
     "현대제철 10/30 실적발표": ("3. 개최목적 | 2026년 3분기 경영실적 발표 | 4. 개최방법 | 컨퍼런스콜 | 5. 후원기관 | - |", "2026년 3분기 경영실적 발표", False),
+    "LIG D&A 11/6 실적 컨퍼런스콜": ("3. 개최목적 | 당사에 대한 이해도 제고 | 4. 개최방법 | 비대면 소규모 그룹 미팅 (컨퍼런스 콜) | 5. 후원기관 | 자사주관 |", "당사에 대한 이해도 제고", False),
+    "LIG D&A 11/9 NDR": ("3. 개최목적 | 당사에 대한 이해도 제고 | 4. 개최방법 | 1:1 대면 미팅 (IR Non Deal Roadshow) | 5. 후원기관 | LS증권 |", "당사에 대한 이해도 제고", True),
     "현대제철 11/3 NDR": ("3. 개최목적 | 국내 NDR 실시 | 4. 개최방법 | One-on-One 및 소규모 그룹 미팅(컨퍼런스콜) | 5. 후원기관 | 하나증권 |", "국내 NDR 실시", True),
 }
 for name, (text, purpose, exp) in DOCS.items():

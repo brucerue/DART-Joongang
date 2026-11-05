@@ -96,7 +96,7 @@ MAX_PAY_CORPS = 5
 INDUSTRY_GROUPS = {
     "자동차": ["현대자동차", "기아", "현대모비스"],
     "타이어": ["한국앤컴퍼니", "한국타이어앤테크놀로지", "금호타이어", "넥센타이어"],  # 뉴스·알람에선 차·배터리에 함께
-    "배터리": ["LG에너지솔루션", "삼성SDI", "에스케이온", "포스코퓨처엠", "엘앤에프", "에코프로비엠"],
+    "배터리": ["LG에너지솔루션", "삼성SDI", "에스케이온", "포스코퓨처엠", "엘앤에프", "에코프로비엠", "에코프로"],
     "조선·해운": ["HD현대", "HD한국조선해양", "HD현대중공업", "한화오션", "삼성중공업", "HMM", "팬오션"],
     "방산": ["한화에어로스페이스", "한국항공우주", "LIG디펜스앤에어로스페이스", "현대로템"],
     "철강": ["POSCO홀딩스", "현대제철", "동국제강"],
@@ -386,7 +386,7 @@ NEWS_SECTORS = {
     "차·배터리": {  # 자동차 + 배터리 (2026.11 합침, 텔레그램 알람도 같은 묶음)
         "기업": ["현대차", "기아", "현대모비스", "테슬라", "KG모빌리티", "르노", "르노코리아", "GM", "한국GM", "벤츠", "BMW",
                  "한국앤컴퍼니", "한국타이어", "금호타이어", "넥센타이어",
-                 "LG에너지솔루션", "엔솔", "삼성SDI", "SK온", "에코프로비엠", "포스코퓨처엠", "엘앤에프", "CATL"],
+                 "LG에너지솔루션", "엔솔", "삼성SDI", "SK온", "에코프로비엠", "에코프로", "포스코퓨처엠", "엘앤에프", "CATL"],
         "키워드": ["전기차", "완성차", "수입차", "정의선", "2차전지", "배터리", "전고체", "양극재", "음극재"],
     },
     "중후장대": {  # 조선·해운 + 방산 + 철강 (텔레그램 알람도 같은 묶음)
@@ -486,7 +486,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.04 08:16"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.05 15:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -9566,6 +9566,8 @@ IR_PURPOSE_RE = re.compile(
 
 
 IR_NDR_WORDS = ("1대1", "1:1", "1 대 1", "oneonone", "그룹미팅", "소규모", "ndr", "논딜", "nondeal")  # 실적 발표가 아니라 증권사가 주관하는 기관 순회 미팅(NDR)
+IR_NDR_SURE = ("1대1", "1:1", "oneonone", "ndr", "논딜", "nondeal")  # 이 말이 있으면 컨퍼런스콜이라고 적혀 있어도 NDR
+IR_CALL_WORDS = ("컨퍼런스콜", "콘퍼런스콜", "conferencecall", "실적발표")  # 회사가 여는 실적 발표 (예: LIG D&A '비대면 소규모 그룹 미팅(컨퍼런스 콜)'은 실적 발표)
 
 
 def ir_is_ndr(text, purpose):
@@ -9575,7 +9577,12 @@ def ir_is_ndr(text, purpose):
     i = flat.find("개최방법")
     method = flat[i:i + 80] if i >= 0 else ""
     goal = re.sub(r"[\s\-_]", "", str(purpose or "")).lower()
-    return any(w in method or w in goal for w in IR_NDR_WORDS)
+    words = [w.replace(" ", "") for w in IR_NDR_WORDS]
+    if not any(w in method or w in goal for w in words):
+        return False
+    if any(w in method or w in goal for w in IR_NDR_SURE):
+        return True
+    return not any(w in method for w in IR_CALL_WORDS)  # '소규모'·'그룹미팅'만 있고 컨퍼런스콜이면 실적 발표
 
 
 def cal_ir_info(session, store, rcept_no):
