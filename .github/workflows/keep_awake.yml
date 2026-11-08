@@ -1,0 +1,34 @@
+name: 앱 깨워 두기
+
+# Streamlit Community Cloud 앱은 접속이 없으면 약 12시간 뒤 잠든다. 하루 네 번 실제 브라우저로 열어 깨워 둔다(비용 없음).
+on:
+  schedule:
+    - cron: "30 22,3,8,13 * * *" # 한국 시간 매일 07:30, 12:30, 17:30, 22:30
+  workflow_dispatch:
+
+concurrency:
+  group: keep-awake
+  cancel-in-progress: true
+
+jobs:
+  visit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: 브라우저 준비
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: 앱 열기 (잠들어 있으면 깨우기)
+        run: python keep_awake.py
+      - name: 실패하면 화면 남기기
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: keep-awake-screen
+          path: keep_awake.png
+          if-no-files-found: ignore
