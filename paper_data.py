@@ -5,7 +5,8 @@
   · 목록 페이지에 기사 시각이 보이고 그 날짜가 지면 날짜와 다르면(네이버 재게시·오분류) 기사는 그대로 두고 "posted"에 그 시각을 적는다.
     목록에 시각이 없으면 posted는 비워 둔다(기사 페이지는 열지 않는다 — 요청은 목록 페이지만).
   · status: ok / empty(그날 지면 목록이 비어 있음) / name_mismatch(언론사 번호와 신문명이 다름) / error: …  → ok가 아니면 다음 실행 때 다시 받는다.
-- 인덱스: paper/index.json {updated, dates: {날짜: {oid: {status, n}}}}
+- 인덱스: paper/index.json {updated, dates: {날짜: {oid: {status, n, paper, at(받은 시각)}}}}
+  · 그날 10:00(한국시간) 전에 받은 지면은 덜 올라와 있을 수 있어, ok라도 다음 실행 때 다시 받는다.
 - 요청은 언론사·날짜마다 목록 페이지 하나뿐, 간격 0.5~1초.
 사용: python paper_data.py --root out [--start 2026-11-01 --end 2026-11-09] [--oids 023,025] [--retry-days 3]
 """
@@ -26,6 +27,7 @@ PAPERS = {"023": "조선일보", "025": "중앙일보", "020": "동아일보", "
 LIST_URL = "https://media.naver.com/press/{oid}/newspaper?date={ymd}"
 ARTICLE_URL = "https://n.news.naver.com/article/{oid}/{aid}"  # 저장용 주소 (열지 않음)
 TIME_RE = re.compile(r"(20\d\d)[.\-/](\d{1,2})[.\-/](\d{1,2})\.?\s*(?:\S*\s*)?(\d{1,2}):(\d{2})")  # 목록에 보이는 시각 (예: 2026.11.08. 오후 6:00은 오전/오후 처리)
+DONE_AFTER = "10:00"  # 지면 날짜의 이 시각(한국시간) 이후에 받은 ok만 다시 받지 않는다
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"}
 
 
@@ -138,15 +140,15 @@ def run(root, days, oids, fetch=get, now=None, wait=pause):
             continue
         for oid in oids:
             prev = (index["dates"].get(d.isoformat()) or {}).get(oid)
-            if prev and prev.get("status") == "ok":
-                continue
+            if prev and prev.get("status") == "ok" and str(prev.get("at", "")) >= f"{d.isoformat()}T{DONE_AFTER}":
+                continue  # 그날 오전 10시 이후에 받은 ok만 '완료' (밤·이른 아침엔 지면이 덜 올라와 있을 수 있음)
             wait()
             rec = collect_one(oid, d, fetch, now, wait)
             folder = os.path.join(root, "paper", d.isoformat())
             os.makedirs(folder, exist_ok=True)
             with open(os.path.join(folder, f"{oid}.json"), "w", encoding="utf-8") as f:
                 json.dump(rec, f, ensure_ascii=False, indent=1)
-            index["dates"].setdefault(d.isoformat(), {})[oid] = {"status": rec["status"], "n": len(rec["items"]), "paper": rec["paper"]}
+            index["dates"].setdefault(d.isoformat(), {})[oid] = {"status": rec["status"], "n": len(rec["items"]), "paper": rec["paper"], "at": rec["collected_at"]}
             done += 1
             bad += rec["status"] != "ok"
             print(f"{d} {oid} {rec['paper']}: {rec['status']} · 기사 {len(rec['items'])}건 · 면 {rec['pages_found']}개")
