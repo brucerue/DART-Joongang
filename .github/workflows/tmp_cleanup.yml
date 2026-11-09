@@ -1,0 +1,11 @@
+name: 임시 브랜치 정리
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  del:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          for b in parts steel tmp-rss-check; do git push origin --delete "$b" || true; done
