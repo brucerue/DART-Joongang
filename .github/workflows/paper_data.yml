@@ -1,0 +1,73 @@
+name: 신문 지면 기사 목록 모으기
+
+# 네이버 '신문 보기'의 지면 기사 목록(조선·중앙·동아·한경·매경·서경)을 'paper' 브랜치에 쌓습니다. 기획 도우미가 읽어 갑니다.
+# 자동: 월~토 아침(지면 반영 뒤) 그날 지면 + 최근 3일 중 실패한 지면 다시 받기. 일요일은 신문이 없어 건너뜀.
+# 수동: 시작일·끝일·언론사를 넣으면 지난 기간을 채움(이미 받은 날은 건너뜀).
+on:
+  schedule:
+    - cron: "40 22 * * 0-5" # 한국 시간 월~토 07:40
+    - cron: "40 1 * * 1-6"  # 한국 시간 월~토 10:40 (늦게 올라온 지면·실패 다시)
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "시작일 (YYYY-MM-DD, 비우면 오늘)"
+        default: ""
+      end:
+        description: "끝일 (YYYY-MM-DD, 비우면 시작일)"
+        default: ""
+      oids:
+        description: "언론사 번호 (쉼표, 비우면 6곳 모두: 023,025,020,015,009,011)"
+        default: ""
+
+permissions:
+  contents: write # paper 브랜치에 올리기 위해 필요
+
+concurrency:
+  group: paper-data
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 지금까지 모은 지면 가져오기
+        run: |
+          mkdir -p out
+          git fetch origin paper --depth=1 || true
+          git --work-tree=out checkout origin/paper -- . 2>/dev/null || true
+          git reset -q
+      - name: 지면 목록 받기
+        run: |
+          args=(--root out)
+          [ -n "$IN_START" ] && args+=(--start "$IN_START")
+          [ -n "$IN_END" ] && args+=(--end "$IN_END")
+          [ -n "$IN_OIDS" ] && args+=(--oids "$IN_OIDS")
+          python paper_data.py "${args[@]}"
+        env:
+          IN_START: ${{ inputs.start }}
+          IN_END: ${{ inputs.end }}
+          IN_OIDS: ${{ inputs.oids }}
+      - name: paper 브랜치에 올리기 (기록을 남기지 않고 한 커밋으로 덮어씀, 지난 지면 포함)
+        run: |
+          cd out
+          git init -q -b paper
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "paper $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" paper
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: 실패 알림
+        if: failure()
+        run: python news_digest.py --alert paper
+        env:
+          PREFS_URL: ${{ secrets.PREFS_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}

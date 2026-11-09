@@ -1,0 +1,11 @@
+name: 임시 - 시험용 브랜치 지우기
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  t:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: |
+          for b in tmp-paper tmp-sales tmp-ir; do git push origin --delete "$b" && echo "지움: $b" || echo "없음: $b"; done
