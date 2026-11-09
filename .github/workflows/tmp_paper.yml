@@ -1,0 +1,18 @@
+name: 임시 - 지면 기사 목록 시험
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  t:
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir out && cd out
+          D=$(TZ=Asia/Seoul date +%Y%m%d)
+          curl -sS -m 30 -A "Mozilla/5.0" -o paper.html -w "%{http_code} %{size_download}\n" "https://media.naver.com/press/025/newspaper?date=$D" > status.txt 2>&1 || true
+          curl -sS -m 30 -A "Mozilla/5.0" -o paper_prev.html -w "%{http_code} %{size_download}\n" "https://media.naver.com/press/025/newspaper?date=20261107" >> status.txt 2>&1 || true
+          echo "$D" >> status.txt
+          git init -q -b tmp-paper && git config user.name bot && git config user.email b@b && git add . && git commit -qm d && git push -q -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" tmp-paper
