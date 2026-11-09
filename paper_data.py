@@ -23,7 +23,8 @@ from datetime import date, datetime, timedelta, timezone
 import requests
 
 KST = timezone(timedelta(hours=9))
-PAPERS = {"023": "조선일보", "025": "중앙일보", "020": "동아일보", "015": "한국경제", "009": "매일경제", "011": "서울경제"}
+PAPERS = {"023": "조선일보", "025": "중앙일보", "020": "동아일보", "015": "한국경제", "009": "매일경제", "011": "서울경제", "353": "중앙SUNDAY"}
+WEEKDAYS = {"025": (0, 1, 2, 3, 4), "353": (5,)}  # 받는 요일(월=0). 중앙일보 토요일자는 네이버에서 매거진 '중앙SUNDAY'(353)로 나뉘어 있다. 적지 않은 곳은 월~토
 LIST_URL = "https://media.naver.com/press/{oid}/newspaper?date={ymd}"
 ARTICLE_URL = "https://n.news.naver.com/article/{oid}/{aid}"  # 저장용 주소 (열지 않음)
 TIME_RE = re.compile(r"(20\d\d)[.\-/](\d{1,2})[.\-/](\d{1,2})\.?\s*(?:\S*\s*)?(\d{1,2}):(\d{2})")  # 목록에 보이는 시각 (예: 2026.11.08. 오후 6:00은 오전/오후 처리)
@@ -139,6 +140,8 @@ def run(root, days, oids, fetch=get, now=None, wait=pause):
         if d.weekday() == 6:  # 일요일은 신문이 없다
             continue
         for oid in oids:
+            if d.weekday() not in WEEKDAYS.get(oid, (0, 1, 2, 3, 4, 5)):
+                continue
             prev = (index["dates"].get(d.isoformat()) or {}).get(oid)
             if prev and prev.get("status") == "ok" and str(prev.get("at", "")) >= f"{d.isoformat()}T{DONE_AFTER}":
                 continue  # 그날 오전 10시 이후에 받은 ok만 '완료' (밤·이른 아침엔 지면이 덜 올라와 있을 수 있음)
