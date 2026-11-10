@@ -1,0 +1,57 @@
+name: 지면 기사 본문 일부 모으기 (비공개 저장소에 저장)
+
+# 실행만 공개 저장소에서 하고(무료), 프로그램·결과는 비공개 저장소 brucerue/paper-private에 있습니다.
+# 로그에는 날짜·신문별 건수만 남고 본문은 남지 않습니다. GitHub Secrets의 PAPER_PRIVATE_TOKEN(paper-private 전용, Contents 읽기·쓰기)이 필요합니다.
+# 자동: 월~토 08:10·11:10(지면 목록 수집 뒤) 오늘+최근 3일. 수동: 시작일·끝일로 지난 기간 채우기(300분마다 멈추고 스스로 다시 실행해 이어받음).
+on:
+  schedule:
+    - cron: "10 23 * * 0-5"   # 한국시간 월~토 08:10
+    - cron: "10 2 * * 1-6"    # 한국시간 월~토 11:10
+  workflow_dispatch:
+    inputs:
+      start: {description: "시작일 YYYY-MM-DD (비우면 오늘+최근 3일)", required: false}
+      end: {description: "끝일 YYYY-MM-DD", required: false}
+permissions:
+  contents: read
+  actions: write   # 덜 끝났을 때 스스로 다시 실행
+concurrency: {group: paper-body, cancel-in-progress: false}
+jobs:
+  body:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - name: 토큰 확인
+        id: tok
+        run: |
+          if [ -z "$T" ]; then echo "PAPER_PRIVATE_TOKEN이 없어 건너뜀"; echo "ok=no" >> "$GITHUB_OUTPUT"; else echo "ok=yes" >> "$GITHUB_OUTPUT"; fi
+        env:
+          T: ${{ secrets.PAPER_PRIVATE_TOKEN }}
+      - name: 비공개 저장소 받기
+        if: steps.tok.outputs.ok == 'yes'
+        uses: actions/checkout@v5
+        with:
+          repository: brucerue/paper-private
+          token: ${{ secrets.PAPER_PRIVATE_TOKEN }}
+          path: private
+      - name: 지면 목록 받기 (이 저장소 paper 브랜치)
+        if: steps.tok.outputs.ok == 'yes'
+        run: git clone -q --depth 1 -b paper https://github.com/${{ github.repository }}.git /tmp/paperlist
+      - name: 본문 일부 모으기
+        if: steps.tok.outputs.ok == 'yes'
+        working-directory: private
+        run: python -u body_data.py --paper /tmp/paperlist --root . --max-minutes ${{ inputs.start && 300 || 50 }} ${{ inputs.start && format('--start {0}', inputs.start) || '' }} ${{ inputs.end && format('--end {0}', inputs.end) || '' }}
+      - name: 비공개 저장소에 저장
+        if: always() && steps.tok.outputs.ok == 'yes'
+        working-directory: private
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add paper
+          git diff --cached --quiet && exit 0
+          git commit -qm "본문 $(TZ=Asia/Seoul date '+%F %H:%M')"
+          for i in 1 2 3; do git push -q && break; git pull -q --rebase; done
+      - name: 덜 끝났으면 이어서 다시 실행
+        if: steps.tok.outputs.ok == 'yes' && hashFiles('private/.unfinished') != ''
+        run: gh workflow run paper_body.yml --repo ${{ github.repository }} --ref main -f start="${{ inputs.start }}" -f end="${{ inputs.end }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
