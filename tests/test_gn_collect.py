@@ -54,7 +54,7 @@ check("Nvidia kept" not in TRANSLATED, "이미 옮긴 제목은 다시 안 옮�
 kj = json.load(open(os.path.join(out, gc.file_name("korea", "반도체·전자")), encoding="utf-8"))
 check([r["t"] for r in kj["items"]] == ["South Korea chip exports jump"], f"한국 관련: 기사 아닌 모음은 빼고 저장 {[r['t'] for r in kj['items']]}")
 check(all(os.path.exists(os.path.join(out, gc.file_name("korea", s2))) for s2 in gc.KOREA_TOPICS), "한국 관련 섹터마다 파일")
-check(any('-"North Korea"' in q for q in GQ), "북한 기사 빼는 검색식")
+check(not any('-"North Korea"' in q for q in GQ) and any('"South Korea"' in q and "appliance" in q for q in GQ), "한국 관련: 섹터 낱말을 나눠 검색, 북한 제외는 검색식에 넣지 않음(길면 언론사 제한이 풀림)")
 nq = [q for q in GQ if '"Nvidia"' in q]
 check(len(nq) == 4 and "site:asia.nikkei.com" in " ".join(nq) and all(q.count("site:") <= 6 for q in nq), f"언론사 12곳을 6곳씩 두 번에 나눠 검색 (엔비디아는 반도체·빅테크 두 섹터라 4번: {len(nq)}번)")
 # 앱: 섹터만 고르면 모아 둔 외신이 바로

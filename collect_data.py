@@ -58,21 +58,21 @@ def collect_global(out_dir, now, errors):
     groups = gc.global_sectors(nd.A["OVERSEAS_GROUPS"], nd.A["FOREIGN_ENGLISH"], nd.A["OVERSEAS_NAMES"])
     doms = list(gc.GNEWS_OUTLETS.values())
     jobs = [("global", g, t, c) for g, terms in groups.items() for t in terms for c in gc.domain_chunks(doms)]
-    jobs += [("korea", sec, None, c) for sec in gc.KOREA_TOPICS for c in gc.domain_chunks(doms)]
+    jobs += [("korea", sec, core, c) for sec in gc.KOREA_TOPICS for core in gc.korea_cores(sec) for c in gc.domain_chunks(doms)]
 
-    def one(job):  # (종류, 섹터, 기업, 언론사 묶음) 하나 — 언론사가 많아 나눠 검색
+    def one(job):  # (종류, 섹터, 기업 또는 한국 검색식, 언론사 묶음) 하나 — 언론사·섹터 낱말이 많아 나눠 검색
         kind, sec, term, chunk = job
-        core = gc.company_core(term) if kind == "global" else gc.korea_core(sec)
+        core = gc.company_core(term) if kind == "global" else term
         try:
             r = requests.get(gc.GNEWS_URL, params={"q": gc.query(core, 2, chunk), "hl": "en-US", "gl": "US", "ceid": "US:en"},
                              headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
             r.raise_for_status()
             items = gc.parse_rss(r.content, chunk, 2, now, gc.aliases(term) if kind == "global" else None)
         except Exception as e:
-            errors.append(f"외신 {sec}/{term or '한국'}: {type(e).__name__}")
+            errors.append(f"외신 {sec}/{term if kind == 'global' else '한국'}: {type(e).__name__}")
             return job, None
         if kind == "korea":
-            items = [i for i in items if not gc.GN_JUNK_RE.search(i["title"])]
+            items = [i for i in items if not gc.korea_noise(i["title"], i.get("publisher", ""))]
         return job, items
 
     with ThreadPoolExecutor(max_workers=6) as pool:
@@ -82,7 +82,7 @@ def collect_global(out_dir, now, errors):
     for kind, sec in [("global", g) for g in groups] + [("korea", s2) for s2 in gc.KOREA_TOPICS]:
         path = os.path.join(out_dir, gc.file_name(kind, sec))
         files[path] = (kind, sec, {r["u"]: r for r in load_json(path).get("items", [])
-                                   if r.get("d", "") >= keep_from and not gc.is_junk(r.get("t", ""), r.get("p", ""))
+                                   if r.get("d", "") >= keep_from and not (gc.korea_noise if kind == "korea" else gc.is_junk)(r.get("t", ""), r.get("p", ""))
                                    and (not r.get("c") or any(gc.title_has(r.get("t", ""), gc.aliases(c)) for c in r["c"]))})  # 규칙이 바뀌면 모아 둔 것도 다시 거름
     added = 0
     for (kind, sec, term, _), items in results:
@@ -93,7 +93,7 @@ def collect_global(out_dir, now, errors):
                 row = {"t": it["title"], "u": it["url"], "p": it["publisher"], "d": it["dt"].astimezone(KST).strftime(FMT), "ko": ""}
                 store[it["url"]] = row
                 added += 1
-            if term:
+            if kind == "global" and term:
                 row["c"] = list(dict.fromkeys((row.get("c") or []) + [term]))  # 어느 기업 기사인지 (기업별)
     need = list(dict.fromkeys(r["t"] for _, _, st in files.values() for r in st.values() if not r.get("ko")))
     key = os.environ.get("GEMINI_API_KEY", "").strip()

@@ -486,7 +486,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.11 08:55"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.11 10:34"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5694,8 +5694,7 @@ def gnews_korea(sectors, days, domains):
     session, store = get_session(), get_cache_store()
     doms = tuple(sorted(domains))
     def one(job):
-        sec, chunk = job
-        core = gc.korea_core(sec)
+        sec, core, chunk = job
         key = ("gnews_kr", core, days, chunk, TODAY.isoformat())
         hit = cache_lookup(store, key, NEWS_TTL)
         if hit is not _MISSING:
@@ -5704,10 +5703,10 @@ def gnews_korea(sectors, days, domains):
         cache_save(store, key, value)
         return value
 
-    jobs = [(s2, c) for s2 in sectors for c in gc.domain_chunks(doms)]
+    jobs = [(s2, core, c) for s2 in sectors for core in gc.korea_cores(s2) for c in gc.domain_chunks(doms)]  # 섹터 낱말을 나눠 검색(길면 구글이 언론사 제한을 무시)
     with ThreadPoolExecutor(max_workers=NEWS_GOOGLE_WORKERS) as pool:
         got = list(pool.map(one, jobs))
-    return {s2: gc.merge_items([v for (x, _), v in zip(jobs, got) if x == s2]) for s2 in sectors}
+    return {s2: gc.merge_items([v for (x, _, _), v in zip(jobs, got) if x == s2]) for s2 in sectors}
 
 
 
@@ -5933,7 +5932,7 @@ def render_gn_korea():
         with st.spinner("한국 관련 외신을 찾는 중입니다..."):
             try:
                 got = gnews_korea(groups, GNEWS_PERIODS[period], list(GNEWS_OUTLETS.values()))
-                items = [it for lst in got.values() for it in lst if not GN_JUNK_RE.search(it["title"])]
+                items = [it for lst in got.values() for it in lst if not gc.korea_noise(it["title"], it.get("publisher", ""))]
                 source = "방금 검색"
             except (NewsApiError, requests.exceptions.RequestException) as e:
                 st.error(str(e) if isinstance(e, NewsApiError) else "Google News에 연결하지 못했어요. 잠시 후 다시 시도해주세요.")

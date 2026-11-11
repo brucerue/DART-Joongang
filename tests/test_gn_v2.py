@@ -80,8 +80,8 @@ at.radio(key="gn_view").set_value("한국 관련").run()
 at.button_group(key="gnk_groups").set_value(["반도체·전자"]).run()
 [b for b in at.button if b.key == "gnk_live"][0].click().run()
 check(not at.exception, f"예외 없음 {[str(e.value)[:120] for e in at.exception]}")
-q = queries[-1] if queries else ""
-check('"South Korea"' in q and "chip" in q, f"한국 낱말 + 섹터 낱말로 검색 [{q[:90]}]")
+q = " | ".join(queries)
+check('"South Korea"' in q and "chip" in q and "appliance" in q, f"한국 낱말 + 섹터 낱말(나눠서)로 검색 [{q[:90]}]")
 heads = [m.value for m in at.markdown]
 i_t = next((i for i, h in enumerate(heads) if "제목에 한국이 나온 기사" in h), -1)
 i_b = next((i for i, h in enumerate(heads) if "본문에 한국이 나온 기사" in h), -1)
@@ -89,5 +89,5 @@ check(i_t >= 0 and i_b > i_t and "South Korea's chip exports hit record" in head
       "제목에 한국 / 본문 언급을 나눠 보여 줌")
 check("[한글] Nvidia supply deal reshapes memory market" in md(at), "한국 관련도 한글 제목")
 check("Market Talk" not in md(at), "기사가 아닌 모음(Market Talk 등)은 뺌")
-check('-"North Korea"' in q, "북한 기사는 검색에서 뺌")
+check('-"North Korea"' not in q, "북한 제외는 검색식에 넣지 않음(제목으로 뺌)")
 print("실패", fails); sys.exit(1 if fails else 0)

@@ -1,6 +1,6 @@
 """외신 검색 계산 (화면 없음): 앱(app.py)의 외신 탭과 수집기(collect_data.py)가 같은 규칙을 쓰도록 모아 둔 것.
 - 기업별: 영문 별칭(GNEWS_ALIASES)으로 넓게 찾고, 제목엔 별칭이 낱말 그대로 든 기사만
-- 한국 관련: (KOREA_WORDS) AND (섹터 낱말 KOREA_TOPICS)로 본문까지 찾고, 북한 기사(KOREA_EXCLUDE)·기사 아닌 것(GN_JUNK_RE)은 뺀다
+- 한국 관련: (KOREA_WORDS) AND (섹터 낱말 KOREA_TOPICS 몇 개씩)로 본문까지 찾고, 제목에 북한이 든 기사(KOREA_NK_RE)·기사 아닌 것(GN_JUNK_RE)은 뺀다
 - 한글 제목: AI 번역 문구(GN_KO_SYSTEM, ko_prompt)와 결과 읽기(parse_ko), 수집기용 Gemini 번역(gemini_translate)
 """
 import hashlib
@@ -73,7 +73,9 @@ GN_JUNK_RE = re.compile(r"Market Talk|Roundup|News Quiz|Breaking News|Live Updat
                         r"|\([A-Z]{1,5}(?:\.[A-Z]{1,3})?\)\s*(?:Stock|Share|Shares)\s*(?:Price|Quote)", re.I)
 # 스포츠 기사 (GM=General Manager, 구단·리그 기사가 기업 별칭에 걸리는 것)
 GN_SPORTS_RE = re.compile(r"(?<![A-Za-z])(MLB|NBA|NFL|NHL|MLS|NCAA|WNBA|Premier League|Champions League|World Series|Super Bowl|Stanley Cup|playoffs?|postseason|quarterback|pitchers?|pitching|front office|outfielder|shortstop|infielder|roster|free agen(?:t|ts|cy)|draft picks?|general manager|head coach|touchdown|home runs?|Yankees|Dodgers|Mets|Red Sox|Cubs|Lakers|Knicks|Celtics|Patriots|Cowboys)(?![A-Za-z])", re.I)
-KOREA_EXCLUDE = '-"North Korea" -"North Korean" -Pyongyang -"Kim Jong"'
+KOREA_EXCLUDE = '-"North Korea" -"North Korean" -Pyongyang -"Kim Jong"'  # 예전 검색식용(지금은 안 씀: 검색식이 길면 구글이 언론사 제한을 무시해 다른 매체만 돌아옴)
+KOREA_NK_RE = re.compile(r"(?<![A-Za-z])(North Korea|North Korean|N\.\s?Korea|Pyongyang|Kim Jong)", re.I)  # 북한 기사는 받은 뒤 제목으로 뺀다
+KOREA_TOPIC_CHUNK = 3  # 검색식 하나에 넣는 섹터 낱말 수 (2026.11 시험: 낱말이 많으면 언론사 제한이 풀려 0~2건만 남음)
 KOREA_TOPICS = {
     "차·배터리": ["automaker", "carmaker", "auto", "cars", "EV", "battery", "batteries", "cathode"],
     "중후장대": ["shipbuilder", "shipbuilding", "shipyard", "defense", "arms", "steel"],
@@ -118,11 +120,25 @@ def company_core(term):
     return "(" + " OR ".join(f'"{a}"' for a in aliases(term)) + ")"
 
 
-def korea_core(sector):
-    """'한국 관련' 검색식 앞부분: (한국 낱말) (섹터 낱말) -북한"""
+def korea_cores(sector):
+    """'한국 관련' 검색식 앞부분들: (한국 낱말) (섹터 낱말 KOREA_TOPIC_CHUNK개) — 섹터 낱말을 나눠 여러 번 검색해 합친다.
+    북한 제외(-"North Korea" …)는 검색식에 넣지 않고 받은 뒤 제목으로 뺀다(korea_noise): 검색식이 길면 구글이 site: 제한을 무시한다."""
     korea = "(" + " OR ".join(f'"{w}"' for w in KOREA_WORDS) + ")"
     words = KOREA_TOPICS.get(sector) or []
-    return korea + (" (" + " OR ".join(f'"{w}"' if " " in w else w for w in words) + ")" if words else "") + " " + KOREA_EXCLUDE
+    if not words:
+        return [korea]
+    fmt = lambda w: f'"{w}"' if " " in w else w
+    return [korea + " (" + " OR ".join(fmt(w) for w in words[i:i + KOREA_TOPIC_CHUNK]) + ")" for i in range(0, len(words), KOREA_TOPIC_CHUNK)]
+
+
+def korea_core(sector):
+    """예전 이름 호환: 첫 검색식"""
+    return korea_cores(sector)[0]
+
+
+def korea_noise(title, publisher=""):
+    """한국 관련 외신에서 뺄 것: 기사 아닌 것·스포츠(is_junk) + 제목에 북한"""
+    return is_junk(title, publisher) or bool(KOREA_NK_RE.search(title or ""))
 
 
 def query(core, days, domains):
