@@ -486,7 +486,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.11 10:34"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.11 12:59"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5739,20 +5739,6 @@ def gnews_translate(titles):
     return out
 
 
-def global_sector_names(groups):
-    """외신 섹터 이름들 -> 영문 검색어 목록(중복 제외). 재무 조회 '해외 섹터'와 같은 기업 구성, 티커 대신 영문 기업명"""
-    out = []
-    for g in groups:
-        for n in GLOBAL_SECTORS.get(g, []):
-            if n not in out:
-                out.append(n)
-    return out
-
-
-def fill_gn_terms():
-    st.session_state["gn_corp"] = ", ".join(global_sector_names(st.session_state.get("gn_groups") or []))
-
-
 def gn_clusters_md(clusters, ko):
     """외신 묶음들 -> 마크다운 목록: 영문 제목(링크) / 한글 제목 / 매체·시각·같은 기사 수"""
     lines = []
@@ -5767,20 +5753,6 @@ def gn_clusters_md(clusters, ko):
         lines.append(f"- [{title}]({i['url'].replace(')', '%29')})" + (f"  \n  {html.escape(md_safe(kor))}" if kor else "")
                      + f"  \n  <small>{html.escape(i['publisher'])} · {i['dt']:%m/%d %H:%M}{html.escape(more)}</small>")
     return "\n".join(lines)
-
-
-def gn_stored_rows(kind, sectors):
-    """모아 둔 외신(섹터별 파일) -> (기사 목록, 갱신 시각) — 못 읽은 파일이 있으면 (None, '')"""
-    files = [get_stored(gc.file_name(kind, g)) for g in sectors]
-    if not files or any(f is None for f in files):
-        return None, ""
-    rows, seen = [], set()
-    for f in files:
-        for r in f["items"]:
-            if r.get("u") and r["u"] not in seen:
-                seen.add(r["u"])
-                rows.append(r)
-    return rows, min((f.get("updated") or "") for f in files)
 
 
 def gn_items(rows, days):
@@ -5836,137 +5808,161 @@ def gn_filter_bar(pre, title_box=True):
     return period, in_title, want_ko
 
 
+GN_VIEW = [g for g in gc.GN_VIEW_SECTORS if g not in LAB_SECTORS or LAB_ON]  # 외신 섹터: 산업 뉴스와 같은 묶음 (준비 중 섹터는 관리자 주소에서만)
+
+
+def gn_view_rows(groups):
+    """외신 섹터들 -> 모아 둔 외신을 합친 (기사 줄 목록, 갱신 시각). 한국 관련 파일은 전부, 기업별 파일은 그 섹터 기업 기사만. 못 읽으면 (None, '')"""
+    rows, seen, stamps = [], set(), []
+    for g in groups:
+        for kind, sec, firms in gc.GN_VIEW_SECTORS.get(g, []):
+            f = get_stored(gc.file_name(kind, sec))
+            if f is None:
+                return None, ""
+            stamps.append(f.get("updated") or "")
+            for r in f.get("items", []):
+                if kind == "global" and firms is not None and not set(r.get("c") or []) & set(firms):
+                    continue
+                if r.get("u") and r["u"] not in seen:
+                    seen.add(r["u"])
+                    rows.append(dict(r, _k=kind))
+    return rows, (min(stamps) if stamps else "")
+
+
+def gn_show(clusters, ko, show=None, more_label="더 보기"):
+    if not clusters:
+        st.caption("이 기간에는 없어요.")
+        return
+    show = show or len(clusters)
+    st.markdown(gn_clusters_md(clusters[:show], ko), unsafe_allow_html=True)
+    if len(clusters) > show:
+        with st.expander(f"{more_label} ({len(clusters) - show}묶음)"):
+            st.markdown(gn_clusters_md(clusters[show:], ko), unsafe_allow_html=True)
+
+
 def render_global_news():
-    """뉴스 탭 > 외신: 기업별(영문 별칭) / 한국 관련(본문까지) — 매시 모아 둔 기사를 섹터만 고르면 바로 보여 주고, 같은 기사는 묶고 한글 제목을 함께"""
+    """뉴스 탭 > 외신: 섹터(산업 뉴스와 같은 묶음)를 고르면 그 섹터의 해외 기업 기사·한국 기업 기사·한국 관련 기사를 한 화면에.
+    매시 모아 둔 기사를 바로 보여 주고(같은 기사는 묶음, 한글 제목), '지금 새로 검색'은 그 자리에서 다시 찾는다.
+    제목에 한국(기업)이 나온 기사 → 해외 기업 기사 → 본문에만 한국이 나온 기사 순. 아래 '기업 직접 검색'은 기업 이름으로 따로 찾기."""
     st.caption("기사 원문을 보려면 해당 언론사 로그인이 필요할 수 있어요.")
-    view = st.radio("외신 보기", ["기업별", "한국 관련"], horizontal=True, key="gn_view", label_visibility="collapsed",
-                    help="기업별 = 고른 기업 이름이 제목에 든 기사. 한국 관련 = 한국(South Korea·Korean·Seoul)과 섹터 낱말이 함께 나오는 기사를 본문까지 찾아요.")
-    track_choice("gn_view", "외신 보기")
-    if view == "한국 관련":
-        render_gn_korea()
-        return
-    st.markdown('<span class="sec-lbl">섹터 (복수 선택 가능)</span>', unsafe_allow_html=True)
-    st.pills("섹터", list(GLOBAL_SECTORS), selection_mode="multi", key="gn_groups", on_change=fill_gn_terms, label_visibility="collapsed",
-             help="재무 분석 '해외'와 같은 기업이에요. 고르면 매시 모아 둔 기사가 바로 보여요.")
-    period, in_title, want_ko = gn_filter_bar("gn")
-    with st.form("gn_search"):
-        corp_text = st.text_input("기업명 (여러 곳은 쉼표로)", key="gn_corp", placeholder="예: Samsung, TSMC, Tesla",
-                                  help=f"섹터를 고르면 채워지고 모아 둔 기사가 바로 보여요. 직접 고치고 엔터(또는 버튼)를 누르면 새로 검색해요(최대 {MAX_GNEWS_CORPS}곳).")
-        submitted = log_if(st.form_submit_button("해외 뉴스 조회", key="gn_submit"), "외신 조회")
-    parts = []
-    for part in re.split(NEWS_SPLIT, corp_text or ""):
-        part = part.strip()
-        if part and part.casefold() not in {x.casefold() for x in parts}:
-            parts.append(part)
-    groups = [g for g in (st.session_state.get("gn_groups") or []) if g in GLOBAL_SECTORS]
-    sig = (tuple(p.casefold() for p in parts), period, in_title)
-    if submitted:
-        st.session_state.pop("gn_res", None)
-        if not parts:
-            st.error("기업명을 입력해주세요.")
-        elif len(parts) > MAX_GNEWS_CORPS:
-            st.error(f"기업은 한 번에 {MAX_GNEWS_CORPS}곳까지 넣을 수 있어요. (지금 {len(parts)}곳)")
-        else:
-            terms = {gnews_term(p): p for p in parts}  # 영문 검색어 -> 입력한 이름
-            got = None
-            with st.spinner("해외 뉴스를 찾는 중입니다..."):
-                try:
-                    got = gnews_search(list(terms), GNEWS_PERIODS[period], list(GNEWS_OUTLETS.values()), in_title)
-                except NewsApiError as e:
-                    st.error(str(e))
-                except requests.exceptions.RequestException:
-                    st.error("Google News에 연결하지 못했어요. 잠시 후 다시 시도해주세요.")
-            if got is not None:
-                st.session_state["gn_res"] = {"clusters": {t: cluster_news(items) for t, items in got.items()}, "labels": terms,
-                                              "period": period, "sig": sig, "source": "방금 검색"}
-    res = st.session_state.get("gn_res")
-    if not (res and res.get("sig") == sig):
-        res = None
-        auto = [n.casefold() for n in global_sector_names(groups)]
-        if groups and [p.casefold() for p in parts] == auto and in_title:  # 섹터 그대로면 모아 둔 기사로 바로
-            rows, updated = gn_stored_rows("global", groups)
-            if rows is None:
-                st.info("모아 둔 외신을 아직 불러오지 못했어요. '해외 뉴스 조회'를 누르면 바로 검색해요.")
-                return
-            items = gn_items(rows, GNEWS_PERIODS[period])
-            terms = global_sector_names(groups)
-            res = {"clusters": {t: cluster_news([i for i in items if t in i["c"]]) for t in terms}, "labels": {t: t for t in terms},
-                   "period": period, "source": f"모아 둔 기사 ({updated[5:16].replace('-', '.').replace('T', ' ')} 기준)"}
-        elif groups or parts:
-            st.caption("기업명이나 조건을 바꿨어요. '해외 뉴스 조회'를 누르면 새로 검색해요. (섹터를 다시 누르면 모아 둔 기사로 돌아가요)")
-            return
-        else:
-            return
-    ko = gn_ko_map([c for cl in res["clusters"].values() for c in cl], want_ko)
-    st.caption(f"최근 {res['period']} · 최신순 · 같은 기사는 묶음 · {res.get('source', '')}")
-    many = len(res["clusters"]) > 5  # 섹터처럼 기업이 많으면 기사 없는 기업은 한 줄로 모은다
-    empty = []
-    for term, clusters in res["clusters"].items():
-        label = res["labels"].get(term, term)
-        if not clusters and many:
-            empty.append(label)
-            continue
-        alias = gnews_aliases(term)
-        st.markdown(f"##### {label}" + (f" ({' · '.join(alias)})" if label.casefold() != term.casefold() or len(alias) > 1 else ""))
-        if not clusters:
-            st.info("이 기간에 해당 언론사 기사를 찾지 못했어요. 기간을 늘리거나 영문 이름으로 검색해 보세요.")
-            continue
-        st.markdown(gn_clusters_md(clusters, ko), unsafe_allow_html=True)
-    if empty:
-        st.caption("이 기간에 기사가 없는 기업: " + ", ".join(empty))
+    team_buttons("gn", GN_VIEW, "gn_groups")
+    st.pills("섹터", GN_VIEW, selection_mode="multi", key="gn_groups", label_visibility="collapsed",
+             help="섹터마다 해외 주요 기업(재무 분석 '해외'와 같은 기업)·한국 기업 기사와, 한국과 섹터 낱말이 함께 나오는 기사를 모아 보여줘요.")
+    track_choice("gn_groups", "외신 섹터")
+    period, _, want_ko = gn_filter_bar("gn", title_box=False)
+    groups = [g for g in (st.session_state.get("gn_groups") or []) if g in GN_VIEW]
+    if groups:
+        render_gn_sectors(groups, period, want_ko)
+    render_gn_company(period, want_ko)
 
 
-def render_gn_korea():
-    """외신 '한국 관련': 섹터를 고르면 매시 모아 둔 기사를 바로, '지금 새로 검색'은 그 자리에서 다시 찾는다.
-    (한국 낱말) AND (섹터 낱말)로 본문까지 찾은 기사를 제목에 한국이 나온 것과 본문에만 나온 것으로 나눠 보여 준다"""
-    st.markdown('<span class="sec-lbl">섹터 (복수 선택 가능)</span>', unsafe_allow_html=True)
-    st.pills("섹터", list(KOREA_TOPICS), selection_mode="multi", key="gnk_groups", label_visibility="collapsed",
-             help="섹터마다 영어 낱말(예: 반도체 = chip·chipmaker·semiconductor·memory)과 한국(South Korea·Korean·Seoul)이 함께 나오는 외신이에요. 고르면 매시 모아 둔 기사가 바로 보여요.")
-    period, _, want_ko = gn_filter_bar("gnk", title_box=False)
-    groups = [g for g in (st.session_state.get("gnk_groups") or []) if g in KOREA_TOPICS]
-    if not groups:
-        return
-    live = log_if(st.button("🔄 지금 새로 검색", key="gnk_live", help="모아 둔 기사(매시 정각) 대신 지금 구글 뉴스에서 다시 찾아요."), "외신 한국 관련 새로 검색")
-    items, source = None, ""
+def render_gn_sectors(groups, period, want_ko):
+    """외신: 고른 섹터의 기사를 세 칸(제목에 한국 / 해외 기업 / 본문 언급)으로"""
+    live = log_if(st.button("🔄 지금 새로 검색", key="gn_live", help="모아 둔 기사(매시 정각) 대신 지금 구글 뉴스에서 다시 찾아요."), "외신 새로 검색")
+    days = GNEWS_PERIODS[period]
     if live:
-        with st.spinner("한국 관련 외신을 찾는 중입니다..."):
+        with st.spinner("외신을 찾는 중입니다..."):
             try:
-                got = gnews_korea(groups, GNEWS_PERIODS[period], list(GNEWS_OUTLETS.values()))
-                items = [it for lst in got.values() for it in lst if not gc.korea_noise(it["title"], it.get("publisher", ""))]
-                source = "방금 검색"
+                doms = list(GNEWS_OUTLETS.values())
+                kr = gnews_korea([g for g in groups if g in KOREA_TOPICS], days, doms) if any(g in KOREA_TOPICS for g in groups) else {}
+                names = list(dict.fromkeys(n for g in groups for n in gc.view_companies(g, GLOBAL_SECTORS)))
+                firm = gnews_search(names, days, doms, True) if names else {}
             except (NewsApiError, requests.exceptions.RequestException) as e:
                 st.error(str(e) if isinstance(e, NewsApiError) else "Google News에 연결하지 못했어요. 잠시 후 다시 시도해주세요.")
                 return
+        items = [dict(it, _k="korea") for lst in kr.values() for it in lst if not gc.korea_noise(it["title"], it.get("publisher", ""))]
+        items += [dict(it, _k="global") for lst in firm.values() for it in lst if not gc.is_junk(it["title"], it.get("publisher", ""))]
+        source = "방금 검색"
     else:
-        rows, updated = gn_stored_rows("korea", groups)
+        rows, updated = gn_view_rows(groups)
         if rows is None:
             st.info("모아 둔 외신을 아직 불러오지 못했어요. '지금 새로 검색'을 누르면 바로 찾아요.")
             return
-        items = gn_items(rows, GNEWS_PERIODS[period])
+        items = [dict(it, _k=r["_k"]) for r, it in ((r, gn_item(r, days)) for r in rows) if it]
+        items = [i for i in items if not (i["_k"] == "korea" and gc.korea_noise(i["title"], i["publisher"]))]
         source = f"모아 둔 기사 ({updated[5:16].replace('-', '.').replace('T', ' ')} 기준)"
     uniq, seen = [], set()
     for it in items:
         if it["url"] not in seen:
             seen.add(it["url"])
             uniq.append(dict(it, tags=[]))
-    c_t = cluster_news([i for i in uniq if KOREA_TITLE_RE.search(i["title"])])
-    c_b = cluster_news([i for i in uniq if not KOREA_TITLE_RE.search(i["title"])])
-    ko = gn_ko_map(c_t + c_b, want_ko)
-    st.caption(f"최근 {period} · {', '.join(groups)} · 제목에 한국 {len(c_t)}묶음 · 본문 언급 {len(c_b)}묶음 · 같은 기사는 묶음 · {source}")
-    st.markdown("##### 제목에 한국이 나온 기사")
-    if c_t:
-        st.markdown(gn_clusters_md(c_t, ko), unsafe_allow_html=True)
-    else:
-        st.caption("이 기간에는 없어요.")
+    kr_title = [i for i in uniq if KOREA_TITLE_RE.search(i["title"])]
+    firms = [i for i in uniq if not KOREA_TITLE_RE.search(i["title"]) and i["_k"] == "global"]
+    body = [i for i in uniq if not KOREA_TITLE_RE.search(i["title"]) and i["_k"] == "korea"]
+    c_k, c_f, c_b = cluster_news(kr_title), cluster_news(firms), cluster_news(body)
+    ko = gn_ko_map(c_k + c_f + c_b, want_ko)
+    st.caption(f"최근 {period} · {', '.join(groups)} · 한국 {len(c_k)} · 해외 기업 {len(c_f)} · 본문 언급 {len(c_b)}묶음 · 같은 기사는 묶음 · {source}")
+    st.markdown("##### 제목에 한국·한국 기업이 나온 기사")
+    gn_show(c_k, ko)
+    st.markdown("##### 해외 기업 기사")
+    st.caption("해외 기업 안내", help="섹터의 해외 주요 기업(재무 분석 '해외'와 같은 기업) 이름이 제목에 든 기사예요.")
+    gn_show(c_f, ko, GN_BODY_SHOW * 2, "해외 기업 더 보기")
     st.markdown("##### 본문에 한국이 나온 기사")
     st.caption("본문 검색 안내", help="제목엔 한국이 없지만 구글이 본문에서 한국과 섹터 낱말을 함께 찾은 기사예요. 스치듯 언급된 경우도 있으니 원문으로 확인하세요.")
-    if c_b:
-        st.markdown(gn_clusters_md(c_b[:GN_BODY_SHOW], ko), unsafe_allow_html=True)
-        if len(c_b) > GN_BODY_SHOW:
-            with st.expander(f"본문 언급 더 보기 ({len(c_b) - GN_BODY_SHOW}묶음)"):
-                st.markdown(gn_clusters_md(c_b[GN_BODY_SHOW:], ko), unsafe_allow_html=True)
-    else:
-        st.caption("이 기간에는 없어요.")
+    gn_show(c_b, ko, GN_BODY_SHOW, "본문 언급 더 보기")
+
+
+def gn_item(r, days):
+    got = gn_items([r], days)
+    return got[0] if got else None
+
+
+def render_gn_company(period, want_ko):
+    """외신 > 기업 직접 검색: 영문(또는 한글) 기업 이름으로 그 자리에서 찾는다 (기업별로 나눠 보여 줌)"""
+    with st.expander("기업 직접 검색", expanded=bool(st.session_state.get("gn_res"))):
+        with st.form("gn_search"):
+            corp_text = st.text_input("기업명 (여러 곳은 쉼표로)", key="gn_corp", placeholder="예: Samsung, TSMC, Tesla",
+                                      help=f"기업 이름이 제목에 든 기사를 지금 찾아요(최대 {MAX_GNEWS_CORPS}곳). 별칭(Hynix, Google 등)도 함께 찾아요.")
+            in_title = st.checkbox("제목에 기업명이 든 기사만", value=True, key="gn_title",
+                                   help="기업 이름(별칭 포함)이 낱말 그대로 제목에 든 기사만 보여줘요.")
+            submitted = log_if(st.form_submit_button("해외 뉴스 조회", key="gn_submit"), "외신 조회")
+        parts = []
+        for part in re.split(NEWS_SPLIT, corp_text or ""):
+            part = part.strip()
+            if part and part.casefold() not in {x.casefold() for x in parts}:
+                parts.append(part)
+        sig = (tuple(p.casefold() for p in parts), period, in_title)
+        if submitted:
+            st.session_state.pop("gn_res", None)
+            if not parts:
+                st.error("기업명을 입력해주세요.")
+            elif len(parts) > MAX_GNEWS_CORPS:
+                st.error(f"기업은 한 번에 {MAX_GNEWS_CORPS}곳까지 넣을 수 있어요. (지금 {len(parts)}곳)")
+            else:
+                terms = {gnews_term(p): p for p in parts}  # 영문 검색어 -> 입력한 이름
+                got = None
+                with st.spinner("해외 뉴스를 찾는 중입니다..."):
+                    try:
+                        got = gnews_search(list(terms), GNEWS_PERIODS[period], list(GNEWS_OUTLETS.values()), in_title)
+                    except NewsApiError as e:
+                        st.error(str(e))
+                    except requests.exceptions.RequestException:
+                        st.error("Google News에 연결하지 못했어요. 잠시 후 다시 시도해주세요.")
+                if got is not None:
+                    st.session_state["gn_res"] = {"clusters": {t: cluster_news(items) for t, items in got.items()}, "labels": terms,
+                                                  "period": period, "sig": sig}
+        res = st.session_state.get("gn_res")
+        if not (res and res.get("sig") == sig):
+            if res:
+                st.caption("기업명이나 조건을 바꿨어요. '해외 뉴스 조회'를 누르면 새로 검색해요.")
+            return
+        ko = gn_ko_map([c for cl in res["clusters"].values() for c in cl], want_ko)
+        st.caption(f"최근 {res['period']} · 최신순 · 같은 기사는 묶음 · 방금 검색")
+        many = len(res["clusters"]) > 5  # 기업이 많으면 기사 없는 기업은 한 줄로 모은다
+        empty = []
+        for term, clusters in res["clusters"].items():
+            label = res["labels"].get(term, term)
+            if not clusters and many:
+                empty.append(label)
+                continue
+            alias = gnews_aliases(term)
+            st.markdown(f"##### {label}" + (f" ({' · '.join(alias)})" if label.casefold() != term.casefold() or len(alias) > 1 else ""))
+            if not clusters:
+                st.info("이 기간에 해당 언론사 기사를 찾지 못했어요. 기간을 늘리거나 영문 이름으로 검색해 보세요.")
+                continue
+            st.markdown(gn_clusters_md(clusters, ko), unsafe_allow_html=True)
+        if empty:
+            st.caption("이 기간에 기사가 없는 기업: " + ", ".join(empty))
 
 
 NEWS_ALWAYS_SEARCH = {"엘에스일렉트릭": ["LS일렉트릭"]}
@@ -7498,7 +7494,7 @@ KOREAN_TO_TICKER = {re.sub(r"\s+", "", v).lower(): k for k, v in OVERSEAS_NAMES.
 # 산업 뉴스 > 외신의 섹터: 재무 조회 '해외 섹터'(OVERSEAS_GROUPS)와 같은 기업을 티커 대신 영문 기업명으로. 반도체에는 Samsung을 더함
 GLOBAL_SECTORS = {g: list(dict.fromkeys(FOREIGN_ENGLISH.get(t) or OVERSEAS_NAMES.get(t) or t for t in tickers)) for g, tickers in OVERSEAS_GROUPS.items()}
 GLOBAL_SECTORS["반도체"].append("Samsung")
-GLOBAL_SECTORS[gc.KOREA_GROUP] = list(gc.KOREAN_COMPANIES)  # 외신 '한국 기업' (HD현대·한화오션·포스코·현대차 등) — 수집기와 같은 목록
+GLOBAL_SECTORS[gc.KOREA_GROUP] = list(gc.KOREA_GROUP_FIRMS)  # 외신 '한국 기업' (HD현대·한화오션·포스코·현대차 등) — 수집기와 같은 목록
 CURRENCY_NAMES = {"USD": "달러", "EUR": "유로", "JPY": "엔", "GBP": "파운드", "CNY": "위안", "TWD": "대만달러", "CHF": "프랑",
                   "CAD": "캐나다달러", "HKD": "홍콩달러", "AUD": "호주달러", "KRW": "원"}
 SEC_CONCEPTS = {

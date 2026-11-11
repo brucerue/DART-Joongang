@@ -61,6 +61,34 @@ KOREA_GROUP = "한국 기업"
 KOREAN_COMPANIES = ["Samsung Electronics", "SK hynix", "Hyundai Motor", "Kia", "LG Energy Solution", "Samsung SDI", "LG Electronics", "LG Chem",
                     "HD Hyundai", "Hanwha Ocean", "Samsung Heavy Industries", "Hanwha Aerospace", "POSCO Holdings", "Korean Air",
                     "SK Group", "Hanwha Group", "Naver", "Kakao"]
+GN_EXTRA_FIRMS = ["Airbus"]  # 해외 섹터엔 없지만 외신 화면 섹터(항공)에 쓰는 기업 — '한국 기업' 파일에 함께 모은다
+KOREA_GROUP_FIRMS = KOREAN_COMPANIES + GN_EXTRA_FIRMS
+# 외신 화면의 섹터(산업 뉴스와 같은 묶음) -> 합쳐 보여 줄 모아 둔 외신 [(종류, 파일 섹터, 기업 목록 또는 None=그 파일 전부)]
+# korea = 한국 관련(본문까지), global = 기업별(제목에 기업 이름). 2026.11 '기업별'·'한국 관련' 두 화면을 하나로 합침
+GN_VIEW_SECTORS = {
+    "차·배터리": [("korea", "차·배터리", None), ("global", "자동차", None),
+                 ("global", KOREA_GROUP, ["Hyundai Motor", "Kia", "LG Energy Solution", "Samsung SDI", "LG Chem"])],
+    "중후장대": [("korea", "중후장대", None), ("global", "철강", None), ("global", "방산·항공우주", None),
+             ("global", KOREA_GROUP, ["HD Hyundai", "Hanwha Ocean", "Samsung Heavy Industries", "Hanwha Aerospace", "POSCO Holdings"])],
+    "반도체·전자": [("korea", "반도체·전자", None), ("global", "반도체", None), ("global", "빅테크", None),
+               ("global", KOREA_GROUP, ["Samsung Electronics", "SK hynix", "LG Electronics"])],
+    "IT·통신": [("korea", "IT·통신", None), ("global", "통신", None), ("global", "빅테크", None), ("global", KOREA_GROUP, ["Naver", "Kakao"])],
+    "에너지·화학": [("korea", "에너지·화학", None), ("global", "에너지·정유", None)],
+    "항공": [("korea", "항공", None), ("global", "방산·항공우주", ["Boeing"]), ("global", KOREA_GROUP, ["Korean Air", "Airbus"])],
+    "재계": [("korea", "재계", None), ("global", KOREA_GROUP, ["SK Group", "Hanwha Group"])],
+    "제약·바이오": [("global", "제약·바이오", None)],
+}
+
+
+def view_companies(sector, groups):
+    """외신 화면 섹터 -> 기업별로 찾는 영문 기업 이름들 (groups: global_sectors 결과)"""
+    out = []
+    for kind, sec, firms in GN_VIEW_SECTORS.get(sector, []):
+        if kind == "global":
+            out += [n for n in (firms if firms is not None else groups.get(sec, [])) if n not in out]
+    return out
+
+
 # 짧아서 다른 뜻으로도 쓰이는 별칭: 이 별칭으로만 걸린 제목은 아래 낱말이 함께 있어야 남긴다 (GM = General Manager 야구 기사 등)
 ALIAS_CONTEXT = {
     "GM": r"car|cars|auto|automaker|vehicle|EV|electric|truck|SUV|Chevrolet|Chevy|Cadillac|Buick|GMC|Cruise|plant|factory|recall|UAW|Barra|sales|earnings|profit|shares|stock|tariff|battery|Korea|sues|lawsuit|CEO|investors|workers|layoffs|dealers|shoppers|buyers",
@@ -186,7 +214,7 @@ def global_sectors(groups, english, names):
     out = {g: list(dict.fromkeys(english.get(t) or names.get(t) or t for t in tickers)) for g, tickers in groups.items()}
     if "반도체" in out and "Samsung" not in out["반도체"]:
         out["반도체"].append("Samsung")
-    out[KOREA_GROUP] = list(KOREAN_COMPANIES)
+    out[KOREA_GROUP] = list(KOREA_GROUP_FIRMS)
     return out
 
 

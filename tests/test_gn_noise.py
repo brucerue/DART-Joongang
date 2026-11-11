@@ -31,7 +31,7 @@ for t in ["Nvidia stock price falls after earnings", "Tech giants pour money int
     check(not gc.is_junk(t), f"기사는 남김: {t}")
 check(not keep("Meta unveils metaverse headset", ["Hyundai Motor"]), "다른 기업 제목은 안 걸림")
 g = gc.global_sectors({"반도체": ["NVDA"]}, {"NVDA": "Nvidia"}, {})
-check(g.get(gc.KOREA_GROUP) == gc.KOREAN_COMPANIES and "HD Hyundai" in gc.KOREAN_COMPANIES and "Hanwha Ocean" in gc.KOREAN_COMPANIES, "한국 기업 섹터")
+check(g.get(gc.KOREA_GROUP) == gc.KOREA_GROUP_FIRMS and "Airbus" in g[gc.KOREA_GROUP] and "HD Hyundai" in gc.KOREAN_COMPANIES and "Hanwha Ocean" in gc.KOREAN_COMPANIES, "한국 기업 섹터")
 check(keep("HD Korea Shipbuilding wins LNG carrier order", gc.aliases("HD Hyundai")), "HD현대 별칭")
 check(gc.file_name("global", gc.KOREA_GROUP).startswith("global/"), "한국 기업 파일 이름")
 # 한국 관련: 섹터 낱말을 3개씩 나눠 검색, 북한 제외는 검색식 대신 제목으로 (검색식이 길면 구글이 언론사 제한을 무시)

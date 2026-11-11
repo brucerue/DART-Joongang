@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta
 
@@ -26,6 +27,7 @@ KEEP_DAYS = 365  # 1년
 RECENT_DAYS = 7
 SECTORS = list(nd.A["NEWS_SECTORS"])  # 산업 뉴스의 모든 섹터 (앱이 저장분을 바로 보여 주므로 빠짐없이)
 GENERAL_DAYS = 3  # '일반' 기사 보관 일수 (양이 많아 섹터별 파일에 최근 며칠만)
+REPOST_GAP_HOURS = 12  # 단독 기사: 같은 매체의 이보다 오래된 기사와 제목이 같거나(앞부분만 잘린 것 포함) 같으면 다시 올라온 것(사진 페이지 등)으로 보고 뺀다
 LOOKBACK_HOURS = 48  # 매시간 돌지만, 실패한 회차가 있어도 메워지도록 이틀 전까지 훑는다
 FMT = "%Y-%m-%dT%H:%M"
 
@@ -112,6 +114,43 @@ def collect_global(out_dir, now, errors):
     return added, len(ko)
 
 
+def title_key(title):
+    """다시 올라온 기사 판정용 제목 열쇠: '[단독]' 표시·공백·문장부호를 뺀 글자"""
+    t = re.sub(r"^\s*[\[\(【<]?\s*단독\s*[\]\)】>]?\s*", "", title or "")
+    return re.sub(r"[\W_]+", "", t).lower()
+
+
+def repost_index(rows):
+    """모아 둔 줄 -> {매체: [(날짜, 제목 열쇠, 주소)]}"""
+    idx = {}
+    for r in rows:
+        k = title_key(r.get("t", ""))
+        if r.get("p") and len(k) >= 8:
+            idx.setdefault(r["p"], []).append((r.get("d", ""), k, r.get("u")))
+    return idx
+
+
+def is_repost(title, publisher, when, url, idx):
+    """같은 매체가 REPOST_GAP_HOURS 넘게 전에 낸 기사와 제목이 같거나, 그 제목의 앞부분만 남은 것이면 True.
+    예: 10/23 '[단독] 포스코 노사 대표 오늘 마주 앉는다…넉 달 임금협상 매듭 짓나'의 사진 페이지가 11/10 '[단독] 포스코 노사 대표 오늘 마주'로 다시 잡힘."""
+    key = title_key(title)
+    if len(key) < 8:
+        return False
+    limit = (datetime.strptime(when, FMT) - timedelta(hours=REPOST_GAP_HOURS)).strftime(FMT)
+    return any(d < limit and u != url and (k == key or k.startswith(key)) for d, k, u in idx.get(publisher, []))
+
+
+def drop_reposts(store):
+    """이미 모아 둔 것 중 최근 7일에 들어온, 다시 올라온 기사를 지운다 -> 지운 건수"""
+    idx = repost_index(store.values())
+    recent_from = (datetime.now(KST) - timedelta(days=RECENT_DAYS)).strftime(FMT)
+    bad = [u for u, r in store.items() if r.get("k") == "단독" and r.get("d", "") >= recent_from
+           and is_repost(r.get("t", ""), r.get("p", ""), r["d"], u, idx)]
+    for u in bad:
+        store.pop(u, None)
+    return len(bad)
+
+
 def general_file(sector):
     """섹터의 '일반' 기사 파일 이름 (한글·중간점 없는 이름: 앱의 general_file과 같은 규칙)"""
     return "general/" + hashlib.md5(sector.encode("utf-8")).hexdigest()[:10] + ".json"
@@ -163,6 +202,8 @@ def main():
     before = len(store)
 
     errors, added = [], 0
+    removed = drop_reposts(store)
+    idx = repost_index(store.values())
     for sector in SECTORS:
         for mode in [m for m in ("통신", "단독") if m in modes]:
             try:
@@ -170,7 +211,9 @@ def main():
             except Exception as e:  # 한 곳이 실패해도 나머지는 계속 (발송은 이 칸만 직접 검색한다)
                 errors.append(f"{sector}/{mode}: {e}")
                 continue
-            dump[f"{mode}|{sector}"] = items
+            if mode == "단독":  # 통신은 같은 제목이 날마다 새로 나오기도 해서([인사]·[그래픽] 등) 단독만
+                items = [i for i in items if not is_repost(i["title"], i.get("publisher", ""), i["dt"].astimezone(KST).strftime(FMT), i["url"], idx)]
+            dump[f"{mode}|{sector}"] = items  # 텔레그램 발송도 이걸 쓰므로 다시 올라온 기사는 알림도 안 감
             added += merge(store, [to_row(i, mode, sector) for i in items])
     general_from = (now - timedelta(days=GENERAL_DAYS)).strftime(FMT)
     general_n = 0
@@ -214,7 +257,7 @@ def main():
     if args.dump:
         with open(args.dump, "w", encoding="utf-8") as f:
             json.dump({k: [dict(i, dt=i["dt"].isoformat()) for i in v] for k, v in dump.items()}, f, ensure_ascii=False)
-    print(f"수집 완료: 새로 {added}건, 보관 {len(rows)}건(이전 {before}건), 일반 새로 {general_n}건, 실패 {len(errors)}곳")
+    print(f"수집 완료: 다시 올라온 기사 {removed}건 지움, 새로 {added}건, 보관 {len(rows)}건(이전 {before}건), 일반 새로 {general_n}건, 실패 {len(errors)}곳")
     for e in errors:
         print("  실패:", e, file=sys.stderr)
     if errors and len(errors) >= len(SECTORS) * len([m for m in modes if m != "외신"]) + (150 if "외신" in modes else 0):  # 거의 전부 실패했으면 오류로 끝내 알림이 가게 한다
