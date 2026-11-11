@@ -1,0 +1,51 @@
+name: 아침 브리핑 자료 모으기
+
+# 다른 프로그램(아침 브리핑)이 읽어 가도록 앱 화면에서만 계산되던 것을 brief 브랜치 brief.json에 남깁니다.
+# 섹터별 단독·통신 기사 묶음, 섹터 공시, 특징주, 앞으로 7일 IR 일정, 14일 제출기한 + 전 상장사 오늘의 주요 공시.
+# 기사는 data 브랜치(매시 정각 수집)를 읽으므로 그 뒤에 돌립니다. GitHub 예약 실행은 늦게 시작될 때가 있어 두 번(05:30·06:05) 돌려요.
+on:
+  schedule:
+    - cron: "30 20 * * *"  # 한국시간 매일 05:30
+    - cron: "5 21 * * *"   # 한국시간 매일 06:05 (06시 수집분 반영·예비)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: brief-data
+  cancel-in-progress: false
+
+jobs:
+  brief:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install requests pandas
+      - name: 모아 둔 자료 가져오기 (기사·시세·장중·기업 목록)
+        run: |
+          mkdir -p data
+          git fetch --depth=1 origin data prices intraday corp-codes
+          git show origin/data:recent.json > data/recent.json
+          git show origin/prices:prices.json > prices.json
+          git show origin/intraday:intraday.json > intraday.json || echo '{}' > intraday.json
+          git show origin/corp-codes:corp_codes.csv > corp_codes.csv
+      - name: 브리핑 자료 만들기
+        run: python brief_data.py --data data --prices prices.json --intraday intraday.json --corp-csv corp_codes.csv --out out/brief.json
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+      - name: brief 브랜치에 올리기 (기록을 남기지 않고 한 커밋으로 덮어씀)
+        run: |
+          cd out
+          git init -q -b brief
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add brief.json
+          git commit -q -m "brief $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" brief
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

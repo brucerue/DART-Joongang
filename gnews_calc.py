@@ -52,10 +52,27 @@ GNEWS_ALIASES = {
     "Johnson & Johnson": ["Johnson & Johnson", "J&J"], "Eli Lilly": ["Eli Lilly", "Lilly"], "SAIC Motor": ["SAIC Motor", "SAIC"],
     "Hua Hong Semiconductor": ["Hua Hong"], "ArcelorMittal": ["ArcelorMittal", "Arcelor"], "Great Wall Motor": ["Great Wall Motor"],
     "Mitsubishi Motors": ["Mitsubishi Motors"], "Micron": ["Micron"], "Intel": ["Intel"], "Nvidia": ["Nvidia"],
+    "HD Hyundai": ["HD Hyundai", "HD Korea Shipbuilding", "Hyundai Heavy"], "Hanwha Ocean": ["Hanwha Ocean"],
+    "Samsung Heavy Industries": ["Samsung Heavy"], "Hanwha Group": ["Hanwha"], "Korean Air": ["Korean Air"],
+    "LG Chem": ["LG Chem"], "SK Group": ["SK Group", "SK Inc"], "Naver": ["Naver"], "Kakao": ["Kakao"],
+}
+# 외신 '한국 기업' 섹터 (기업별): 해외 섹터와 같은 방식으로 제목에 이름이 든 기사만. 수집기·앱이 함께 쓴다
+KOREA_GROUP = "한국 기업"
+KOREAN_COMPANIES = ["Samsung Electronics", "SK hynix", "Hyundai Motor", "Kia", "LG Energy Solution", "Samsung SDI", "LG Electronics", "LG Chem",
+                    "HD Hyundai", "Hanwha Ocean", "Samsung Heavy Industries", "Hanwha Aerospace", "POSCO Holdings", "Korean Air",
+                    "SK Group", "Hanwha Group", "Naver", "Kakao"]
+# 짧아서 다른 뜻으로도 쓰이는 별칭: 이 별칭으로만 걸린 제목은 아래 낱말이 함께 있어야 남긴다 (GM = General Manager 야구 기사 등)
+ALIAS_CONTEXT = {
+    "GM": r"car|cars|auto|automaker|vehicle|EV|electric|truck|SUV|Chevrolet|Chevy|Cadillac|Buick|GMC|Cruise|plant|factory|recall|UAW|Barra|sales|earnings|profit|shares|stock|tariff|battery|Korea",
 }
 # '한국 관련' 외신: 한국 낱말 + 섹터 낱말이 함께 든 기사를 본문까지 찾는다 (구글은 본문도 색인)
 KOREA_WORDS = ["South Korea", "South Korean", "Korean", "Seoul"]
-GN_JUNK_RE = re.compile(r"Market Talk|Roundup|News Quiz|Breaking News|Live Updates?|Newsletter|Podcast|Morning Bid|Stocks making the biggest moves|^Video|Crossword|World in Brief|The Morning|Evening Briefing|Daily Briefing", re.I)
+GN_JUNK_RE = re.compile(r"Market Talk|Roundup|News Quiz|Breaking News|Live Updates?|Newsletter|Podcast|Morning Bid|Stocks making the biggest moves|^Video|Crossword|World in Brief|The Morning|Evening Briefing|Daily Briefing"
+                        # 기사가 아닌 주가·회사·인물 페이지 (예: 'General Motors Co (GM) Stock Price & News', 'Mary Barra | Executive Profile')
+                        r"|Stock Price (?:&|and) News|Stock Price Today|Stock Quotes?\b|Quote (?:&|and) News|\bQuote$|Company Profile|Executive Profile|People (?:&|and) Executives|\bBiography\b|\bProfile$"
+                        r"|\([A-Z]{1,5}(?:\.[A-Z]{1,3})?\)\s*(?:Stock|Share|Shares)\s*(?:Price|Quote)", re.I)
+# 스포츠 기사 (GM=General Manager, 구단·리그 기사가 기업 별칭에 걸리는 것)
+GN_SPORTS_RE = re.compile(r"(?<![A-Za-z])(MLB|NBA|NFL|NHL|MLS|NCAA|WNBA|Premier League|Champions League|World Series|Super Bowl|Stanley Cup|playoffs?|postseason|quarterback|pitcher|outfielder|shortstop|infielder|roster|free agen(?:t|ts|cy)|draft picks?|general manager|head coach|touchdown|home runs?|Yankees|Dodgers|Mets|Red Sox|Cubs|Lakers|Knicks|Celtics|Patriots|Cowboys)(?![A-Za-z])", re.I)
 KOREA_EXCLUDE = '-"North Korea" -"North Korean" -Pyongyang -"Kim Jong"'
 KOREA_TOPICS = {
     "차·배터리": ["automaker", "carmaker", "auto", "cars", "EV", "battery", "batteries", "cathode"],
@@ -75,7 +92,8 @@ GN_JUNK_DOMAINS = ("cooking.nytimes.com",)
 
 def is_junk(title, publisher="", domain=""):
     """외신 중 기사가 아닌 것(모음·요약 코너·요리 등)인지 — 기업별·한국 관련 모두 뺀다"""
-    return bool(GN_JUNK_RE.search(title or "") or GN_JUNK_PUBLISHER_RE.search(publisher or "") or (domain or "") in GN_JUNK_DOMAINS)
+    return bool(GN_JUNK_RE.search(title or "") or GN_SPORTS_RE.search(title or "") or GN_JUNK_PUBLISHER_RE.search(publisher or "")
+                or (domain or "") in GN_JUNK_DOMAINS)
 
 
 def aliases(term):
@@ -84,8 +102,15 @@ def aliases(term):
 
 
 def title_has(title, names):
-    """제목에 별칭 중 하나가 낱말 그대로 들어 있는지 (대소문자 무시, 'Meta'는 'metaverse'에 안 걸림)"""
-    return any(re.search(r"(?<![A-Za-z0-9])" + re.escape(a) + r"(?![A-Za-z0-9])", title, re.I) for a in names)
+    """제목에 별칭 중 하나가 낱말 그대로 들어 있는지 (대소문자 무시, 'Meta'는 'metaverse'에 안 걸림).
+    짧은 별칭(ALIAS_CONTEXT, 예: GM)으로만 걸렸으면 관련 낱말이 함께 있어야 한다."""
+    for a in names:
+        if not re.search(r"(?<![A-Za-z0-9])" + re.escape(a) + r"(?![A-Za-z0-9])", title, re.I):
+            continue
+        ctx = ALIAS_CONTEXT.get(a)
+        if ctx is None or re.search(r"(?<![A-Za-z])(?:" + ctx + r")(?![A-Za-z])", title, re.I):
+            return True
+    return False
 
 
 def company_core(term):
@@ -145,6 +170,7 @@ def global_sectors(groups, english, names):
     out = {g: list(dict.fromkeys(english.get(t) or names.get(t) or t for t in tickers)) for g, tickers in groups.items()}
     if "반도체" in out and "Samsung" not in out["반도체"]:
         out["반도체"].append("Samsung")
+    out[KOREA_GROUP] = list(KOREAN_COMPANIES)
     return out
 
 

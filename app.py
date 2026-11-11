@@ -486,7 +486,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.05 15:50"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.11 08:55"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -7499,6 +7499,7 @@ KOREAN_TO_TICKER = {re.sub(r"\s+", "", v).lower(): k for k, v in OVERSEAS_NAMES.
 # 산업 뉴스 > 외신의 섹터: 재무 조회 '해외 섹터'(OVERSEAS_GROUPS)와 같은 기업을 티커 대신 영문 기업명으로. 반도체에는 Samsung을 더함
 GLOBAL_SECTORS = {g: list(dict.fromkeys(FOREIGN_ENGLISH.get(t) or OVERSEAS_NAMES.get(t) or t for t in tickers)) for g, tickers in OVERSEAS_GROUPS.items()}
 GLOBAL_SECTORS["반도체"].append("Samsung")
+GLOBAL_SECTORS[gc.KOREA_GROUP] = list(gc.KOREAN_COMPANIES)  # 외신 '한국 기업' (HD현대·한화오션·포스코·현대차 등) — 수집기와 같은 목록
 CURRENCY_NAMES = {"USD": "달러", "EUR": "유로", "JPY": "엔", "GBP": "파운드", "CNY": "위안", "TWD": "대만달러", "CHF": "프랑",
                   "CAD": "캐나다달러", "HKD": "홍콩달러", "AUD": "호주달러", "KRW": "원"}
 SEC_CONCEPTS = {

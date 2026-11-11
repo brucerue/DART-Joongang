@@ -44,7 +44,7 @@ at = AppTest.from_file(REPO + "/app.py", default_timeout=300); at.run()
 at.radio(key="news_mode").set_value("외신").run()
 check(not at.exception, f"외신 화면 예외 없음 {[str(e.value)[:100] for e in at.exception]}")
 bg = at.button_group(key="gn_groups")
-check(list(bg.options)[:3] == ["반도체", "빅테크", "자동차"] and len(bg.options) == 8, f"섹터 선택지 {list(bg.options)}")
+check(list(bg.options)[:3] == ["반도체", "빅테크", "자동차"] and len(bg.options) == 9 and "한국 기업" in bg.options, f"섹터 선택지 {list(bg.options)}")
 bg.set_value(["반도체"]).run()
 txt = at.text_input(key="gn_corp").value
 check(txt.startswith("Nvidia, AMD, Micron") and txt.endswith("Samsung") and "SK hynix" not in txt, f"기업명 칸 채움: {txt[:80]}…")
