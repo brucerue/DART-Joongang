@@ -63,16 +63,16 @@ KOREAN_COMPANIES = ["Samsung Electronics", "SK hynix", "Hyundai Motor", "Kia", "
                     "SK Group", "Hanwha Group", "Naver", "Kakao"]
 # 짧아서 다른 뜻으로도 쓰이는 별칭: 이 별칭으로만 걸린 제목은 아래 낱말이 함께 있어야 남긴다 (GM = General Manager 야구 기사 등)
 ALIAS_CONTEXT = {
-    "GM": r"car|cars|auto|automaker|vehicle|EV|electric|truck|SUV|Chevrolet|Chevy|Cadillac|Buick|GMC|Cruise|plant|factory|recall|UAW|Barra|sales|earnings|profit|shares|stock|tariff|battery|Korea",
+    "GM": r"car|cars|auto|automaker|vehicle|EV|electric|truck|SUV|Chevrolet|Chevy|Cadillac|Buick|GMC|Cruise|plant|factory|recall|UAW|Barra|sales|earnings|profit|shares|stock|tariff|battery|Korea|sues|lawsuit|CEO|investors|workers|layoffs|dealers|shoppers|buyers",
 }
 # '한국 관련' 외신: 한국 낱말 + 섹터 낱말이 함께 든 기사를 본문까지 찾는다 (구글은 본문도 색인)
 KOREA_WORDS = ["South Korea", "South Korean", "Korean", "Seoul"]
 GN_JUNK_RE = re.compile(r"Market Talk|Roundup|News Quiz|Breaking News|Live Updates?|Newsletter|Podcast|Morning Bid|Stocks making the biggest moves|^Video|Crossword|World in Brief|The Morning|Evening Briefing|Daily Briefing"
                         # 기사가 아닌 주가·회사·인물 페이지 (예: 'General Motors Co (GM) Stock Price & News', 'Mary Barra | Executive Profile')
-                        r"|Stock Price (?:&|and) News|Stock Price Today|Stock Quotes?\b|Quote (?:&|and) News|\bQuote$|Company Profile|Executive Profile|People (?:&|and) Executives|\bBiography\b|\bProfile$"
+                        r"|Stock Price (?:&|and) (?:Latest )?News|Stock Price Today|stock price \\([A-Z][A-Z.]{0,7}\\)|in real time$|Stock Quotes?\b|Quote (?:&|and) News|\bQuote$|Company Profile|Executive Profile|People (?:&|and) Executives|\bBiography\b|\bProfile$"
                         r"|\([A-Z]{1,5}(?:\.[A-Z]{1,3})?\)\s*(?:Stock|Share|Shares)\s*(?:Price|Quote)", re.I)
 # 스포츠 기사 (GM=General Manager, 구단·리그 기사가 기업 별칭에 걸리는 것)
-GN_SPORTS_RE = re.compile(r"(?<![A-Za-z])(MLB|NBA|NFL|NHL|MLS|NCAA|WNBA|Premier League|Champions League|World Series|Super Bowl|Stanley Cup|playoffs?|postseason|quarterback|pitcher|outfielder|shortstop|infielder|roster|free agen(?:t|ts|cy)|draft picks?|general manager|head coach|touchdown|home runs?|Yankees|Dodgers|Mets|Red Sox|Cubs|Lakers|Knicks|Celtics|Patriots|Cowboys)(?![A-Za-z])", re.I)
+GN_SPORTS_RE = re.compile(r"(?<![A-Za-z])(MLB|NBA|NFL|NHL|MLS|NCAA|WNBA|Premier League|Champions League|World Series|Super Bowl|Stanley Cup|playoffs?|postseason|quarterback|pitchers?|pitching|front office|outfielder|shortstop|infielder|roster|free agen(?:t|ts|cy)|draft picks?|general manager|head coach|touchdown|home runs?|Yankees|Dodgers|Mets|Red Sox|Cubs|Lakers|Knicks|Celtics|Patriots|Cowboys)(?![A-Za-z])", re.I)
 KOREA_EXCLUDE = '-"North Korea" -"North Korean" -Pyongyang -"Kim Jong"'
 KOREA_TOPICS = {
     "차·배터리": ["automaker", "carmaker", "auto", "cars", "EV", "battery", "batteries", "cathode"],

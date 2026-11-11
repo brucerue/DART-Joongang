@@ -19,6 +19,11 @@ keep = lambda t, names: gc.title_has(t, names) and not gc.is_junk(t)
 check(not keep("Detroit Tigers GM says trade talks stalled", gm), "GM 야구 단장(관련 낱말 없음) 뺌")
 check(not keep("Yankees GM Cashman on free agency", gm), "야구 기사 뺌")
 check(keep("GM to cut EV output at Michigan plant", gm), "GM 자동차 기사는 남김")
+for t in ["Giants focused on pitching and defense as GM meetings begin", "Former Angels GM Perry Minasian to rejoin Braves front office: Source",
+          "Eight changes Blackhawks GM Kyle Davidson should consider to salvage this season", "Check out General Motors's stock price (GM) in real time"]:
+    check(not keep(t, gm), f"실제로 섞였던 것 뺌: {t[:40]}")
+check(keep("New York sues GM in case related to deceptive trade practices", gm), "GM 소송 기사는 남김")
+check(gc.is_junk("ProShares Ultra SK hynix (SKHU.N) | Stock Price & Latest News"), "ETF 주가 페이지 뺌")
 check(keep("General Motors names new CFO", gm), "General Motors 전체 이름은 그대로")
 for t in ["General Motors Co (GM) Stock Price & News - WSJ", "Mary Barra | Executive Profile", "Tesla Inc (TSLA) Stock Quote", "Hyundai Motor Co Company Profile"]:
     check(gc.is_junk(t), f"주가·프로필 페이지 뺌: {t}")
