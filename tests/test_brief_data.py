@@ -20,7 +20,7 @@ def check(c, m):
 check(B.window_since(datetime(2026, 11, 10, 6, 30, tzinfo=KST)) == datetime(2026, 11, 9, 6, 30, tzinfo=KST), "화요일 24시간")
 check(B.window_since(datetime(2026, 11, 9, 6, 30, tzinfo=KST)) == datetime(2026, 11, 6, 15, 0, tzinfo=KST), "월요일 금 15시부터")
 
-now = datetime(2026, 11, 11, 6, 30, tzinfo=KST)
+now = datetime(2026, 11, 11, 6, 30, 17, 5000, tzinfo=KST)  # 초가 붙은 실제 시각처럼
 recent = {"updated": "2026-11-11T06:01", "items": [
     {"t": "[단독] 삼성전자, HBM4 공급 확대", "u": "u1", "p": "한국경제", "k": "단독", "d": "2026-11-10T21:00", "s": ["반도체·전자"], "g": ["삼성전자"]},
     {"t": "[단독] 삼성전자, HBM4 공급 확대한다", "u": "u2", "p": "매일경제", "k": "단독", "d": "2026-11-10T22:00", "s": ["반도체·전자"], "g": ["삼성전자"]},
@@ -41,12 +41,13 @@ class FakeDart:
 
     def list_rows(self, corp, start, end, ty="I"):
         if corp == "00126380":
-            return [{"rcept_no": "20261105000001", "rcept_dt": "20261105", "report_nm": "기업설명회(IR)개최(안내공시)"},
+            return [{"rcept_no": "20261106000001", "rcept_dt": "20261106", "report_nm": "기업설명회(IR)개최(안내공시)"},
+                    {"rcept_no": "20261105000001", "rcept_dt": "20261105", "report_nm": "기업설명회(IR)개최(안내공시)"},
                     {"rcept_no": "20261104000001", "rcept_dt": "20261104", "report_nm": "기업설명회(IR)개최(안내공시)"}]
         return []
 
     def doc_text(self, no):
-        if no == "20261105000001":
+        if no in ("20261105000001", "20261106000001"):
             return "1. 일시 2026-11-13\n2. 목적 | 2026년 3분기 실적 발표\n개최방법 | 컨퍼런스콜"
         return "1. 일시 2026-11-12\n2. 목적 | NDR\n개최방법 | 1:1 미팅"
 

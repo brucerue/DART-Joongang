@@ -264,7 +264,7 @@ def build(recent, prices, intra, corp_rows, dart_key, now, dart=None):
             notes.append(f"특징주: {type(e).__name__}")
     sectors = {}
     for sec in A["NEWS_SECTORS"]:
-        disc = tdc.sector_items(rows, sec, "공시", since.replace(hour=0, minute=0))  # 공시는 날짜만 있어서(00:00) 시작일 0시부터
+        disc = tdc.sector_items(rows, sec, "공시", since.replace(hour=0, minute=0, second=0, microsecond=0))  # 공시는 날짜만 있어서(00:00) 시작일 0시부터
         try:
             mv = movers_block(prices, intra, sec, codes_by)
         except Exception as e:
@@ -307,7 +307,9 @@ def build(recent, prices, intra, corp_rows, dart_key, now, dart=None):
                     elif name not in cur["corps"]:
                         cur["corps"].append(name)
         for s in sectors.values():
-            s["ir"].sort(key=lambda e: (e["date"], e["corp"]))
+            seen = set()  # 같은 회사·같은 날 IR 공시가 둘(안내·추가 안내 등)이면 한 번만
+            s["ir"] = [e for e in sorted(s["ir"], key=lambda e: (e["date"], e["corp"], e["filed"]), reverse=False)
+                       if not ((e["corp"], e["date"]) in seen or seen.add((e["corp"], e["date"])))]
             s["deadlines"].sort(key=lambda e: (e["date"], e["report"]))
         if unread:
             notes.append(f"IR 공시 중 날짜를 못 읽은 것 {unread}건")
