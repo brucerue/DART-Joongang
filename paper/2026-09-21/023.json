@@ -1,0 +1,395 @@
+{
+ "date": "2026-09-21",
+ "oid": "023",
+ "paper": "조선일보",
+ "collected_at": "2026-11-10T01:30",
+ "pages_found": 24,
+ "status": "ok",
+ "items": [
+  {
+   "pg": "A1",
+   "title": "이란보다 더한 후티… 사우디 수도 때렸다",
+   "url": "https://n.news.naver.com/article/023/0003999668"
+  },
+  {
+   "pg": "A1",
+   "title": "서울 외곽 아파트값 11% 뛰어… 신혼부부·청년 울리는 ‘평탄화’",
+   "url": "https://n.news.naver.com/article/023/0003999569"
+  },
+  {
+   "pg": "A1",
+   "title": "[단독] 파업 근로손실 44만일, 이미 작년 기록 넘어",
+   "url": "https://n.news.naver.com/article/023/0003999574"
+  },
+  {
+   "pg": "A1",
+   "title": "靑 인사참사에 ‘경기·성남라인’ 책임론",
+   "url": "https://n.news.naver.com/article/023/0003999571"
+  },
+  {
+   "pg": "A2",
+   "title": "농어촌 1인당 月15만원… 기본소득에 지자체 허리 휜다",
+   "url": "https://n.news.naver.com/article/023/0003999566"
+  },
+  {
+   "pg": "A2",
+   "title": "기본소득에 시골 마트만 횡재? 김·고춧가루 가격 2배 올리기도",
+   "url": "https://n.news.naver.com/article/023/0003999568"
+  },
+  {
+   "pg": "A3",
+   "title": "84주째 뛴 서울 집값, 역대 최장기록 눈앞",
+   "url": "https://n.news.naver.com/article/023/0003999567"
+  },
+  {
+   "pg": "A4",
+   "title": "李정부 5번째 낙마에… 與내부 “靑수석 이상 전원 사표라도 써야”",
+   "url": "https://n.news.naver.com/article/023/0003999562"
+  },
+  {
+   "pg": "A4",
+   "title": "한동훈에 보복 나선 與 “경찰, 수사기록 유출 즉각 수사하라”",
+   "url": "https://n.news.naver.com/article/023/0003999559"
+  },
+  {
+   "pg": "A4",
+   "title": "李 회견 뒤에도… 與 강경파, 연일 ‘김지용 불가론’",
+   "url": "https://n.news.naver.com/article/023/0003999565"
+  },
+  {
+   "pg": "A5",
+   "title": "국힘, 대법관 재제청 놓고 “헌재 판단 받아볼 것”",
+   "url": "https://n.news.naver.com/article/023/0003999564"
+  },
+  {
+   "pg": "A5",
+   "title": "野 “철거민 특별 분양 강신철 사퇴할 차례”",
+   "url": "https://n.news.naver.com/article/023/0003999563"
+  },
+  {
+   "pg": "A5",
+   "title": "“내년 상반기 국민투표”… 與, 개헌으로 국면 전환 시도",
+   "url": "https://n.news.naver.com/article/023/0003999560"
+  },
+  {
+   "pg": "A6",
+   "title": "[단독] 실수로 DMZ 넘은 육군 헬기… 소속 부대는 넘어간 줄도 몰랐다",
+   "url": "https://n.news.naver.com/article/023/0003999589"
+  },
+  {
+   "pg": "A6",
+   "title": "韓, 파병 딜레마… 美는 대미투자·반도체·쿠팡 ‘다중 압박’",
+   "url": "https://n.news.naver.com/article/023/0003999555"
+  },
+  {
+   "pg": "A6",
+   "title": "“힌디어 되시는 분 급구” 외교부 통역실 곧 신설",
+   "url": "https://n.news.naver.com/article/023/0003999556"
+  },
+  {
+   "pg": "A8",
+   "title": "“사우디 화염 본 걸프 국가들 美 안보 우산에 신뢰 잃어가”",
+   "url": "https://n.news.naver.com/article/023/0003999557"
+  },
+  {
+   "pg": "A8",
+   "title": "예멘 주민들, 내전 피해 아프리카 小國 지부티로 대탈출",
+   "url": "https://n.news.naver.com/article/023/0003999558"
+  },
+  {
+   "pg": "A10",
+   "title": "트럭 뱃놀이·바가지 게장 논란… 발길 뜸한 713억 여수섬박람회",
+   "url": "https://n.news.naver.com/article/023/0003999549"
+  },
+  {
+   "pg": "A10",
+   "title": "제조업 부진에, 작년 온실가스 배출량 감소",
+   "url": "https://n.news.naver.com/article/023/0003999554"
+  },
+  {
+   "pg": "A10",
+   "title": "수사·기소 분리 11일 전… 법무장관·공소청장·중수청장 공석",
+   "url": "https://n.news.naver.com/article/023/0003999553"
+  },
+  {
+   "pg": "A10",
+   "title": "빌딩숲·궁궐·풀꽃까지… 서울을 두 발로 담다",
+   "url": "https://n.news.naver.com/article/023/0003999552"
+  },
+  {
+   "pg": "A12",
+   "title": "상어 사흘째 출몰에 ‘핫플’ 된 부산 북항",
+   "url": "https://n.news.naver.com/article/023/0003999551"
+  },
+  {
+   "pg": "A12",
+   "title": "[부음] 이충건 前 충북보건환경연구원장 별세 외",
+   "url": "https://n.news.naver.com/article/023/0003999548"
+  },
+  {
+   "pg": "A12",
+   "title": "‘사용자성 판결 전 일단 교섭’ 법원이 제동",
+   "url": "https://n.news.naver.com/article/023/0003999550"
+  },
+  {
+   "pg": "A14",
+   "title": "美 희토류 얻고 덴마크는 주권 지켜… ‘그린란드’, 불신 남긴 채 봉합",
+   "url": "https://n.news.naver.com/article/023/0003999538"
+  },
+  {
+   "pg": "A14",
+   "title": "트럼프, 언론 필요땐 집무실 불러 인터뷰… 비판하면 “가짜뉴스”… 백악관 출입 금지",
+   "url": "https://n.news.naver.com/article/023/0003999535"
+  },
+  {
+   "pg": "A14",
+   "title": "한국·중국보다 키 작은 日… 소식·임신부 다이어트 때문",
+   "url": "https://n.news.naver.com/article/023/0003999539"
+  },
+  {
+   "pg": "A16",
+   "title": "서울 재벌가 이야기로 재탄생… 체호프 ‘벚꽃동산’ 뉴욕에 꽃 피우다",
+   "url": "https://n.news.naver.com/article/023/0003999536"
+  },
+  {
+   "pg": "A16",
+   "title": "18세 피아니스트 이정우, 에네스쿠 콩쿠르 1위",
+   "url": "https://n.news.naver.com/article/023/0003999540"
+  },
+  {
+   "pg": "A16",
+   "title": "[일사일언] 국산 댄스 게임 ‘펌프’가 중남미 K팝 열풍의 원조?",
+   "url": "https://n.news.naver.com/article/023/0003999537"
+  },
+  {
+   "pg": "A16",
+   "title": "“오늘은 내가 유물”... 전국민 축제 된 ‘국중박 분장놀이’",
+   "url": "https://n.news.naver.com/article/023/0003999487"
+  },
+  {
+   "pg": "A18",
+   "title": "‘첫 金’ 주인공은 성승민… “아시아엔 적수 없어요”",
+   "url": "https://n.news.naver.com/article/023/0003999545"
+  },
+  {
+   "pg": "A18",
+   "title": "0.04초 모자랐다",
+   "url": "https://n.news.naver.com/article/023/0003999544"
+  },
+  {
+   "pg": "A18",
+   "title": "[주목! 오늘의 아시안게임] 2026년 9월 21일",
+   "url": "https://n.news.naver.com/article/023/0003999547"
+  },
+  {
+   "pg": "A18",
+   "title": "엄마 따라, 아빠 따라… 이현중·유기상 代 이어 금메달",
+   "url": "https://n.news.naver.com/article/023/0003999543"
+  },
+  {
+   "pg": "A18",
+   "title": "정확한 3점슛에 근성까지… 12년 만에 다시 아시아 최강으로",
+   "url": "https://n.news.naver.com/article/023/0003999542"
+  },
+  {
+   "pg": "A20",
+   "title": "몰랐던 종목… 金과 함께 터진 엄마의 눈물",
+   "url": "https://n.news.naver.com/article/023/0003999546"
+  },
+  {
+   "pg": "A20",
+   "title": "군대에서 돌아온 신상훈, 연장 승부 끝에 ‘우승 물세례’",
+   "url": "https://n.news.naver.com/article/023/0003999481"
+  },
+  {
+   "pg": "A20",
+   "title": "한국, 66년 만 데이비스컵 8강 진출...권순우가 리드와 마무리 홀로 책임져",
+   "url": "https://n.news.naver.com/article/023/0003999466"
+  },
+  {
+   "pg": "A23",
+   "title": "[제31회 LG배 조선일보 기왕전] 원동력",
+   "url": "https://n.news.naver.com/article/023/0003999534"
+  },
+  {
+   "pg": "A23",
+   "title": "이승철·탁재훈·써니의 ‘노래 배달’",
+   "url": "https://n.news.naver.com/article/023/0003999532"
+  },
+  {
+   "pg": "A27",
+   "title": "[에디터의 Q] 한국어 가르치러 간 알마티서 31년… “카자흐의 전략적 가치 더 주목해야”",
+   "url": "https://n.news.naver.com/article/023/0003999530"
+  },
+  {
+   "pg": "A29",
+   "title": "[리빙포인트] 오이는 페트병에 세워 보관하세요",
+   "url": "https://n.news.naver.com/article/023/0003999533"
+  },
+  {
+   "pg": "A29",
+   "title": "[기고] K방산, 무기 몇 대가 아니라 ‘전쟁 지속 능력’을 수출하라",
+   "url": "https://n.news.naver.com/article/023/0003999494"
+  },
+  {
+   "pg": "A29",
+   "title": "[新중동천일야화] 네타냐후 vs 아이젠코트, 이스라엘 총선이 중동의 향방을 묻는다",
+   "url": "https://n.news.naver.com/article/023/0003999498"
+  },
+  {
+   "pg": "A29",
+   "title": "[김민섭의 다정함에 대하여] [7] ‘받은 게 없어도 준다’는 마음",
+   "url": "https://n.news.naver.com/article/023/0003999495"
+  },
+  {
+   "pg": "A30",
+   "title": "[특별기고] 대통령의 흑역사는 어떻게 시작되는가",
+   "url": "https://n.news.naver.com/article/023/0003999501"
+  },
+  {
+   "pg": "A30",
+   "title": "[특파원 리포트] 日 자위대 훈련을 보고 깨달은 것",
+   "url": "https://n.news.naver.com/article/023/0003999499"
+  },
+  {
+   "pg": "A30",
+   "title": "[만물상] 엑스포 잔혹사",
+   "url": "https://n.news.naver.com/article/023/0003999486"
+  },
+  {
+   "pg": "A30",
+   "title": "[문태준의 가슴이 따뜻해지는 詩] [139] 청혼",
+   "url": "https://n.news.naver.com/article/023/0003999496"
+  },
+  {
+   "pg": "A31",
+   "title": "[태평로] 시인의 무죄, 정치인의 무죄",
+   "url": "https://n.news.naver.com/article/023/0003999500"
+  },
+  {
+   "pg": "A31",
+   "title": "[강헌의 히스토리 인 팝스] [331] 좌파의 무기 ‘부동산 공약’",
+   "url": "https://n.news.naver.com/article/023/0003999497"
+  },
+  {
+   "pg": "A31",
+   "title": "[사설] 새 형사체계 코앞인데 법무장관·중수청·공소청·경찰청장 공석",
+   "url": "https://n.news.naver.com/article/023/0003999502"
+  },
+  {
+   "pg": "A31",
+   "title": "[사설] “평탄화” “前 정권 탓” 실패 이유 외면하는 부동산 아집",
+   "url": "https://n.news.naver.com/article/023/0003999504"
+  },
+  {
+   "pg": "A31",
+   "title": "[사설] 김승원의 ‘결단’으로 포장해 넘어갈 문제가 아니다",
+   "url": "https://n.news.naver.com/article/023/0003999505"
+  },
+  {
+   "pg": "B1",
+   "title": "‘헐렁 패션’ 대신 스키니진… 잠잠했던 ‘섹시의 귀환’",
+   "url": "https://n.news.naver.com/article/023/0003999507"
+  },
+  {
+   "pg": "B1",
+   "title": "5대은행 저신용 자영업자 연체율, 5년 새 24%로 치솟아",
+   "url": "https://n.news.naver.com/article/023/0003999508"
+  },
+  {
+   "pg": "B2",
+   "title": "“KAIST, 논문 없이도 박사 받는 방안 마련”",
+   "url": "https://n.news.naver.com/article/023/0003999510"
+  },
+  {
+   "pg": "B2",
+   "title": "도수 치료, 실손보험 기준 강화하자 ‘신장 분사 치료’ 청구 금액 3배 급증",
+   "url": "https://n.news.naver.com/article/023/0003999511"
+  },
+  {
+   "pg": "B2",
+   "title": "AI 강제로 멈추는 ‘킬 스위치’… 쓸모만큼 위험도 크다",
+   "url": "https://n.news.naver.com/article/023/0003999506"
+  },
+  {
+   "pg": "B2",
+   "title": "워런 버핏 농부 아들, 71세에 회장직 물려받아",
+   "url": "https://n.news.naver.com/article/023/0003999512"
+  },
+  {
+   "pg": "B3",
+   "title": "우유 대신 치즈·요구르트 소비 늘어… 국내 목장, 해외서 물소 들여와 사육",
+   "url": "https://n.news.naver.com/article/023/0003999517"
+  },
+  {
+   "pg": "B3",
+   "title": "“투수의 제구 성공률 예측하는 AI 모델 개발”… 청년 인재 머리 맞대",
+   "url": "https://n.news.naver.com/article/023/0003999514"
+  },
+  {
+   "pg": "B3",
+   "title": "생맥주 세금 혜택 끝나면… 내년 1000원 오를 수도",
+   "url": "https://n.news.naver.com/article/023/0003999516"
+  },
+  {
+   "pg": "B3",
+   "title": "“개별 기업 대신해 중기협동조합에 ‘협의 요청권’ 부여를”",
+   "url": "https://n.news.naver.com/article/023/0003999515"
+  },
+  {
+   "pg": "B4",
+   "title": "트럼프 “AI軍 만들 것… AI 총괄 ‘차르’ 곧 임명”",
+   "url": "https://n.news.naver.com/article/023/0003999520"
+  },
+  {
+   "pg": "B4",
+   "title": "대기업 전문연구요원 14년 만에 부활",
+   "url": "https://n.news.naver.com/article/023/0003999518"
+  },
+  {
+   "pg": "B4",
+   "title": "악성코드로 ‘AI 계정’ 터는 해커들… 업무 자료·AI 사용권 동시에 노려",
+   "url": "https://n.news.naver.com/article/023/0003999522"
+  },
+  {
+   "pg": "B4",
+   "title": "중형 SUV급으로 커지고, 안전·AI 기능 더했다",
+   "url": "https://n.news.naver.com/article/023/0003999521"
+  },
+  {
+   "pg": "B6",
+   "title": "침실·화장실 센서로 24시간 안전 확인",
+   "url": "https://n.news.naver.com/article/023/0003999526"
+  },
+  {
+   "pg": "B6",
+   "title": "불 안 붙는 서울 목동 재건축 수주전",
+   "url": "https://n.news.naver.com/article/023/0003999525"
+  },
+  {
+   "pg": "B6",
+   "title": "시니어 주택, 입주 의향 64%인데 공급률은 0.11%",
+   "url": "https://n.news.naver.com/article/023/0003999524"
+  },
+  {
+   "pg": "B6",
+   "title": "삼성물산, 공사비 1.8조원 성수3지구 재개발 품었다",
+   "url": "https://n.news.naver.com/article/023/0003999523"
+  },
+  {
+   "pg": "B7",
+   "title": "K-패스로 교통비 돌려받고, 카드사 10% 추가 할인까지 챙기세요",
+   "url": "https://n.news.naver.com/article/023/0003999529"
+  },
+  {
+   "pg": "B7",
+   "title": "검사부터 재활까지 치료 과정 보장 넓힌 보험 상품 잇단 출시",
+   "url": "https://n.news.naver.com/article/023/0003999527"
+  },
+  {
+   "pg": "B7",
+   "title": "“한 달 간 하루 5000원씩”… 게임하듯 저축, 경품도 받는다",
+   "url": "https://n.news.naver.com/article/023/0003999528"
+  }
+ ]
+}

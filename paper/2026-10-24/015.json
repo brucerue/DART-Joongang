@@ -1,0 +1,475 @@
+{
+ "date": "2026-10-24",
+ "oid": "015",
+ "paper": "한국경제",
+ "collected_at": "2026-11-10T01:01",
+ "pages_found": 19,
+ "status": "ok",
+ "items": [
+  {
+   "pg": "A1",
+   "title": "솔리다임 상장 철회…하이닉스의 '플랜B'",
+   "url": "https://n.news.naver.com/article/015/0005345913"
+  },
+  {
+   "pg": "A1",
+   "title": "정용진, 13년 만에 이마트 대표 복귀",
+   "url": "https://n.news.naver.com/article/015/0005345931"
+  },
+  {
+   "pg": "A1",
+   "title": "'2심 무죄' 오세훈, 대선가도 탄력",
+   "url": "https://n.news.naver.com/article/015/0005345917"
+  },
+  {
+   "pg": "A1",
+   "title": "中 BYD 이어…체리차, 내년 韓 진출",
+   "url": "https://n.news.naver.com/article/015/0005345934"
+  },
+  {
+   "pg": "A2",
+   "title": "[단독] 저커버그·빈 살만·앤 공주…VIP 사로잡은 기업 '영빈관'",
+   "url": "https://n.news.naver.com/article/015/0005345951"
+  },
+  {
+   "pg": "A2",
+   "title": "\"페이커 기념우표 사자\"…새벽부터 줄 섰다",
+   "url": "https://n.news.naver.com/article/015/0005345926"
+  },
+  {
+   "pg": "A2",
+   "title": "美 중간선거 D-10…유망 종목은 [한경 프리미엄9 TODAY]",
+   "url": "https://n.news.naver.com/article/015/0005345939"
+  },
+  {
+   "pg": "A3",
+   "title": "중복상장 논란에…비상 걸린 해외 자금조달",
+   "url": "https://n.news.naver.com/article/015/0005345942"
+  },
+  {
+   "pg": "A3",
+   "title": "시장선 \"리스크 털었다\" SK하이닉스 주가 반등",
+   "url": "https://n.news.naver.com/article/015/0005345940"
+  },
+  {
+   "pg": "A3",
+   "title": "사모대출? 증자?…하이닉스, 美 낸드공장 자금줄 새로 찾는다",
+   "url": "https://n.news.naver.com/article/015/0005345944"
+  },
+  {
+   "pg": "A4",
+   "title": "공짜 '뮤즈' 수익도 안나는데…1100조원 AI 투자 예고한 메타",
+   "url": "https://n.news.naver.com/article/015/0005345948"
+  },
+  {
+   "pg": "A4",
+   "title": "오픈AI도 몸값 낮췄다…AI 투자 열기 '주춤'",
+   "url": "https://n.news.naver.com/article/015/0005345945"
+  },
+  {
+   "pg": "A5",
+   "title": "오세훈, 국힘 쇄신 구심점 부상…총선·대선 판 흔들 듯",
+   "url": "https://n.news.naver.com/article/015/0005345922"
+  },
+  {
+   "pg": "A5",
+   "title": "86조원 서울플랜·야간경제 탄력 받을 듯",
+   "url": "https://n.news.naver.com/article/015/0005345947"
+  },
+  {
+   "pg": "A5",
+   "title": "명태균·오세훈 후원자 녹취록, '2심 무죄' 주요 근거 됐다",
+   "url": "https://n.news.naver.com/article/015/0005345946"
+  },
+  {
+   "pg": "A6",
+   "title": "李대통령 \"주52시간 특례, 노사간 이견 크지 않아\"",
+   "url": "https://n.news.naver.com/article/015/0005345899"
+  },
+  {
+   "pg": "A6",
+   "title": "국방부, 北에 군사회담 제안…\"통신선 복원·MDL 협의하자\"",
+   "url": "https://n.news.naver.com/article/015/0005345896"
+  },
+  {
+   "pg": "A6",
+   "title": "10년 만에 부활한 특별감찰관",
+   "url": "https://n.news.naver.com/article/015/0005345894"
+  },
+  {
+   "pg": "A6",
+   "title": "李대통령 지지율, 7주만에 40% 회복",
+   "url": "https://n.news.naver.com/article/015/0005345895"
+  },
+  {
+   "pg": "A6",
+   "title": "'신천지 늪' 빠진 與…친청 \"조사 공개하라\" 친명 \"발표하겠다\"",
+   "url": "https://n.news.naver.com/article/015/0005345893"
+  },
+  {
+   "pg": "A6",
+   "title": "교육부, 해외파견 수당 年 1억씩 줬다",
+   "url": "https://n.news.naver.com/article/015/0005345892"
+  },
+  {
+   "pg": "A8",
+   "title": "'고령화·빚 증가 속도' 佛보다 빠른 韓…미래세대 부담 커진다",
+   "url": "https://n.news.naver.com/article/015/0005345904"
+  },
+  {
+   "pg": "A8",
+   "title": "유럽의 위기, 韓 자동차·배터리엔 기회…中과 재격돌",
+   "url": "https://n.news.naver.com/article/015/0005345901"
+  },
+  {
+   "pg": "A8",
+   "title": "환경규제 강화한 헝가리, 韓中기업 '비상'",
+   "url": "https://n.news.naver.com/article/015/0005345900"
+  },
+  {
+   "pg": "A10",
+   "title": "佛시위대 공격 표적된 명품, 대응 골머리",
+   "url": "https://n.news.naver.com/article/015/0005346025"
+  },
+  {
+   "pg": "A10",
+   "title": "밤에도 전기생산…中, 태양열발전 7배 확대",
+   "url": "https://n.news.naver.com/article/015/0005345953"
+  },
+  {
+   "pg": "A10",
+   "title": "아트바젤 파리 '조기 폐막'…관람객·작품 안전장담 못해",
+   "url": "https://n.news.naver.com/article/015/0005345959"
+  },
+  {
+   "pg": "A10",
+   "title": "\"韓·英, 반도체공급망 최적 파트너\"",
+   "url": "https://n.news.naver.com/article/015/0005345956"
+  },
+  {
+   "pg": "A10",
+   "title": "집앞에 호박 어디갔어…고금리·고물가에 사라진 핼러윈 장식",
+   "url": "https://n.news.naver.com/article/015/0005345957"
+  },
+  {
+   "pg": "A11",
+   "title": "中 체리차, 반값 전기차 공습…현대차·기아 안방 위협",
+   "url": "https://n.news.naver.com/article/015/0005345936"
+  },
+  {
+   "pg": "A11",
+   "title": "경영 전면 나선 정용진, 핵심 사업 직접 챙긴다",
+   "url": "https://n.news.naver.com/article/015/0005345965"
+  },
+  {
+   "pg": "A11",
+   "title": "\"2029년 美 신규 조선소 가동\"…'HD키윗조선' 합작법인 출범",
+   "url": "https://n.news.naver.com/article/015/0005345964"
+  },
+  {
+   "pg": "A11",
+   "title": "하나·우리금융, 3분기 순이익 1조 돌파",
+   "url": "https://n.news.naver.com/article/015/0005345962"
+  },
+  {
+   "pg": "A11",
+   "title": "허태수 \"일하는 방식 원점부터 혁신\"",
+   "url": "https://n.news.naver.com/article/015/0005345961"
+  },
+  {
+   "pg": "A11",
+   "title": "'회계 빅4' 경영자문 매출…삼일PwC '독주'",
+   "url": "https://n.news.naver.com/article/015/0005345960"
+  },
+  {
+   "pg": "A12",
+   "title": "[단독] LG그룹, 현대차 로봇사업 수장 품었다",
+   "url": "https://n.news.naver.com/article/015/0005345908"
+  },
+  {
+   "pg": "A12",
+   "title": "SK하이퍼, 국내에 463조 규모…초대형 AI 데이터센터 짓는다",
+   "url": "https://n.news.naver.com/article/015/0005345906"
+  },
+  {
+   "pg": "A12",
+   "title": "한자 때문인 줄 알았는데…日 흔든 범인은 '구형 PHP'",
+   "url": "https://n.news.naver.com/article/015/0005345902"
+  },
+  {
+   "pg": "A12",
+   "title": "a16z, 韓 AI·로봇 스타트업과 협력 확대",
+   "url": "https://n.news.naver.com/article/015/0005345903"
+  },
+  {
+   "pg": "A12",
+   "title": "네이버, 대학입시 검색 강화…입학전형·취업률 등 '한눈에'",
+   "url": "https://n.news.naver.com/article/015/0005345905"
+  },
+  {
+   "pg": "A13",
+   "title": "글로벌 외식기업 \"韓 입맛 잡아야 亞서 통해\"",
+   "url": "https://n.news.naver.com/article/015/0005345928"
+  },
+  {
+   "pg": "A13",
+   "title": "고물가에 뜬 트레이더스, 9월 카드 결제액 사상 최대",
+   "url": "https://n.news.naver.com/article/015/0005345938"
+  },
+  {
+   "pg": "A13",
+   "title": "'1인 훠궈' 뜬다…하이디라오에 토종기업 도전장",
+   "url": "https://n.news.naver.com/article/015/0005345897"
+  },
+  {
+   "pg": "A13",
+   "title": "조선미녀, 유럽 공략 속도…英 부츠 입점 1263곳 확대",
+   "url": "https://n.news.naver.com/article/015/0005345898"
+  },
+  {
+   "pg": "A13",
+   "title": "[포토] 현대그린푸드 ‘힙스토어 팝업’﻿",
+   "url": "https://n.news.naver.com/article/015/0005345937"
+  },
+  {
+   "pg": "A14",
+   "title": "시장 출렁이자 '곱버스' 단타 급증",
+   "url": "https://n.news.naver.com/article/015/0005345910"
+  },
+  {
+   "pg": "A14",
+   "title": "카카오게임즈, 신작 흥행에 부활 '신호탄'",
+   "url": "https://n.news.naver.com/article/015/0005345914"
+  },
+  {
+   "pg": "A14",
+   "title": "韓 반도체 소부장·MLCC株…JP모간이 보유지분 늘린 까닭",
+   "url": "https://n.news.naver.com/article/015/0005345912"
+  },
+  {
+   "pg": "A14",
+   "title": "중동 불안 장기화…원유 ETF 강세",
+   "url": "https://n.news.naver.com/article/015/0005345907"
+  },
+  {
+   "pg": "A14",
+   "title": "제조업 뜨고 AI 지고…달라진 공모주 흥행 공식",
+   "url": "https://n.news.naver.com/article/015/0005345909"
+  },
+  {
+   "pg": "A17",
+   "title": "지방 집값 제자리인데…전·월세는 '고공행진'",
+   "url": "https://n.news.naver.com/article/015/0005345875"
+  },
+  {
+   "pg": "A17",
+   "title": "달아오른 청주 '반세권' 단지…신분평에피트 992가구 공급",
+   "url": "https://n.news.naver.com/article/015/0005345874"
+  },
+  {
+   "pg": "A17",
+   "title": "홍지선 \"주택 인허가·착공 감소가 전세난 원인\"",
+   "url": "https://n.news.naver.com/article/015/0005345872"
+  },
+  {
+   "pg": "A17",
+   "title": "삼성SRA, 케이트윈타워 1조에 매각",
+   "url": "https://n.news.naver.com/article/015/0005345873"
+  },
+  {
+   "pg": "A18",
+   "title": "[책꽂이] ' AI 패러독스' 등",
+   "url": "https://n.news.naver.com/article/015/0005345884"
+  },
+  {
+   "pg": "A18",
+   "title": "[책마을] 우주기업 투자의 첫번째 조건은 생존 능력",
+   "url": "https://n.news.naver.com/article/015/0005345887"
+  },
+  {
+   "pg": "A18",
+   "title": "[책마을] 트럼프와 워싱턴포스트의 '8년 악연'",
+   "url": "https://n.news.naver.com/article/015/0005345886"
+  },
+  {
+   "pg": "A18",
+   "title": "[책마을] 예술의 역사는 창작하는 기계를 다스리는 과정",
+   "url": "https://n.news.naver.com/article/015/0005345888"
+  },
+  {
+   "pg": "A18",
+   "title": "[홍순철의 글로벌 북 트렌드] 시대를 앞선 아이디어 깨우는 여섯가지 방법",
+   "url": "https://n.news.naver.com/article/015/0005345883"
+  },
+  {
+   "pg": "A18",
+   "title": "[책마을] '원피스 ONE PIECE 115'…오다 에이치로의 만화 2위",
+   "url": "https://n.news.naver.com/article/015/0005345885"
+  },
+  {
+   "pg": "A19",
+   "title": "[책마을] \"당신의 호흡과 억양대로 말해요\"",
+   "url": "https://n.news.naver.com/article/015/0005345924"
+  },
+  {
+   "pg": "A19",
+   "title": "[책마을] 어떤 것을 받아들이고 어떤 것을 제거할 것인가",
+   "url": "https://n.news.naver.com/article/015/0005345935"
+  },
+  {
+   "pg": "A19",
+   "title": "[책마을] 침묵은 금이라고? 대가가 따른다",
+   "url": "https://n.news.naver.com/article/015/0005345925"
+  },
+  {
+   "pg": "A19",
+   "title": "[책마을] 문학동네, 다우키움이 품는다",
+   "url": "https://n.news.naver.com/article/015/0005345975"
+  },
+  {
+   "pg": "A19",
+   "title": "[주목! 이 책] 건강경제학",
+   "url": "https://n.news.naver.com/article/015/0005345933"
+  },
+  {
+   "pg": "A19",
+   "title": "[주목! 이 책] 대만 차근차근 행복해지는 나라",
+   "url": "https://n.news.naver.com/article/015/0005345929"
+  },
+  {
+   "pg": "A19",
+   "title": "[주목! 이 책] 지정학과 실리콘 방패",
+   "url": "https://n.news.naver.com/article/015/0005345927"
+  },
+  {
+   "pg": "A19",
+   "title": "[책마을] 클로드가 자서전을 썼다…썼다는 사실을 까먹었지만",
+   "url": "https://n.news.naver.com/article/015/0005345932"
+  },
+  {
+   "pg": "A19",
+   "title": "[주목! 이 책] 2030 자율주행 이코노미",
+   "url": "https://n.news.naver.com/article/015/0005345930"
+  },
+  {
+   "pg": "A20",
+   "title": "\"삼전닉스 취업 직행 코스\"…서울반도체고 뜨거운 인기",
+   "url": "https://n.news.naver.com/article/015/0005345921"
+  },
+  {
+   "pg": "A20",
+   "title": "대한항공·아시아나 협력사서 고객 개인정보 유출…\"피해 규모 확인 중\"",
+   "url": "https://n.news.naver.com/article/015/0005346020"
+  },
+  {
+   "pg": "A20",
+   "title": "\"본사, 계열사 노조와 교섭의무 없다\" 첫 판단",
+   "url": "https://n.news.naver.com/article/015/0005345923"
+  },
+  {
+   "pg": "A20",
+   "title": "'인보사 무죄' 이우석 前대표 형사보상 받는다",
+   "url": "https://n.news.naver.com/article/015/0005345916"
+  },
+  {
+   "pg": "A20",
+   "title": "제주 가까이 오나 안오나…태풍경로 놓고 '기상청 한일전'",
+   "url": "https://n.news.naver.com/article/015/0005345919"
+  },
+  {
+   "pg": "A20",
+   "title": "[포토] “나라는 우리가 지킨다”…사격 훈련 마친 육군 장병들",
+   "url": "https://n.news.naver.com/article/015/0005345920"
+  },
+  {
+   "pg": "A20",
+   "title": "서울중수청, 금융권 AI해킹 안맡는다",
+   "url": "https://n.news.naver.com/article/015/0005345918"
+  },
+  {
+   "pg": "A20",
+   "title": "스토킹 '솜방망이' 처벌 여전…징역 등 실형은 17%뿐",
+   "url": "https://n.news.naver.com/article/015/0005345915"
+  },
+  {
+   "pg": "A21",
+   "title": "창립 70주년 맞은 한국법학원 이기수 원장 \"법은 공격무기 아닌 사회통합의 수단 돼야\"",
+   "url": "https://n.news.naver.com/article/015/0005345958"
+  },
+  {
+   "pg": "A21",
+   "title": "日소설가 무라카미 류 별세, 향년 74세",
+   "url": "https://n.news.naver.com/article/015/0005345955"
+  },
+  {
+   "pg": "A21",
+   "title": "SBS 신임 대표에 양윤석 보도본부장",
+   "url": "https://n.news.naver.com/article/015/0005345954"
+  },
+  {
+   "pg": "A21",
+   "title": "日야구 요미우리 감독에 '고질라' 마쓰이",
+   "url": "https://n.news.naver.com/article/015/0005345952"
+  },
+  {
+   "pg": "A21",
+   "title": "UAE서 귀국 직후 父 선영으로 달려간 이재용 회장",
+   "url": "https://n.news.naver.com/article/015/0005345950"
+  },
+  {
+   "pg": "A21",
+   "title": "이중근 \"유엔의 날, 국경일 지정\" 촉구",
+   "url": "https://n.news.naver.com/article/015/0005345949"
+  },
+  {
+   "pg": "A21",
+   "title": "[오승민의 HR이노베이션] AI가 드러내는 불편한 진실",
+   "url": "https://n.news.naver.com/article/015/0005346009"
+  },
+  {
+   "pg": "A21",
+   "title": "[최정봉의 호모 인베스티쿠스] 폭락도, 폭등도 다 좋다…주식 기사는 무엇을 파는가",
+   "url": "https://n.news.naver.com/article/015/0005346010"
+  },
+  {
+   "pg": "A22",
+   "title": "[취재수첩] 공정위가 키운 자연드림 위기",
+   "url": "https://n.news.naver.com/article/015/0005346016"
+  },
+  {
+   "pg": "A22",
+   "title": "주간 THE WALL STREET JOURNAL",
+   "url": "https://n.news.naver.com/article/015/0005346017"
+  },
+  {
+   "pg": "A22",
+   "title": "[토요칼럼] 지켜야 할 관행, 버려야 할 관행",
+   "url": "https://n.news.naver.com/article/015/0005346019"
+  },
+  {
+   "pg": "A23",
+   "title": "[아르떼 칼럼] 들라크루아 그림 속 '죽음의 제비뽑기'",
+   "url": "https://n.news.naver.com/article/015/0005346011"
+  },
+  {
+   "pg": "A23",
+   "title": "[사설] '바가지 가격' 수두룩한 나라장터…공공조달 재점검해야",
+   "url": "https://n.news.naver.com/article/015/0005346012"
+  },
+  {
+   "pg": "A23",
+   "title": "[사설] 오세훈 '2심 무죄'…산적한 서울시 숙제 해결에 힘쏟길",
+   "url": "https://n.news.naver.com/article/015/0005346013"
+  },
+  {
+   "pg": "A23",
+   "title": "[사설] 솔리다임 상장 철회…투자자금 마련은 어떻게 할 건가",
+   "url": "https://n.news.naver.com/article/015/0005346014"
+  },
+  {
+   "pg": "A23",
+   "title": "[천자칼럼] PHP 결함 찾아낸 AI",
+   "url": "https://n.news.naver.com/article/015/0005346018"
+  }
+ ]
+}

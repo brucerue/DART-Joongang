@@ -1,0 +1,400 @@
+{
+ "date": "2026-03-28",
+ "oid": "015",
+ "paper": "한국경제",
+ "collected_at": "2026-11-10T01:11",
+ "pages_found": 18,
+ "status": "ok",
+ "items": [
+  {
+   "pg": "A1",
+   "title": "트럼프 전쟁 한달…글로벌 시총 12조弗 날아갔다",
+   "url": "https://n.news.naver.com/article/015/0005267976"
+  },
+  {
+   "pg": "A1",
+   "title": "트럼프 또 공격 유예…출구 안 보이는 전쟁",
+   "url": "https://n.news.naver.com/article/015/0005267973"
+  },
+  {
+   "pg": "A2",
+   "title": "'공격 유예' 연막치고 지상군 파병…이란 급소 노리는 트럼프",
+   "url": "https://n.news.naver.com/article/015/0005267974"
+  },
+  {
+   "pg": "A2",
+   "title": "\"우리가 美·이란 메신저\"…존재감 커지는 파키스탄",
+   "url": "https://n.news.naver.com/article/015/0005267966"
+  },
+  {
+   "pg": "A3",
+   "title": "韓·독일·프랑스 시총 12%씩 줄어…美·이스라엘은 타격 없었다",
+   "url": "https://n.news.naver.com/article/015/0005267979"
+  },
+  {
+   "pg": "A3",
+   "title": "원·달러 환율 80원 뜀박질…국고채 금리 연일 고공행진",
+   "url": "https://n.news.naver.com/article/015/0005267977"
+  },
+  {
+   "pg": "A4",
+   "title": "일회용 포장용기 값도 오른다…4~5월 체감물가 더 뛸 듯",
+   "url": "https://n.news.naver.com/article/015/0005268018"
+  },
+  {
+   "pg": "A4",
+   "title": "중동산 헬륨 끊기면 반도체 위태…항공사 '알짜 노선'도 포기",
+   "url": "https://n.news.naver.com/article/015/0005267952"
+  },
+  {
+   "pg": "A5",
+   "title": "\"우리도 '전쟁' 같다\" 비명 쏟아진 곳이…'생계형 업체' 쇼크",
+   "url": "https://n.news.naver.com/article/015/0005268045"
+  },
+  {
+   "pg": "A5",
+   "title": "中불법어선 한 번 추격에 기름값 수백만원…해상순찰 줄인 해경",
+   "url": "https://n.news.naver.com/article/015/0005267949"
+  },
+  {
+   "pg": "A5",
+   "title": "\"휘발유 2000원 넘는다\"…전국 주유소 북새통",
+   "url": "https://n.news.naver.com/article/015/0005267948"
+  },
+  {
+   "pg": "A5",
+   "title": "[포토] 석유 최고가격 210원 올라",
+   "url": "https://n.news.naver.com/article/015/0005268016"
+  },
+  {
+   "pg": "A6",
+   "title": "임기 끝나는데 상임위장 인선…한병도, 원내대표 연임 굳히기",
+   "url": "https://n.news.naver.com/article/015/0005267960"
+  },
+  {
+   "pg": "A6",
+   "title": "선택적 모병제 꺼낸 이재명 대통령 \"국방개혁 속도\"",
+   "url": "https://n.news.naver.com/article/015/0005267962"
+  },
+  {
+   "pg": "A6",
+   "title": "張 \"내부총질 탓\" 吳 \"분리 선거해야\"…'절尹' 이후 갈등 격화",
+   "url": "https://n.news.naver.com/article/015/0005267958"
+  },
+  {
+   "pg": "A6",
+   "title": "\"4월 9일\" \"14일 이후\"…여야 '25조 추경' 처리 시기 충돌",
+   "url": "https://n.news.naver.com/article/015/0005267957"
+  },
+  {
+   "pg": "A6",
+   "title": "\"세 차례 미북정상회담 통역…트럼프·김정은 사이 좋았다\"",
+   "url": "https://n.news.naver.com/article/015/0005267956"
+  },
+  {
+   "pg": "A8",
+   "title": "'돼지 아파트'가 뭐길래, 中 디플레까지 부채질하나",
+   "url": "https://n.news.naver.com/article/015/0005268013"
+  },
+  {
+   "pg": "A8",
+   "title": "中·멕시코, 무역전쟁 불붙었다…북미 車 공급망 '흔들'",
+   "url": "https://n.news.naver.com/article/015/0005267929"
+  },
+  {
+   "pg": "A8",
+   "title": "AI 토큰도 저가 공세…중국, 美 사용량 추월",
+   "url": "https://n.news.naver.com/article/015/0005267926"
+  },
+  {
+   "pg": "A8",
+   "title": "日 '하늘 나는 자동차' 내년부터 승객 태운다",
+   "url": "https://n.news.naver.com/article/015/0005267927"
+  },
+  {
+   "pg": "A10",
+   "title": "2.4조원 유증에 등돌린 시장…한화솔루션 '차입 경영의 덫'",
+   "url": "https://n.news.naver.com/article/015/0005267947"
+  },
+  {
+   "pg": "A10",
+   "title": "주주달래기 나선 김동관…한화솔루션 주식 산다",
+   "url": "https://n.news.naver.com/article/015/0005267946"
+  },
+  {
+   "pg": "A10",
+   "title": "OCI 부회장에 김유신…첨단소재 중심 조직개편",
+   "url": "https://n.news.naver.com/article/015/0005267945"
+  },
+  {
+   "pg": "A10",
+   "title": "하만, '유럽차 메카' 헝가리에 2300억 투자",
+   "url": "https://n.news.naver.com/article/015/0005267943"
+  },
+  {
+   "pg": "A10",
+   "title": "노태문 \"협력사와 최고 AI 제품 개발\"",
+   "url": "https://n.news.naver.com/article/015/0005267941"
+  },
+  {
+   "pg": "A10",
+   "title": "펄어비스 \"붉은사막 지속적 패치로 개선할 것\"",
+   "url": "https://n.news.naver.com/article/015/0005267944"
+  },
+  {
+   "pg": "A11",
+   "title": "시총 10조 주식 휴지될 판…금양 개미 23만명 '눈물'",
+   "url": "https://n.news.naver.com/article/015/0005268008"
+  },
+  {
+   "pg": "A11",
+   "title": "아이폰서 구글 제미나이 호출한다",
+   "url": "https://n.news.naver.com/article/015/0005267955"
+  },
+  {
+   "pg": "A11",
+   "title": "대만 시놀로지 \"3년내 韓 매출 2배로\"",
+   "url": "https://n.news.naver.com/article/015/0005267953"
+  },
+  {
+   "pg": "A11",
+   "title": "당근, 작년 영업익 481% 증가…중고거래 건수 1억9000만건",
+   "url": "https://n.news.naver.com/article/015/0005267954"
+  },
+  {
+   "pg": "A11",
+   "title": "매매차익만 수천억…대주주 '수상한 거래'",
+   "url": "https://n.news.naver.com/article/015/0005267963"
+  },
+  {
+   "pg": "A12",
+   "title": "러닝화 유행 정점 찍었나…새 먹거리 찾는 브랜드",
+   "url": "https://n.news.naver.com/article/015/0005268010"
+  },
+  {
+   "pg": "A12",
+   "title": "초단기 유행에…진화하는 한정판 마케팅",
+   "url": "https://n.news.naver.com/article/015/0005268037"
+  },
+  {
+   "pg": "A12",
+   "title": "1000만 관중 잡아라…야구 팬덤 겨냥한 유통가",
+   "url": "https://n.news.naver.com/article/015/0005267939"
+  },
+  {
+   "pg": "A12",
+   "title": "반등하는 G마켓, 1~2월 구매자 15%↑",
+   "url": "https://n.news.naver.com/article/015/0005267938"
+  },
+  {
+   "pg": "A13",
+   "title": "반도체株 흔든 '터보퀀트 쇼크'…모건스탠리 \"오히려 호재\"",
+   "url": "https://n.news.naver.com/article/015/0005267935"
+  },
+  {
+   "pg": "A13",
+   "title": "로라 쿠퍼 \"이란 전쟁으로 美 경제성장률 0.3%P 하락할 것\"",
+   "url": "https://n.news.naver.com/article/015/0005267932"
+  },
+  {
+   "pg": "A13",
+   "title": "서학개미 몰린 美 어플라이드옵토, 주가 롤러코스터",
+   "url": "https://n.news.naver.com/article/015/0005267930"
+  },
+  {
+   "pg": "A13",
+   "title": "당국 경고에도 더 세진 빚투 열기",
+   "url": "https://n.news.naver.com/article/015/0005267928"
+  },
+  {
+   "pg": "A16",
+   "title": "'이게 가능해?'…이틀 만에 생긴 아파트 '엘리베이터' 비밀",
+   "url": "https://n.news.naver.com/article/015/0005268051"
+  },
+  {
+   "pg": "A16",
+   "title": "창원 행정·상업 중심에 '49층 랜드마크' 뜬다",
+   "url": "https://n.news.naver.com/article/015/0005267964"
+  },
+  {
+   "pg": "A16",
+   "title": "오피스텔 임대수익률 5.71% '역대 최고'",
+   "url": "https://n.news.naver.com/article/015/0005267959"
+  },
+  {
+   "pg": "A16",
+   "title": "\"모아타운 60곳 사업성 높인다\"…서울시 소규모 주택 정비 '속도'",
+   "url": "https://n.news.naver.com/article/015/0005267961"
+  },
+  {
+   "pg": "A17",
+   "title": "사법개혁發 흔들리는 법관에 '月50만원 사기진작' 수당",
+   "url": "https://n.news.naver.com/article/015/0005268055"
+  },
+  {
+   "pg": "A17",
+   "title": "'원청 사용자성' 판단요청 143건…노동위 결정은 0건",
+   "url": "https://n.news.naver.com/article/015/0005267975"
+  },
+  {
+   "pg": "A17",
+   "title": "\"벚꽃은 여의서로·워커힐길\"…서울시, 봄 꽃길 175선 선정",
+   "url": "https://n.news.naver.com/article/015/0005267967"
+  },
+  {
+   "pg": "A17",
+   "title": "'선거 공천 헌금 1억'…강선우·김경 재판행",
+   "url": "https://n.news.naver.com/article/015/0005267971"
+  },
+  {
+   "pg": "A17",
+   "title": "28일 낮 최고 기온 23도…일교차 주의",
+   "url": "https://n.news.naver.com/article/015/0005267969"
+  },
+  {
+   "pg": "A17",
+   "title": "\"설 선물 보냈더니 썩어있네\"…2월 과일 소비자 상담 70%↑",
+   "url": "https://n.news.naver.com/article/015/0005267972"
+  },
+  {
+   "pg": "A17",
+   "title": "\"조선시대 한양으로 타임슬립\"…서울역사박물관에 어린이관",
+   "url": "https://n.news.naver.com/article/015/0005267968"
+  },
+  {
+   "pg": "A18",
+   "title": "[홍순철의 글로벌 북 트렌드] 성공의 최대 장애물이 불신과 부정적인 생각인 이유",
+   "url": "https://n.news.naver.com/article/015/0005267995"
+  },
+  {
+   "pg": "A18",
+   "title": "[책꽂이] '연금 부자 되는 에너지 투자' 등",
+   "url": "https://n.news.naver.com/article/015/0005267993"
+  },
+  {
+   "pg": "A18",
+   "title": "[책마을] 날개없이 추락하던 출산율, 어떻게 반등했나",
+   "url": "https://n.news.naver.com/article/015/0005267998"
+  },
+  {
+   "pg": "A18",
+   "title": "[책마을] '부동산 개발' 프로젝트리츠 아시나요",
+   "url": "https://n.news.naver.com/article/015/0005267996"
+  },
+  {
+   "pg": "A18",
+   "title": "[책마을] 이젠 동맹국 목줄까지 조른다…美 외교 변천사 20년",
+   "url": "https://n.news.naver.com/article/015/0005267362"
+  },
+  {
+   "pg": "A18",
+   "title": "[책마을] '왕사남' 각본집 종합 1위…영화 흥행 열기 서점으로",
+   "url": "https://n.news.naver.com/article/015/0005267999"
+  },
+  {
+   "pg": "A19",
+   "title": "[책마을] 일상 곳곳마다 계급욕망이 담겨 있다",
+   "url": "https://n.news.naver.com/article/015/0005267991"
+  },
+  {
+   "pg": "A19",
+   "title": "[책마을] 美 평단까지 사로잡은 한강…전미도서비평가협회상 수상",
+   "url": "https://n.news.naver.com/article/015/0005267990"
+  },
+  {
+   "pg": "A19",
+   "title": "[주목! 이 책] 남성 판타지",
+   "url": "https://n.news.naver.com/article/015/0005267985"
+  },
+  {
+   "pg": "A19",
+   "title": "[책마을] 일본을 걸으며 일본 보는 길을 찾다",
+   "url": "https://n.news.naver.com/article/015/0005267988"
+  },
+  {
+   "pg": "A19",
+   "title": "[책마을] 다정함이란 인류의 기만적인 속성",
+   "url": "https://n.news.naver.com/article/015/0005267987"
+  },
+  {
+   "pg": "A19",
+   "title": "[주목! 이 책] 자유와 평등",
+   "url": "https://n.news.naver.com/article/015/0005267984"
+  },
+  {
+   "pg": "A19",
+   "title": "[주목! 이 책] 과학하는 인간의 태도",
+   "url": "https://n.news.naver.com/article/015/0005267983"
+  },
+  {
+   "pg": "A19",
+   "title": "[주목! 이 책] 인생은 행복으로 완성되지 않는다",
+   "url": "https://n.news.naver.com/article/015/0005267986"
+  },
+  {
+   "pg": "A21",
+   "title": "박종규 KSS해운 창업자 별세",
+   "url": "https://n.news.naver.com/article/015/0005268019"
+  },
+  {
+   "pg": "A21",
+   "title": "[MZ 톡톡] 설득은 명분이 아니라 이익에서 시작된다",
+   "url": "https://n.news.naver.com/article/015/0005268024"
+  },
+  {
+   "pg": "A21",
+   "title": "[박재항의 소소한 통찰] 모델에게 조공하는 광고주",
+   "url": "https://n.news.naver.com/article/015/0005268025"
+  },
+  {
+   "pg": "A21",
+   "title": "[김영수의 디코드 차이나] 탈중국 넘어, 용중(用中)의 시대로",
+   "url": "https://n.news.naver.com/article/015/0005268026"
+  },
+  {
+   "pg": "A21",
+   "title": "[랜드마크 대 랜드마크] 프랭크 게리가 추구한 21세기 건축의 비전",
+   "url": "https://n.news.naver.com/article/015/0005268027"
+  },
+  {
+   "pg": "A22",
+   "title": "[토요칼럼] 월간남친과 청년 정책",
+   "url": "https://n.news.naver.com/article/015/0005268039"
+  },
+  {
+   "pg": "A22",
+   "title": "[기고] 청년 기회 확대, 국가기술자격 개편이 답이다",
+   "url": "https://n.news.naver.com/article/015/0005268028"
+  },
+  {
+   "pg": "A22",
+   "title": "트럼프, 국내 전선에선 패배하다",
+   "url": "https://n.news.naver.com/article/015/0005268033"
+  },
+  {
+   "pg": "A23",
+   "title": "[아르떼 칼럼] 유튜브 뮤직의 '스트리밍 1위'가 남긴 것",
+   "url": "https://n.news.naver.com/article/015/0005268029"
+  },
+  {
+   "pg": "A23",
+   "title": "[사설] 글로벌 식량 위기로 번지는 美·이란 전쟁",
+   "url": "https://n.news.naver.com/article/015/0005268030"
+  },
+  {
+   "pg": "A23",
+   "title": "[사설] 강남 집값 잡히지만 전월세는 품귀…꾸준한 공급이 핵심",
+   "url": "https://n.news.naver.com/article/015/0005268031"
+  },
+  {
+   "pg": "A23",
+   "title": "[사설] '불확실성' 공포에 빠진 기업…성장 전망치도 급락",
+   "url": "https://n.news.naver.com/article/015/0005268032"
+  },
+  {
+   "pg": "A23",
+   "title": "[천자칼럼] 제번스의 역설",
+   "url": "https://n.news.naver.com/article/015/0005268034"
+  }
+ ]
+}

@@ -1,0 +1,460 @@
+{
+ "date": "2026-06-17",
+ "oid": "025",
+ "paper": "중앙일보",
+ "collected_at": "2026-11-10T01:20",
+ "pages_found": 35,
+ "status": "ok",
+ "items": [
+  {
+   "pg": "A1",
+   "title": "입원 땐 20%, 통원은 45%…페이백 병원·암환자 기이한 거래",
+   "url": "https://n.news.naver.com/article/025/0003531020"
+  },
+  {
+   "pg": "A1",
+   "title": "호르무즈 놓고…트럼프와 이란, 한쪽은 거짓말",
+   "url": "https://n.news.naver.com/article/025/0003530989"
+  },
+  {
+   "pg": "A2",
+   "title": "2위 스페인? 그래서 뭐?",
+   "url": "https://n.news.naver.com/article/025/0003530993"
+  },
+  {
+   "pg": "A3",
+   "title": "[단독] “암환자에 페이백? 의료계 퇴출해야” 요양병원협회장 작심 비판",
+   "url": "https://n.news.naver.com/article/025/0003531019"
+  },
+  {
+   "pg": "A4",
+   "title": "시위 참가자 1명에 막혀…잠실개표소 못 들어갔다",
+   "url": "https://n.news.naver.com/article/025/0003530991"
+  },
+  {
+   "pg": "A4",
+   "title": "“중증질환보다 탈모가 먼저냐”…적자 건보로 2030 매표 논란",
+   "url": "https://n.news.naver.com/article/025/0003530981"
+  },
+  {
+   "pg": "A5",
+   "title": "이 대통령 “기후·난민 해결할 글로벌 AI허브 만들자”",
+   "url": "https://n.news.naver.com/article/025/0003530938"
+  },
+  {
+   "pg": "A5",
+   "title": "“서울 포함 재선거” 장동혁 외치자…정점식 “그건 아니다” 급브레이크",
+   "url": "https://n.news.naver.com/article/025/0003530974"
+  },
+  {
+   "pg": "A6",
+   "title": "한동훈 “장동혁 재선거, 대통령 공소취소와 뭐가 다른가”",
+   "url": "https://n.news.naver.com/article/025/0003530985"
+  },
+  {
+   "pg": "A8",
+   "title": "쌤도 두려운 고딩 인플루언서…이제 국가가 ‘참교육’ 나선다",
+   "url": "https://n.news.naver.com/article/025/0003531024"
+  },
+  {
+   "pg": "A10",
+   "title": "“철도도 새로 뚫어야”…호남 반도체 공장설 커지는 우려",
+   "url": "https://n.news.naver.com/article/025/0003531025"
+  },
+  {
+   "pg": "A12",
+   "title": "시신 나온 공포체험 성지…“새벽마다 불빛” 주민들은 떤다[영상]",
+   "url": "https://n.news.naver.com/article/025/0003531012"
+  },
+  {
+   "pg": "A12",
+   "title": "명품관에 ‘삼전닉스 패스트트랙’ 등장…동탄은 22억 찍었다",
+   "url": "https://n.news.naver.com/article/025/0003531023"
+  },
+  {
+   "pg": "A14",
+   "title": "구글 독점 깬 30대 서울대 교수 [제17회 홍진기 창조인상 수상자]",
+   "url": "https://n.news.naver.com/article/025/0003530978"
+  },
+  {
+   "pg": "A14",
+   "title": "책 300권, 느린 학습자 웃게 하다 [제17회 홍진기 창조인상 수상자]",
+   "url": "https://n.news.naver.com/article/025/0003530943"
+  },
+  {
+   "pg": "A15",
+   "title": "‘쿠쿠’ 밥솥으로 연극을 해체하다 [제17회 홍진기 창조인상 수상자]",
+   "url": "https://n.news.naver.com/article/025/0003530949"
+  },
+  {
+   "pg": "A18",
+   "title": "“신뢰 잃은 선관위, 국가위기” 정치석학 마지막 쓴소리",
+   "url": "https://n.news.naver.com/article/025/0003530951"
+  },
+  {
+   "pg": "A18",
+   "title": "[오늘의 날씨] 6월 17일",
+   "url": "https://n.news.naver.com/article/025/0003530947"
+  },
+  {
+   "pg": "A18",
+   "title": "고로상, 제주도 좀 알려줘",
+   "url": "https://n.news.naver.com/article/025/0003530945"
+  },
+  {
+   "pg": "A18",
+   "title": "백남종 신임 서울대병원장 “국민건강 최후 보루 될 것”",
+   "url": "https://n.news.naver.com/article/025/0003530946"
+  },
+  {
+   "pg": "A18",
+   "title": "[사랑방] 이희학 목원대 총장 연임",
+   "url": "https://n.news.naver.com/article/025/0003530941"
+  },
+  {
+   "pg": "A18",
+   "title": "[사랑방] SBS문화재단",
+   "url": "https://n.news.naver.com/article/025/0003530942"
+  },
+  {
+   "pg": "A18",
+   "title": "[인사] 외교부 外",
+   "url": "https://n.news.naver.com/article/025/0003530940"
+  },
+  {
+   "pg": "A18",
+   "title": "[부고] 강희자씨",
+   "url": "https://n.news.naver.com/article/025/0003530939"
+  },
+  {
+   "pg": "A20",
+   "title": "“이부진도 저렇게까지 해?” 졸던 대치맘 정신 번쩍 든 장면",
+   "url": "https://n.news.naver.com/article/025/0003531027"
+  },
+  {
+   "pg": "A22",
+   "title": "[안혜리의 직격인터뷰]“청년 좌절의 90%는 부동산 탓” 공정 담론의 뿌리는 집값",
+   "url": "https://n.news.naver.com/article/025/0003530992"
+  },
+  {
+   "pg": "A23",
+   "title": "[성석제의 인간사] 억, 소리 나는 독서인",
+   "url": "https://n.news.naver.com/article/025/0003530988"
+  },
+  {
+   "pg": "A23",
+   "title": "[강혜란의 문화노트] 출판 외길 60년이 지킨 것, 남긴 것",
+   "url": "https://n.news.naver.com/article/025/0003530986"
+  },
+  {
+   "pg": "A24",
+   "title": "[하현옥의 시선] 투기꾼과 ‘섀도 복싱’ 중인 외환시장",
+   "url": "https://n.news.naver.com/article/025/0003530994"
+  },
+  {
+   "pg": "A24",
+   "title": "[신준봉의 뉴스터치] 홍명보의 스리백",
+   "url": "https://n.news.naver.com/article/025/0003530984"
+  },
+  {
+   "pg": "A25",
+   "title": "[이은혜의 마음 읽기] 제 글을 누가 읽겠습니까",
+   "url": "https://n.news.naver.com/article/025/0003530982"
+  },
+  {
+   "pg": "A25",
+   "title": "[얀 드 브루인의 마켓 나우] AI 덕분에 몸값 오르는 신흥국",
+   "url": "https://n.news.naver.com/article/025/0003530980"
+  },
+  {
+   "pg": "A26",
+   "title": "[고정애의 시시각각] 정두언의 눈물, 민주당의 내전",
+   "url": "https://n.news.naver.com/article/025/0003530995"
+  },
+  {
+   "pg": "A26",
+   "title": "[사설] 쏟아진 선거소청…법 절차 존중하고 음모론 차단해야",
+   "url": "https://n.news.naver.com/article/025/0003531000"
+  },
+  {
+   "pg": "A26",
+   "title": "[사설] 현대차 원청 사용자성 확대, 산업 현장 혼란 우려된다",
+   "url": "https://n.news.naver.com/article/025/0003530999"
+  },
+  {
+   "pg": "A26",
+   "title": "[사설] 청소년 SNS 규제, 한국도 공론화로 의견 모을 때",
+   "url": "https://n.news.naver.com/article/025/0003530998"
+  },
+  {
+   "pg": "A26",
+   "title": "[한 컷] 멕시코 이태원",
+   "url": "https://n.news.naver.com/article/025/0003530948"
+  },
+  {
+   "pg": "A27",
+   "title": "[중앙시평] 북·중의 만남, 정렬인가 균열인가",
+   "url": "https://n.news.naver.com/article/025/0003530997"
+  },
+  {
+   "pg": "A27",
+   "title": "[김명화의 테아트룸 문디] 롤러코스터 위에서 추는 춤",
+   "url": "https://n.news.naver.com/article/025/0003530960"
+  },
+  {
+   "pg": "E1",
+   "title": "신용대출 줄인 은행권, 인뱅도 마찬가지",
+   "url": "https://n.news.naver.com/article/025/0003530976"
+  },
+  {
+   "pg": "E1",
+   "title": "L당 2000원 꺾이나…“전쟁 이전 수준 어려울 수도”",
+   "url": "https://n.news.naver.com/article/025/0003530975"
+  },
+  {
+   "pg": "E2",
+   "title": "일본 기준금리 1%, 31년 만에 최고치…엔캐리 청산 부르나",
+   "url": "https://n.news.naver.com/article/025/0003530973"
+  },
+  {
+   "pg": "E2",
+   "title": "한국도 이란 인프라 재건사업 참여? 테헤란로 또 생기나",
+   "url": "https://n.news.naver.com/article/025/0003530971"
+  },
+  {
+   "pg": "E2",
+   "title": "‘스페이스X 0주’ 후폭풍…전방위 검사 받는 미래에셋증권",
+   "url": "https://n.news.naver.com/article/025/0003530972"
+  },
+  {
+   "pg": "E3",
+   "title": "곰탕 980원·순두부 690원…대형마트의 이유있는 ‘1000원 전쟁’",
+   "url": "https://n.news.naver.com/article/025/0003531026"
+  },
+  {
+   "pg": "E3",
+   "title": "TV·생활가전 이대론 안된다…돌파구 찾는 삼성전자",
+   "url": "https://n.news.naver.com/article/025/0003530968"
+  },
+  {
+   "pg": "E3",
+   "title": "어느새 지분 9%…KAI 2대주주 된 한화",
+   "url": "https://n.news.naver.com/article/025/0003530965"
+  },
+  {
+   "pg": "E3",
+   "title": "정부 “농협중앙회 권한 축소” 인적분할 검토",
+   "url": "https://n.news.naver.com/article/025/0003530967"
+  },
+  {
+   "pg": "E3",
+   "title": "SK AX “기업 전체를 AI로 재설계할 것”",
+   "url": "https://n.news.naver.com/article/025/0003530964"
+  },
+  {
+   "pg": "E4",
+   "title": "풀무원은 가전, 신세계푸드는 화장품…식품기업 먹성 달라졌다",
+   "url": "https://n.news.naver.com/article/025/0003531022"
+  },
+  {
+   "pg": "E4",
+   "title": "직접 바이브 코딩, AI 에이전트 만든 신동빈",
+   "url": "https://n.news.naver.com/article/025/0003530970"
+  },
+  {
+   "pg": "E4",
+   "title": "업스테이지 업그레이드…“다음, AI 포털로 재편”",
+   "url": "https://n.news.naver.com/article/025/0003530969"
+  },
+  {
+   "pg": "E4",
+   "title": "이동철 여신협회장 “정부 포용금융 발맞출 것”",
+   "url": "https://n.news.naver.com/article/025/0003530966"
+  },
+  {
+   "pg": "E4",
+   "title": "[Biz & Now] 한국투자증권, 중국 국태해통증권과 투자전략 포럼",
+   "url": "https://n.news.naver.com/article/025/0003530961"
+  },
+  {
+   "pg": "E4",
+   "title": "[Biz & Now] 대우건설, 신한라이프케어와 시니어주택 사업 MOU",
+   "url": "https://n.news.naver.com/article/025/0003530958"
+  },
+  {
+   "pg": "E5",
+   "title": "“AI한테 애들 뺏길라”…똥배 아저씨 우디, 이번엔 패드와 싸운다",
+   "url": "https://n.news.naver.com/article/025/0003531003"
+  },
+  {
+   "pg": "E5",
+   "title": "‘거제 야호’ 중소돌 리센느 역주행…문체부도 “해외진출 야호”",
+   "url": "https://n.news.naver.com/article/025/0003530959"
+  },
+  {
+   "pg": "E6",
+   "title": "‘韓축구 매운맛’ 당한 멕시코 레전드 골키퍼, 홍명보호에 던진 경고",
+   "url": "https://n.news.naver.com/article/025/0003530957"
+  },
+  {
+   "pg": "E6",
+   "title": "카보베르데 40살 골키퍼, 스페인을 막았다",
+   "url": "https://n.news.naver.com/article/025/0003530954"
+  },
+  {
+   "pg": "E7",
+   "title": "때가 왔다",
+   "url": "https://n.news.naver.com/article/025/0003530952"
+  },
+  {
+   "pg": "E7",
+   "title": "US오픈 ‘멘붕’ 주의보",
+   "url": "https://n.news.naver.com/article/025/0003530950"
+  },
+  {
+   "pg": "E7",
+   "title": "[삼성화재배 AI와 함께하는 바둑 해설] 마지막 1분 초읽기",
+   "url": "https://n.news.naver.com/article/025/0003530956"
+  },
+  {
+   "pg": "E7",
+   "title": "[오늘의 운세] 6월 17일",
+   "url": "https://n.news.naver.com/article/025/0003530977"
+  },
+  {
+   "pg": "C1",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 딥테크 ‘죽음의 계곡’ 넘을 해법 찾는다",
+   "url": "https://n.news.naver.com/article/025/0003531048"
+  },
+  {
+   "pg": "C1",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] R&D 패러독스 극복할 혁신창업 잠재력 확인",
+   "url": "https://n.news.naver.com/article/025/0003531042"
+  },
+  {
+   "pg": "C2",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 연구성과 활용 기업의 시장 진출 견인",
+   "url": "https://n.news.naver.com/article/025/0003531036"
+  },
+  {
+   "pg": "C2",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 딥테크 기술사업화 지원 체계 구축",
+   "url": "https://n.news.naver.com/article/025/0003531038"
+  },
+  {
+   "pg": "C2",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 공공기술사업화 종합전문회사 자리매김",
+   "url": "https://n.news.naver.com/article/025/0003531039"
+  },
+  {
+   "pg": "C2",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 바이오·의료 창업지원 플랫폼 우뚝",
+   "url": "https://n.news.naver.com/article/025/0003531040"
+  },
+  {
+   "pg": "C2",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 소상공인 위기 진단, 맞춤형 멘토링",
+   "url": "https://n.news.naver.com/article/025/0003531041"
+  },
+  {
+   "pg": "C3",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 기술사업화·창업 지원 체계 확대",
+   "url": "https://n.news.naver.com/article/025/0003531030"
+  },
+  {
+   "pg": "C3",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 공공연구 성과 활용·확산 전방위 지원",
+   "url": "https://n.news.naver.com/article/025/0003531031"
+  },
+  {
+   "pg": "C3",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 글로벌 혁신 창업의 허브로 도약",
+   "url": "https://n.news.naver.com/article/025/0003531032"
+  },
+  {
+   "pg": "C3",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 지능형 기계문명 향한 미래 비전 선포",
+   "url": "https://n.news.naver.com/article/025/0003531034"
+  },
+  {
+   "pg": "C3",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 공공기술 사업화의 새 모델 제시",
+   "url": "https://n.news.naver.com/article/025/0003531035"
+  },
+  {
+   "pg": "C4",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 해양드론 AI 자동 착선 기술 구현",
+   "url": "https://n.news.naver.com/article/025/0003531050"
+  },
+  {
+   "pg": "C4",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 차세대 뇌혈관장벽 투과 기술 개발",
+   "url": "https://n.news.naver.com/article/025/0003531054"
+  },
+  {
+   "pg": "C4",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] AI 반도체 소재·장비 상용화 목표",
+   "url": "https://n.news.naver.com/article/025/0003531055"
+  },
+  {
+   "pg": "C4",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 난치성 뇌질환 근본 치료 도전",
+   "url": "https://n.news.naver.com/article/025/0003531056"
+  },
+  {
+   "pg": "C4",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 원전 산업 AI 전환 선도",
+   "url": "https://n.news.naver.com/article/025/0003531057"
+  },
+  {
+   "pg": "C5",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 데이터 기반 근기능 평가 체계 구축",
+   "url": "https://n.news.naver.com/article/025/0003531049"
+  },
+  {
+   "pg": "C5",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 기업 특성 맞춰 AX 전환 도와",
+   "url": "https://n.news.naver.com/article/025/0003531051"
+  },
+  {
+   "pg": "C5",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 종양 선택성 면역항암 신약 발굴",
+   "url": "https://n.news.naver.com/article/025/0003531052"
+  },
+  {
+   "pg": "C5",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 상처 없는 내시경 로봇수술 개발",
+   "url": "https://n.news.naver.com/article/025/0003531053"
+  },
+  {
+   "pg": "C6",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 실험실 연구성과를 시장으로…딥테크 창업 지원 박차",
+   "url": "https://n.news.naver.com/article/025/0003531033"
+  },
+  {
+   "pg": "C7",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 중견기업·신진 연구자 협력 통해 기술사업화 촉진",
+   "url": "https://n.news.naver.com/article/025/0003531045"
+  },
+  {
+   "pg": "C7",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 국내 딥테크 창업생태계 선도 … 국가균형발전 새 모델 제시",
+   "url": "https://n.news.naver.com/article/025/0003531047"
+  },
+  {
+   "pg": "C8",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 출연연의 원천기술로 딥테크 창업 생태계 구축 나서",
+   "url": "https://n.news.naver.com/article/025/0003531044"
+  },
+  {
+   "pg": "C8",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 국가창업시대 열고, 딥테크로 미래 키운다",
+   "url": "https://n.news.naver.com/article/025/0003531046"
+  },
+  {
+   "pg": "U6",
+   "title": "[2026 혁신창업국가 대한민국 국제포럼] 혁신 기술 창업·글로벌 유니콘 배출 중심축으로 진화",
+   "url": "https://n.news.naver.com/article/025/0003531029"
+  }
+ ]
+}
