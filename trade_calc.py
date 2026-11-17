@@ -752,6 +752,19 @@ AI_FILLER = ["수출입", "수출액", "수입액", "수출량", "수입량", "�
              "올해", "작년", "지난해", "지난달", "최근", "으로", "에서", "에게", "한테", "수지", "년", "월", "된", "한", "의", "을", "를", "이", "가", "은", "는", "와", "과", "로", "에", "도", "만"]
 
 
+AI_CONF_RANK = {"높음": 0, "중간": 1, "낮음": 2}
+
+
+def ai_default_pick(items):
+    """AI 품목 제안 중 기본으로 체크할 하나의 순번: 확신이 가장 높은 것, 같으면 AI가 앞에 둔 것. 모두 '낮음'이거나 없으면 None"""
+    best = None
+    for i, it in enumerate(items or []):
+        r = AI_CONF_RANK.get(it.get("confidence"), 2)
+        if r < 2 and (best is None or r < AI_CONF_RANK.get(items[best].get("confidence"), 2)):
+            best = i
+    return best
+
+
 def ai_clear_groups(text, groups, other_names=()):
     """질문이 '산업부 20대 품목 이름 + 지역·기간·지표 말'뿐이면 그 20대 품목들을, 아니면 [] (예: '자동차' -> ['자동차'], '반도체 장비'·'전기차' -> []).
     '자동차부품'처럼 긴 이름이 먼저 맞고 짧은 이름은 그 안에서 다시 세지 않는다."""

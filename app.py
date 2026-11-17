@@ -486,7 +486,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.11 12:59"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.17 21:21"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -10741,7 +10741,7 @@ def trade_ai_prompt(text, ctx, cands, articles):
         ' "notes": "코드가 정확하지 않은 이유나 확인할 점(예: 전용 코드가 없어 여러 코드의 합으로 근사)"}',
         "",
         "규칙: ① 입력이 20대 품목 중 하나와 같은 뜻이면 kind=group을 쓴다. ② 그 밖의 품목은 HS를 가능한 한 구체적으로(6자리, 용도로 가려지면 한국 HSK 8·10자리까지) 제안하고, 4자리 호만 쓰는 것은 6자리를 모를 때뿐이다. "
-        "후보 목록에 있는 것을 우선하고, 한 품목에 코드가 여러 개 필요하면 모두 items에 넣는다(최대 6개). '관세청 등으로 확인된 코드 설명'에 있는 코드가 입력에 맞으면 notes에만 적지 말고 items에 그 코드(10자리)를 넣는다. "
+        "후보 목록에 있는 것을 우선하고, 한 품목에 코드가 여러 개 필요하면 모두 items에 넣는다(최대 6개). items는 가장 유력한 코드를 맨 앞에 두고(화면은 맨 앞의 확신 높은 하나만 기본 체크), 입력이 20대 품목 이름이 아니면 그 품목을 포함하는 넓은 20대 품목(예: 전기차에 '자동차')은 넣지 않는다. 자주 묻는 품목: 전기차 = HS 870380(전기모터만으로 추진하는 승용차, confidence 높음). '관세청 등으로 확인된 코드 설명'에 있는 코드가 입력에 맞으면 notes에만 적지 말고 items에 그 코드(10자리)를 넣는다. "
         "③ '2025년'처럼 연도만 있으면 그 해 1월~12월. ④ metrics는 입력이 말한 것만: '수출된·수출액'이면 [수출금액]만, '수입된·수입액'이면 [수입금액]만, 수출량·물량이면 [수출 중량], 수입량이면 [수입 중량], 수지면 [무역수지], 수출입 모두나 언급이 없으면 null. ⑤ 입력에 나온 지역만 regions에 넣고, 없으면 빈 배열. "
         "⑥ 입력이 수출입 통계와 무관하면 items·regions를 비우고 summary에 이유를 쓴다. "
         "⑦ view: 시간 흐름·추이·금액을 물으면 trend, '품목이 어느 나라로 가장 많이 / 순위 / 상위 국가'처럼 나라별 비교를 물으면 rank(rank_level은 국가·경제권·대륙 중 묻는 단위, top은 '상위 N'의 N), "
@@ -10850,7 +10850,8 @@ def trade_ai_warmup(spec, data):
     """AI 답이 화면에 뜬 뒤 사용자가 코드를 확인하는 동안, 기본으로 체크된 품목의 '조회' 자료(올해·전년)를 뒤에서 미리 받아 둔다.
     체크를 바꾸지 않고 '조회'를 누르면 저장된 자료로 바로 나온다. 20대 품목은 모아 둔 자료라 필요 없다."""
     try:
-        items = [it["key"] for it in spec.get("items") or [] if it.get("confidence") != "낮음"
+        pick = tc.ai_default_pick(spec.get("items") or [])
+        items = [it["key"] for i, it in enumerate(spec.get("items") or []) if i == pick
                  and not (it["kind"] == "group" or str(it["key"][1]).startswith(tc.GROUP_PREFIX))]
         if not items or not spec.get("start"):
             return
@@ -10892,11 +10893,12 @@ def render_trade_ai(data):
     picked = []
     if spec["items"]:
         st.markdown("**품목 코드 제안** (체크한 코드로 조회해요)")
+        pick = tc.ai_default_pick(spec["items"])  # 가장 유력한 하나만 기본 체크 (나머지는 필요하면 직접 체크)
         for i, it in enumerate(spec["items"]):
             checked = it["checked"]
             tag = {"높음": "🟢 높음", "중간": "🟡 중간", "낮음": "🔴 낮음"}[it["confidence"]]
             noted = [n["code"] for ch in it.get("children", []) for n in [ch] + ch["sub"] if n["code"] in HS_NOTES]  # 관세청이 확인해 준 하위 코드가 있으면 그걸 기본으로 고른다
-            if st.checkbox(f"{it['label']}  ·  확신 {tag}", value=it["confidence"] != "낮음" and not noted, key=f"tr_ai_item_{st.session_state.get('tr_ai_n', 0)}_{i}"):
+            if st.checkbox(f"{it['label']}  ·  확신 {tag}", value=i == pick and not noted, key=f"tr_ai_item_{st.session_state.get('tr_ai_n', 0)}_{i}"):
                 picked.append(it["key"])
             bits = [md_safe(it["reason"])] if it["reason"] else []
             if checked:

@@ -152,7 +152,7 @@ b_ask, _, b_q, _ = flow(["2710", "7208", "8901"], "작년 미국으로 수출된
 t_ask, n_ask, t_q, n_q = flow(["8703", "8542", "8507"], "작년 미국으로 수출된 자동차·반도체·배터리", 0.5)
 check(not exc(at), f"오류 없음 {exc(at)}")
 t = tfr(at)
-check(t and any("8703" in c for c in t[0].columns) and any("8507" in c for c in t[0].columns), f"세 품목 결과 표 {[list(f.columns)[:4] for f in t]}")
+check(t and any("8703" in c for c in t[0].columns) and not any("8507" in c for c in t[0].columns), f"기본은 가장 유력한 하나(맨 앞 8703)만 체크해 조회 {[list(f.columns)[:4] for f in t]}")
 w_ask, w_q = t_ask - b_ask, t_q - b_q
 print(f"   AI 답 뒤 확인·펼치기: 관세청 기다림 {w_ask:.1f}초 (관세청 {n_ask}번, 하나씩이면 약 {n_ask * 0.5:.1f}초)")
 print(f"   조회: 관세청 기다림 {w_q:.1f}초 (이때 새로 부른 관세청 {n_q}번, 하나씩이면 약 3.0초)")
