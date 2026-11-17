@@ -1,0 +1,52 @@
+name: 나라별 품목 수출입 즉석 조회 (결과는 비공개 저장소)
+
+# 손으로 실행: 나라 하나와의 HS 10자리 품목별 월별 수출입을 받아 비공개 저장소 brucerue/paper-private의
+# query/country_items_<나라>_<시작>_<끝>.json 으로 올립니다. 로그에는 건수만 남습니다.
+# 필요한 Secret: CUSTOMS_API_KEY, PAPER_PRIVATE_TOKEN
+on:
+  workflow_dispatch:
+    inputs:
+      cnty: {description: "나라 2글자 코드 (예: CN)", required: true}
+      start: {description: "시작 월 YYYYMM", required: true}
+      end: {description: "끝 월 YYYYMM", required: true}
+
+permissions:
+  contents: read
+
+concurrency: {group: country-items, cancel-in-progress: false}
+
+jobs:
+  query:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 받기
+        run: python country_items.py --cnty "$CNTY" --start "$START" --end "$END" --out /tmp/result.json
+        env:
+          CNTY: ${{ inputs.cnty }}
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+          CUSTOMS_API_KEY: ${{ secrets.CUSTOMS_API_KEY }}
+      - name: 비공개 저장소 받기
+        uses: actions/checkout@v5
+        with:
+          repository: brucerue/paper-private
+          token: ${{ secrets.PAPER_PRIVATE_TOKEN }}
+          path: private
+      - name: 비공개 저장소에 저장
+        working-directory: private
+        run: |
+          mkdir -p query
+          name="query/country_items_$(python3 -c "import json;d=json.load(open('/tmp/result.json'));print(d['cnty']+'_'+d['start']+'_'+d['end'])").json"
+          cp /tmp/result.json "$name"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add query
+          git diff --cached --quiet && exit 0
+          git commit -qm "query $(TZ=Asia/Seoul date '+%F %H:%M')"
+          for i in 1 2 3; do git push -q && break; git pull -q --rebase; done
