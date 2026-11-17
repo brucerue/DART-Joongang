@@ -17,6 +17,8 @@
  * GitHub Actions의 '산업 뉴스 텔레그램 발송'을 바로 실행시킨다.
  * (GitHub 자체 예약은 20~30분씩 밀려서, 시각 지키는 일을 여기서 맡는다.)
  * 장중 시세: 같은 15분 틱에서 평일 09:15~16:15(한국시간)에는 '장중 시세 모으기'(intraday.yml)도 실행시킨다.
+ * 정해진 시각 작업(TIMED): 지면 목록·지면 본문·아침 브리핑도 여기서 정시에 실행시킨다(GitHub 예약이 밀리거나 아예 건너뛰어서, 2026.11).
+ *   15분 틱에 맞춰 07:40→07:45, 10:40→10:45 등으로 둔다. 각 워크플로의 GitHub 예약은 예비로 남겨 둠(겹쳐 돌아도 같은 결과로 덮어씀).
  */
 const SEND_HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]; // 한국시간
 // Cron Triggers에 넣을 값(UTC 기준, 15분마다):  */15 * * * *
@@ -27,6 +29,18 @@ const INTRADAY_FILE = "intraday.yml";
 const INTRADAY_FROM = 9 * 60 + 15, INTRADAY_TO = 16 * 60 + 15; // 분 단위(한국시간)
 // 기사·공시 모아두기(collect_data.yml): 발송 시간(8~19시)에는 발송 작업이 15분마다 같은 수집을 하며 저장하므로, 그 밖의 시간에만 매시 정각에 실행시킨다(주말 포함)
 const COLLECT_FILE = "collect_data.yml";
+// 정해진 시각(한국시간 "HH:MM", 15분 단위)에 실행할 워크플로. days: 0=일 … 6=토
+const MON_SAT = [1, 2, 3, 4, 5, 6], EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
+const TIMED = [
+  { file: "paper_data.yml", at: ["04:30", "07:45", "10:45"], days: MON_SAT },  // 신문 지면 목록 (첫 수집 + 재시도)
+  { file: "paper_body.yml", at: ["05:00", "08:15", "11:15"], days: MON_SAT },  // 지면 기사 본문 (첫 수집 + 재시도)
+  { file: "brief_data.yml", at: ["05:30", "06:15"], days: EVERY_DAY },         // 아침 브리핑 자료 (06:15는 06시 수집분 반영)
+];
+
+function timedDue(kst) {
+  const hm = String(kst.getUTCHours()).padStart(2, "0") + ":" + String(kst.getUTCMinutes()).padStart(2, "0");
+  return TIMED.filter((t) => t.days.includes(kst.getUTCDay()) && t.at.includes(hm)).map((t) => t.file);
+}
 
 function intradayDue(kst) {
   const day = kst.getUTCDay(); // 0=일 … 6=토 (한국시간으로 옮긴 Date라 UTC getter가 한국 요일)
@@ -77,6 +91,7 @@ export default {
   async scheduled(event, env, ctx) {
     const kst = new Date(event.scheduledTime + 9 * 3600 * 1000); // UTC getter로 한국시간을 읽는다
     const hour = kst.getUTCHours();
+    for (const file of timedDue(kst)) ctx.waitUntil(dispatch(env, null, file)); // 지면 목록·본문·아침 브리핑 (정해진 시각)
     if (intradayDue(kst)) ctx.waitUntil(dispatch(env, null, INTRADAY_FILE)); // 장중 시세 모으기 (평일 09:15~16:15)
     if (kst.getUTCMinutes() < 5 && !SEND_HOURS.includes(hour)) ctx.waitUntil(dispatch(env, null, COLLECT_FILE)); // 기사·공시 모아두기 (발송 시간 밖 매시 정각)
     if (!SEND_HOURS.includes(hour)) return;  // 시간 밖은 쉼 (요일은 받는 사람마다 정해요: 기본 월~금, '/요일'로 토·일도 선택)
