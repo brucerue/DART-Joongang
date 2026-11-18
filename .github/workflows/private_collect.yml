@@ -1,0 +1,45 @@
+name: 비공개 장기 수집 (결과는 비공개 저장소)
+
+# 실행만 공개 저장소에서 하고(무료), 프로그램·결과는 비공개 저장소 brucerue/paper-private에 있습니다(loop_task.sh).
+# 한 번에 최대 약 5시간 50분 돌고, 매시 예약이 다음 실행을 대기열에 올려 끊기지 않게 이어 달립니다
+# (concurrency: 앞 실행이 끝나면 대기 중인 실행이 바로 시작). 로그에는 건수만 남습니다.
+# 필요한 Secret: PAPER_PRIVATE_TOKEN, EXTRA_API_KEY(없으면 CUSTOMS_API_KEY를 씀)
+on:
+  schedule:
+    - cron: "7 * * * *"
+  workflow_dispatch:
+    inputs:
+      hours: {description: "돌릴 시간(시간, 기본 5.8)", required: false, default: "5.8"}
+permissions:
+  contents: read
+concurrency: {group: private-collect, cancel-in-progress: false}
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 358
+    steps:
+      - name: 토큰 확인
+        id: tok
+        run: |
+          if [ -z "$T" ]; then echo "PAPER_PRIVATE_TOKEN이 없어 건너뜀"; echo "ok=no" >> "$GITHUB_OUTPUT"; else echo "ok=yes" >> "$GITHUB_OUTPUT"; fi
+        env:
+          T: ${{ secrets.PAPER_PRIVATE_TOKEN }}
+      - name: 비공개 저장소 받기
+        if: steps.tok.outputs.ok == 'yes'
+        uses: actions/checkout@v5
+        with:
+          repository: brucerue/paper-private
+          token: ${{ secrets.PAPER_PRIVATE_TOKEN }}
+          path: private
+      - uses: actions/setup-python@v6
+        if: steps.tok.outputs.ok == 'yes'
+        with:
+          python-version: "3.12"
+      - name: 수집
+        if: steps.tok.outputs.ok == 'yes'
+        run: bash private/loop_task.sh
+        env:
+          HOURS: ${{ inputs.hours || '5.8' }}
+          PAPER_PRIVATE_TOKEN: ${{ secrets.PAPER_PRIVATE_TOKEN }}
+          EXTRA_API_KEY: ${{ secrets.EXTRA_API_KEY }}
+          CUSTOMS_API_KEY: ${{ secrets.CUSTOMS_API_KEY }}
