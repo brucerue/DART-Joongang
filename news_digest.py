@@ -952,9 +952,10 @@ def merge_approved(subs, approved):
             continue
         if not cid or cid in have:
             continue
-        sectors = [x for x in (d.get("sectors") or []) if x in A["NEWS_SECTORS"]] or list(SECTORS)
+        moved, widened = migrate_sectors(d.get("sectors") or [])  # 옛 이름(반도체·전자 묶기 전 '반도체'·'전자' 등)은 새 이름으로 — 안 바꾸면 버려져 알림이 안 감(2026.11.18 김수민 반도체·전자 누락)
+        sectors = [x for x in moved if x in A["NEWS_SECTORS"]] or list(SECTORS)
         modes = [m for m in (d.get("modes") or []) if m in MODES] or list(DEFAULT_MODES)
-        out.append({"name": str(d.get("name") or cid), "chat_id": cid, "sectors": sectors, "modes": modes})
+        out.append({"name": str(d.get("name") or cid), "chat_id": cid, "sectors": sectors, "modes": modes, "widened": widened})
         have.add(cid)
     return out
 
