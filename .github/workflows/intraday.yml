@@ -31,7 +31,9 @@ jobs:
           git fetch origin prices --depth=1
           git show origin/prices:prices.json > prices.json
       - name: 오늘 5분봉 받기
-        run: python intraday.py --prices prices.json --out intraday.json
+        run: |
+          git fetch origin intraday --depth=1 && git show origin/intraday:intraday.json > prev_intraday.json || true  # 마지막으로 올린 자료(야후가 잠깐 응답 없을 때 판단용)
+          python intraday.py --prices prices.json --out intraday.json --prev prev_intraday.json
       - name: intraday 브랜치에 올리기 (기록을 남기지 않고 한 커밋으로 덮어씀)
         if: hashFiles('intraday.json') != ''  # 장 초반이라 아직 시세가 없으면(파일 없음) 건너뛴다
         run: |

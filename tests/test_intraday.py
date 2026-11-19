@@ -57,5 +57,20 @@ check(o3["date"] == "20261023" and o3["t"] == ["0900", "0905"] and o3["s"]["0059
 df1 = pd.DataFrame({"Close": [10.0, 11.0], "Volume": [5.0, float('nan')]}, index=idx[:2])
 b = it.bars_of(df1, "005930.KS")
 check(len(b) == 2 and b[1][3] == 0.0, "열이 한 단계여도 읽음, 거래량 NaN은 0")
+# 야후가 잠깐 응답 없을 때(2026.11.19 09:45~10:15 세 회차 0곳): 마지막 자료가 1시간 안이면 실패 대신 '다음 회차에'
+t1015 = datetime(2026, 11, 19, 10, 15, tzinfo=it.KST)
+try:
+    it.build(big, lambda t: frame([]), t1015, prev_fetched="2026-11-19T09:30"); check(False, "최근 자료가 있으면 NotYet이어야 함")
+except it.NotYet as e:
+    check("잠깐" in str(e), "야후 일시 장애 + 45분 전 자료 있음 → 실패 아님(다음 회차)")
+except SystemExit:
+    check(False, "최근 자료가 있으면 실패로 치지 않아야 함")
+for pf, why in (("2026-11-19T09:00", "75분 전"), ("2026-11-18T15:30", "어제 자료"), ("", "자료 없음")):
+    try:
+        it.build(big, lambda t: frame([]), t1015, prev_fetched=pf); check(False, f"{why}면 실패해야 함")
+    except SystemExit:
+        check(True, f"{why}면 실패(알림)")
+    except it.NotYet:
+        check(False, f"{why}면 실패해야 함")
 json.dump(out, open(FIX + "/intraday_sample.json", "w"))
 print("결과:", "통과" if ok else "실패"); sys.exit(0 if ok else 1)

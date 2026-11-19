@@ -21,7 +21,17 @@ CHUNK = 80  # 한 번에 요청할 종목 수
 CLOSE_FIX_AFTER = (15, 40)  # 이 시각(한국시간) 이후 실행에서는 일봉 종가로 마지막 구간(15:00~15:30)을 채운다
 CLOSE_BAR = "1525"  # 채워 넣는 마지막 봉의 시작 시각 (5분봉이라 끝은 15:30)
 MIN_COVERAGE = 0.3  # 이 비율보다 적은 종목만 받아지면 이상한 응답으로 보고 파일을 만들지 않는다
+STALE_MINUTES = 60  # 야후가 잠깐 응답을 안 줄 때: 마지막으로 받은 장중 자료가 이 시간 안이면 실패가 아니라 '다음 회차에' (2026.11.19 09:45~10:15 세 회차 0곳)
 EARLY_UNTIL = (9, 45)  # 장 초반: 야후 시세가 15~20분 늦게 들어와 9시대 첫 회차엔 오늘 봉이 아직 없다. 이 시각 전에 못 받으면 실패가 아니라 '아직 없음'
+
+
+def recent_ok(prev_fetched, now):
+    """마지막으로 올린 장중 자료의 받은 시각('YYYY-MM-DDTHH:MM')이 오늘이고 STALE_MINUTES 안이면 True"""
+    try:
+        t = datetime.strptime(str(prev_fetched), "%Y-%m-%dT%H:%M").replace(tzinfo=KST)
+    except (TypeError, ValueError):
+        return False
+    return t.date() == now.date() and timedelta(0) <= now - t <= timedelta(minutes=STALE_MINUTES)
 
 
 class NotYet(Exception):
@@ -74,7 +84,7 @@ def bars_of(df, ticker):
     return out
 
 
-def build(prices, download=default_download, now=None, daily_download=default_daily_download):
+def build(prices, download=default_download, now=None, daily_download=default_daily_download, prev_fetched=""):
     """prices.json -> intraday.json 내용. 마감 뒤(15:40 이후) 실행이면 일봉 종가를 마지막 봉(15:25~15:30)으로 덧붙인다.
     야후 분봉은 15:00 이후가 비어 있어서, 그냥 두면 마지막 값이 실제 종가와 달라진다."""
     now = now or datetime.now(KST)
@@ -96,6 +106,8 @@ def build(prices, download=default_download, now=None, daily_download=default_da
     if len(got) < max(1, int(len(codes) * MIN_COVERAGE)):
         if (now.hour, now.minute) < EARLY_UNTIL:
             raise NotYet(f"{now:%H:%M} 아직 야후에 오늘 시세가 없어요({len(got)}/{len(codes)}곳). 장 초반 지연이라 다음 회차에 받아요.")
+        if recent_ok(prev_fetched, now):
+            raise NotYet(f"{now:%H:%M} 야후 응답이 잠깐 없어요({len(got)}/{len(codes)}곳). 마지막 자료({prev_fetched[11:16]})를 그대로 두고 다음 회차에 받아요.")
         raise SystemExit(f"받아진 종목이 {len(got)}/{len(codes)}곳뿐이라 파일을 만들지 않았어요 (야후 응답을 확인하세요).")
     day = max(b[0] for bars in got.values() for b in bars)  # 가장 최근 거래일
     times = sorted({b[1] for bars in got.values() for b in bars if b[0] == day})
@@ -149,11 +161,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prices", required=True)
     ap.add_argument("--out", default="intraday.json")
+    ap.add_argument("--prev", default="", help="지금 intraday 브랜치의 intraday.json (야후가 잠깐 응답 없을 때 실패로 칠지 판단)")
     args = ap.parse_args()
+    prev_fetched = ""
+    try:
+        with open(args.prev, encoding="utf-8") as f:
+            prev_fetched = json.load(f).get("fetched", "")
+    except (OSError, ValueError, AttributeError):
+        pass
     with open(args.prices, encoding="utf-8") as f:
         prices = json.load(f)
     try:
-        out = build(prices)
+        out = build(prices, prev_fetched=prev_fetched)
     except NotYet as e:  # 파일을 만들지 않고 정상 종료 -> 워크플로는 올리기를 건너뛰고 실패 알림도 보내지 않는다
         print(e)
         return 0
