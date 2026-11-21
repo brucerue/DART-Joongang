@@ -30,6 +30,7 @@ check(not cd.is_repost("[단독] 포스코 노사 임금협상 타결", "이투�
 check(not cd.is_repost("[단독] 포스코 노사 대표 오늘 마주 앉는다", "이투데이", "2026-10-23T12:00", "n3", idx), "12시간 안의 같은 매체 기사는 그대로(고쳐 쓴 제목)")
 check(not cd.is_repost("[단독] 포스", "이투데이", "2026-11-10T15:52", "x", idx), "너무 짧은 제목은 판정 안 함")
 st = dict(store)
+cd.RECENT_DAYS = 36500  # 예시 날짜가 오래돼도 '최근 7일' 범위에 들도록
 n = cd.drop_reposts(st)
 check("n1" not in st and "o1" in st and "n2" in st and "n4" in st, f"모아 둔 것 정리: 단독만, 원래 기사는 남김 ({n}건)")
 print("실패:", fails) if fails else print("모두 통과")
