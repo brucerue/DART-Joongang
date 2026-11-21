@@ -43,8 +43,7 @@ gc = importlib.reload(gc)  # (아래 stock_calc와 같은 이유: 배포 뒤 옛
 sc = importlib.reload(sc)  # 배포로 stock_calc.py가 바뀌었는데 서버 메모리에 옛 모듈이 남아 있으면 새 함수를 못 찾으므로, 실행할 때마다 다시 읽는다
 import importlib
 import today_calc as tdc
-if not hasattr(tdc, "PERIODS"):  # 앱이 켜진 채로 배포되면 서버가 옛 모듈을 기억할 수 있어, 새 항목이 없으면 다시 읽는다
-    tdc = importlib.reload(tdc)
+tdc = importlib.reload(tdc)  # (위와 같은 이유: 2026.11.21 새 함수 overview를 옛 모듈에서 못 찾아 오늘의 현황이 멈췄음)
 import trade_calc as tc
 tc = importlib.reload(tc)  # (위와 같은 이유)
 TC_SIG = hashlib.md5(open(tc.__file__, "rb").read()).hexdigest()[:10]  # trade_calc.py 내용 지문 (계산 규칙이 바뀌면 저장해 둔 결과를 새로 만들게)
