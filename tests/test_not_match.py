@@ -1,13 +1,9 @@
 """검색어가 다른 낱말의 일부로 들어간 제목은 섹터 기사로 치지 않는다 (재계 ≠ 재계약 등, NEWS_NOT_MATCH)"""
-import ast, pathlib, re, sys
+import pathlib, sys
 REPO = pathlib.Path(__file__).resolve().parents[1]
-src = (REPO / "app.py").read_text(encoding="utf-8")
-import unicodedata
-ns = {"re": re, "unicodedata": unicodedata}
-for node in ast.parse(src).body:  # 앱 전체를 실행하지 않고 필요한 정의만 읽는다
-    names = [t.id for t in getattr(node, "targets", []) if isinstance(t, ast.Name)] or [getattr(node, "name", "")]
-    if any(n in ("NEWS_NOT_MATCH", "key_in_title", "name_key") for n in names):
-        exec(compile(ast.Module([node], []), "app.py", "exec"), ns)
+sys.path.insert(0, str(REPO))
+import news_digest as nd  # 앱 규칙(key_in_title·name_key·is_blocked)을 알람과 같은 방식으로 읽는다
+ns = nd.A
 fails = []
 def check(c, m):
     print(("  ✅ " if c else "  ❌ ") + m)
@@ -18,5 +14,13 @@ check(not hit("재계", "[단독] 차은우, 현 소속사 판타지오와 재�
 check(hit("재계", "재계 총수들, 연말 인사 앞두고 긴장"), "진짜 재계 기사는 그대로")
 check(hit("재계", "재계약 앞둔 재계 단체 회장"), "재계약과 재계가 함께 있으면 재계로 인정")
 check(not hit("인텔", "인텔리전스 기업 투자"), "인텔 ≠ 인텔리전스(기존 규칙)")
+for term, title in [("가전", "[단독] 세무사 등 국가전문자격 37개, 결과 공개"), ("라면", "신라면세점, 위스키 단독 출시"), ("라면", "손정의 \"그때 투자했더라면\""),
+                    ("르노", "아르노 디올 CEO 명예박사"), ("무협", "코트라, 에코비스와 업무협약"), ("효성", "수능 스티커 실효성 논란"),
+                    ("항공사", "인천공항공사-이스타항공 멘토링"), ("항공사", "해군 항공사령부 부대 개방"), ("농심", "농협 '농심천심의 날'")]:
+    check(not hit(term, title), f"{term} ≠ {title[:20]}")
+check(hit("라면", "농심, 신라면 해물 출시") and hit("항공사", "인도 항공사들, 여객기 주문") and hit("가전", "LG전자 세탁가전 1천만대"), "진짜 라면·항공사·가전 기사는 그대로")
+isb = ns["is_blocked"]
+check(isb("[단독] 유아인, UAA 전속계약 종료..GD 소속사 갤럭시行") and isb("[방송소식] 정일우, 소속사 이적"), "연예 기사(소속사·전속계약·방송소식)는 뺌")
+check(not isb("[단독] 정용진 회장 아내 콘서트, 글로벌 명사 총출동") and not isb("삼성전자 HBM4 양산"), "산업·재계 기사는 그대로")
 print("실패:", fails) if fails else print("모두 통과")
 sys.exit(1 if fails else 0)

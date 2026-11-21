@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.21 19:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.21 20:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3488,9 +3488,13 @@ SPORTS_WORDS = ("농구", "야구", "축구", "배구", "프로골프", "골프�
 NEWS_BLOCK_TERMS = ("현대차증권", "기아대책")  # 검색어 '현대차'·'기아'에 걸리지만 다른 회사·단체의 기사라서 아예 뺀다
 
 
+NEWS_ENT_WORDS = ("소속사", "전속계약", "열애", "컴백", "걸그룹", "보이그룹", "팬미팅", "[방송소식]", "[연예]")  # 연예 기사(배우·가수 소속사 이적 등)가 기업명·키워드에 걸려 들어오는 것을 뺀다 (1년치 모아 둔 기사로 산업 기사가 안 걸리는 낱말만 골랐음, 2026.11.21)
+
+
 def is_blocked(title):
-    """제목에 차단 낱말이 있는지 (뉴스 전체에 적용: 검색·브리핑·알람·타임라인)."""
-    return any(t in str(title) for t in NEWS_BLOCK_TERMS)
+    """제목에 차단 낱말이 있는지 (뉴스 전체에 적용: 검색·브리핑·알람·타임라인). 연예 기사 낱말(NEWS_ENT_WORDS)도 함께 뺀다."""
+    t = str(title)
+    return any(w in t for w in NEWS_BLOCK_TERMS) or any(w in t for w in NEWS_ENT_WORDS)
 
 
 def drop_blocked(items):
@@ -3807,7 +3811,10 @@ def name_key(name, words=False, keep_space=False):
     return re.sub(r"[\s\-.,&·()/]", "", text)
 
 
-NEWS_NOT_MATCH = {"인텔": ("인텔리전", "인텔리"), "엘에프": ("엘에프피",), "재계": ("재계약",)}  # 검색어가 다른 낱말의 일부로 들어가는 경우: 그 낱말은 지우고 비교한다 (인텔 ≠ 인텔리전스, LF ≠ LFP 배터리, 재계 ≠ 재계약(연예인 소속사 기사). 키는 name_key 결과)
+NEWS_NOT_MATCH = {"인텔": ("인텔리전", "인텔리", "인텔릭스"), "엘에프": ("엘에프피",), "재계": ("재계약",),
+                  # 2026.11.21 1년치 모아 둔 기사로 찾은 오탐: 검색어가 다른 낱말 안에 들어간 경우
+                  "가전": ("국가전",), "라면": ("신라면세점", "더라면"), "르노": ("아르노",), "무협": ("업무협", "실무협"),
+                  "효성": ("실효성",), "농심": ("농심천심",), "항공사": ("공항공사", "항공사령부")}  # 검색어가 다른 낱말의 일부로 들어가는 경우: 그 낱말은 지우고 비교한다 (인텔 ≠ 인텔리전스, LF ≠ LFP 배터리, 재계 ≠ 재계약(연예인 소속사 기사). 키는 name_key 결과)
 
 
 def key_in_title(k, tk, title):
@@ -5989,6 +5996,8 @@ def news_groups_changed(kind):
     """섹터를 고르면 검색어를 채우고, 선택을 기억해 둔다 (통신↔단독으로 옮겨도 같은 섹터가 선택되도록)."""
     st.session_state["nw_sel"] = news_groups_of(kind)
     fill_news_terms(kind)
+    if kind != "일반":  # 일반은 섹터 하나만이라 '내 섹터'(주소)는 바꾸지 않는다
+        remember_my_sectors(news_groups_of(kind))
 
 
 def parse_news_terms(text):
@@ -6302,6 +6311,7 @@ def render_news_search(kind):
     """통신/단독/일반 공통 화면: 섹터 고르기 + 검색어 + 기간 -> 기사 묶음 목록. 일반 = 단독과 같은 검색에서 '단독' 표기 조건만 뺀 것."""
     cfg = NEWS_KINDS[kind]
     k = f"nw_{kind}"
+    restore_my_sectors()  # 주소의 sec=…(북마크)로 섹터 되살리기
     st.session_state.setdefault(f"{k}_terms", "")  # 처음엔 섹터도 검색어도 비워 둔다
     if f"{k}_groups" not in st.session_state:  # 다른 모드(통신↔단독)에서 옮겨 왔으면 거기서 고른 섹터를 이어받는다
         carried = [g for g in st.session_state.get("nw_sel") or [] if g in NEWS_SECTORS]
@@ -11849,7 +11859,8 @@ def today_rows(updated, since_txt, _rec):
     최근 이틀 통신 기사만 검사한다(자료가 갱신될 때마다 한 번)."""
     keys = load_sports_keys()
     day0 = since_txt[:10]
-    return [r for r in _rec["items"] if not (r.get("k") == "통신" and str(r.get("d", ""))[:10] >= day0 and is_sports(r.get("t", ""), keys))]
+    return [r for r in _rec["items"] if not ((r.get("k") == "통신" and str(r.get("d", ""))[:10] >= day0 and is_sports(r.get("t", ""), keys))
+                                             or (r.get("k") != "공시" and is_blocked(r.get("t", ""))))]
 
 
 def today_sales_line(now):
@@ -11901,9 +11912,36 @@ def render_today_board():
         render_px_board(data)
 
 
+SEC_QP = "sec"  # 고른 섹터를 주소 끝에 남기는 이름 (예: ?sec=차·배터리,중후장대). 북마크하면 오늘의 현황·산업 뉴스가 그 섹터로 열린다
+
+
+def restore_my_sectors():
+    """처음 열 때 주소의 sec=…로 오늘의 현황·산업 뉴스 섹터를 되살린다 (세션마다 한 번)"""
+    if st.session_state.get("_sec_restored"):
+        return
+    st.session_state["_sec_restored"] = True
+    picked = [g for g in str(st.query_params.get(SEC_QP, "")).split(",") if g in NEWS_SECTORS]
+    if picked:
+        st.session_state.setdefault("td_groups", picked)
+        st.session_state.setdefault("nw_sel", picked)  # 산업 뉴스는 이걸 이어받아 검색어까지 채운다
+
+
+def remember_my_sectors(groups):
+    """고른 섹터를 주소에 적어 둔다(바뀔 때만). 다 빼면 지운다"""
+    want = ",".join(g for g in groups if g in NEWS_SECTORS)
+    if str(st.query_params.get(SEC_QP, "")) == want:
+        return
+    if want:
+        st.query_params[SEC_QP] = want
+    elif SEC_QP in st.query_params:
+        del st.query_params[SEC_QP]
+
+
 def _render_today_body(rec):
-    team_buttons("td", NEWS_SECTORS, "td_groups")
-    st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key="td_groups", label_visibility="collapsed")
+    restore_my_sectors()
+    td_remember = lambda: remember_my_sectors(st.session_state.get("td_groups") or [])  # 고를 때만 주소에 적는다
+    team_buttons("td", NEWS_SECTORS, "td_groups", after=td_remember)
+    st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key="td_groups", label_visibility="collapsed", on_change=td_remember)
     track_choice("td_groups", "오늘의 현황 섹터")
     groups = [g for g in (st.session_state.get("td_groups") or []) if g in NEWS_SECTORS]
     now = datetime.now(KST)
