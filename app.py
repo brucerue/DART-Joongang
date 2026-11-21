@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.21 18:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.21 19:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -5751,7 +5751,7 @@ def gn_clusters_md(clusters, ko):
             more = f" · 같은 기사 {len(c['others'])}건 더" + (f"({', '.join(pubs[:3])})" if pubs else "")
         lines.append(f"- [{title}]({i['url'].replace(')', '%29')})" + (f"  \n  {html.escape(md_safe(kor))}" if kor else "")
                      + f"  \n  <small>{html.escape(i['publisher'])} · {i['dt']:%m/%d %H:%M}{html.escape(more)}</small>")
-    return "\n".join(lines)
+    return '<div class="gn-list"></div>\n\n' + "\n".join(lines)  # gn-list: 다른 기사 목록처럼 흰 판에 줄로 보이게 하는 표시(CSS)
 
 
 def gn_items(rows, days):
@@ -6316,9 +6316,9 @@ def render_news_search(kind):
                  on_change=news_groups_changed, args=(kind,))
     else:
         team_buttons(k, NEWS_SECTORS, f"{k}_groups", after=lambda: news_groups_changed(kind))
-        st.caption("섹터를 많이 고르거나 팀 단위로 고르면 불러오는 데 시간이 걸려요.")
         st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key=f"{k}_groups", label_visibility="collapsed",
                  on_change=news_groups_changed, args=(kind,))
+        st.caption("섹터를 많이 고르거나 팀 단위로 고르면 불러오는 데 시간이 걸려요.")
     # 기간·체크박스는 폼 밖: 바꾸면 모아 둔 기사가 바로 다시 걸러진다 (검색어 칸만 폼 안 — 글자 칠 때마다 다시 그리지 않게)
     # PC에서는 '기간 · 선택지 · 제목만 · 연합만'을 한 줄에, 폭이 좁은 폰에서는 저절로 다음 줄로 넘어간다
     with st.container(key="news_filter_bar", horizontal=True, vertical_alignment="center", gap="medium"):
@@ -6334,10 +6334,12 @@ def render_news_search(kind):
     pre_groups = [g for g in news_groups_of(kind) if g in NEWS_SECTORS]
     topup_mode = bool(NAVER_ID and NAVER_SECRET) and can_use_stored(parse_news_terms(st.session_state.get(f"{k}_terms", "")), pre_groups)
     with st.form(f"{k}_form"):
-        text = st.text_input(
-            "검색어 (쉼표로 구분)", key=f"{k}_terms", placeholder="예: 삼성전자, SK하이닉스, HBM",
-            help=f"고른 섹터의 대표 기업·키워드가 채워지고, 모아 둔 기사(15분~1시간마다 갱신)가 바로 보여요. 검색어를 직접 빼거나 더하고 엔터를 누르면 새로 검색해요(최대 {MAX_NEWS_TERMS[kind]}개, 많으면 오래 걸려요).",
-        )
+        n_terms = len(parse_news_terms(st.session_state.get(f"{k}_terms", "")))
+        with st.expander(f"검색어 {n_terms}개 · 펼쳐서 보거나 고치기" if n_terms else "검색어 넣기", expanded=not n_terms):  # 섹터를 고르면 채워지는 긴 검색어는 접어 둔다 (2026.11.21 보기 정리)
+            text = st.text_input(
+                "검색어 (쉼표로 구분)", key=f"{k}_terms", placeholder="예: 삼성전자, SK하이닉스, HBM",
+                help=f"고른 섹터의 대표 기업·키워드가 채워지고, 모아 둔 기사(15분~1시간마다 갱신)가 바로 보여요. 검색어를 직접 빼거나 더하고 엔터를 누르면 새로 검색해요(최대 {MAX_NEWS_TERMS[kind]}개, 많으면 오래 걸려요).",
+            )
         submitted = log_if(st.form_submit_button(
             "🔄 최신 기사 더 찾기" if topup_mode else "뉴스 조회",
             help="마지막으로 모아 둔 뒤에 나온 기사를 네이버 뉴스에서 찾아 더해요. 검색어당 한 번만 불러 빨라요." if topup_mode else "고친 검색어·조건으로 구글·네이버에서 새로 검색해요.",
@@ -8280,9 +8282,9 @@ footer { visibility: hidden; }
 [class*="secbar"] button p { font-size: 0.8rem !important; }
 .sec-lbl { font-size: 0.9rem; color: #31333f; white-space: nowrap; }
 .mode-lbl { font-size: 0.9rem; font-weight: 600; color: #334155; white-space: nowrap; }
-.st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-fin_unit_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"], .st-key-news_mode_bar [data-testid="stHorizontalBlock"], .st-key-px_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
-.st-key-fin_mode_bar [data-testid="stColumn"], .st-key-fin_unit_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"], .st-key-news_mode_bar [data-testid="stColumn"], .st-key-px_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
-.st-key-fin_mode_bar [data-testid="stColumn"]:first-child, .st-key-fin_unit_bar [data-testid="stColumn"]:first-child, .st-key-disc_mode_bar [data-testid="stColumn"]:first-child, .st-key-news_mode_bar [data-testid="stColumn"]:first-child, .st-key-px_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
+.st-key-fin_mode_bar [data-testid="stHorizontalBlock"], .st-key-fin_unit_bar [data-testid="stHorizontalBlock"], .st-key-disc_mode_bar [data-testid="stHorizontalBlock"], .st-key-news_mode_bar [data-testid="stHorizontalBlock"], .st-key-px_mode_bar [data-testid="stHorizontalBlock"], .st-key-tr_mode_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.5rem !important; }  /* 모바일에서도 한 줄 */
+.st-key-fin_mode_bar [data-testid="stColumn"], .st-key-fin_unit_bar [data-testid="stColumn"], .st-key-disc_mode_bar [data-testid="stColumn"], .st-key-news_mode_bar [data-testid="stColumn"], .st-key-px_mode_bar [data-testid="stColumn"], .st-key-tr_mode_bar [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; }
+.st-key-fin_mode_bar [data-testid="stColumn"]:first-child, .st-key-fin_unit_bar [data-testid="stColumn"]:first-child, .st-key-disc_mode_bar [data-testid="stColumn"]:first-child, .st-key-news_mode_bar [data-testid="stColumn"]:first-child, .st-key-px_mode_bar [data-testid="stColumn"]:first-child, .st-key-tr_mode_bar [data-testid="stColumn"]:first-child { flex: 0 0 auto !important; }
 .st-key-news_filter_bar { flex-wrap: wrap !important; row-gap: 0.4rem !important; }  /* PC는 한 줄, 좁으면 다음 줄로 */
 .st-key-news_filter_bar [data-testid="stRadio"] { margin-bottom: 0 !important; }
 .st-key-ovs_fx_bar [data-testid="stHorizontalBlock"] { flex-wrap: nowrap !important; gap: 0.75rem !important; }  /* 모바일에서도 한 줄 */
@@ -8409,7 +8411,7 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) [data-testid="stVerticalBlockBorderWrapper"] { background: #ffffff; border: 1px solid #e3e8ef !important; border-radius: 16px !important; box-shadow: 0 2px 12px rgba(16, 42, 84, 0.06); padding: 0.4rem 0.6rem 0.6rem; }
 :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) [data-testid="stVerticalBlockBorderWrapper"] h5:first-child { margin-top: 0.3rem !important; }
 :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-stats { gap: 0.6rem; }
-:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card { border-radius: 14px; padding: 0.8rem 0.95rem; background: linear-gradient(160deg, #ffffff 0%, #f1f6fd 100%); box-shadow: 0 2px 10px rgba(16, 42, 84, 0.05); }
+:is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card { border-radius: 14px; padding: 0.8rem 0.95rem; background: #ffffff; box-shadow: none; }
 :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .l { font-size: 0.8rem; }
 :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .v { font-size: 1.5rem; margin: 0.1rem 0; }
 @media (max-width: 500px) { :is(.st-key-brief_wrap, .st-key-trade_wrap, .st-key-fin_wrap) .cb-card .v { font-size: 1.25rem; } }
@@ -8493,6 +8495,21 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
   /* 5) 탭이 6개면 3개씩 2줄 */
   [data-testid="stTabs"] [role="tablist"]:has([data-testid="stTab"]:nth-of-type(6):last-of-type) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+/* 3) 외신 목록: 다른 기사 목록과 같은 흰 판 + 줄 */
+[data-testid="stMarkdownContainer"]:has(> .gn-list) > ul { list-style: none; margin: 0; padding: 0 1.1rem; background: #ffffff; border: 1px solid #e3e8ef; border-radius: 14px; }
+[data-testid="stMarkdownContainer"]:has(> .gn-list) > ul > li { margin: 0; padding: 0.8rem 0.1rem; border-top: 1px solid #eef2f7; }
+[data-testid="stMarkdownContainer"]:has(> .gn-list) > ul > li:first-child { border-top: 0; }
+[data-testid="stMarkdownContainer"]:has(> .gn-list) > ul > li a { font-weight: 600; color: #0b2545; text-decoration: none; }
+[data-testid="stMarkdownContainer"]:has(> .gn-list) > ul > li a:hover { color: #1f3a68; text-decoration: underline; }
+[data-testid="stMarkdownContainer"]:has(> .gn-list) > ul > li small { color: #5f6b7d; }
+/* 5) 무역 '월' 고르기 칸: 좁게 */
+.st-key-trade_wrap .st-key-tr_m_month { max-width: 200px; }
+/* 7) 무역 일반 검색의 '조회' 버튼: 다른 탭처럼 글자 폭만큼 */
+.st-key-tr_s_go, .st-key-tr_s_go [data-testid="stTooltipHoverTarget"] { width: auto !important; }
+.st-key-tr_s_go button { width: auto !important; padding: 0.5rem 1.8rem !important; }
+/* 9) 안내 상자(파랑·노랑): 연한 회색으로 차분하게 (빨간 오류·초록 완료는 그대로) */
+[data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]), [data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) { background: #eef1f5 !important; }
+[data-testid="stAlertContentInfo"], [data-testid="stAlertContentWarning"], [data-testid="stAlertContentInfo"] p, [data-testid="stAlertContentWarning"] p { color: #3a4250 !important; }
 </style>
 """
 
@@ -10372,12 +10389,26 @@ def trade_cheon(v):
 def trade_month_pick(data, key):
     """월 고르기 (최신이 먼저) -> 그 달의 위치"""
     months = data["months"]
-    pick = st.selectbox("월", list(reversed(months)), format_func=lambda m: m.replace("-", "."), key=key)
+    pick = st.selectbox("월", list(reversed(months)), format_func=lambda m: m.replace("-", "."), key=key, width=200)
     return months.index(pick)
 
 
 def trade_styled(table, cols):
     return table.style.map(cb_style, subset=cols)
+
+
+_NUMLIKE = re.compile(r"^\s*[-+△▲▼]?\s*[\d.,]")
+
+
+def trade_dataframe(obj, **kw):
+    """무역 표 보여주기: 금액·증감처럼 숫자로 시작하는 칸은 오른쪽 정렬해 자릿수를 맞춘다 (보기만 바뀜)"""
+    df = getattr(obj, "data", obj)  # Styler면 원래 표
+    cfg = {}
+    for c in df.columns:
+        vals = [v for v in df[c].tolist() if v is not None and str(v).strip() not in ("", "-")]
+        if vals and all(isinstance(v, (int, float)) or _NUMLIKE.match(str(v)) for v in vals):
+            cfg[c] = st.column_config.Column(alignment="right")
+    return st.dataframe(obj, column_config=cfg or None, **kw)
 
 
 HS_NOTES = {  # 코드에 대해 확인된 설명(관세청 확인 내용) -> 결과 아래에 보여준다
@@ -10651,7 +10682,7 @@ def render_trade_search_result(data, q, series):
     table_rows.append(row)
     table = pd.DataFrame(table_rows)
     chg_cols = [c for c in table.columns if c.endswith(" 증감")]
-    st.dataframe(trade_styled(table, chg_cols), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
+    trade_dataframe(trade_styled(table, chg_cols), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
     unit_word = {"월별": "달", "분기별": "분기", "연도별": "해"}[agg]
     notes = [f"증감은 {('전년 같은 ' + unit_word + ' 대비') if base == 'yoy' else ('바로 앞 ' + unit_word + ' 대비')}예요" + ("(합계는 전년 같은 기간 대비)." if base == "yoy" else "(합계 증감은 전년 기준에서만).") + (" 무역수지의 증감은 증감액이에요." if "무역수지" in wanted else "")
              + " 보고 싶지 않은 지표는 위 '지표' 칸에서 빼면 돼요."]
@@ -11128,7 +11159,7 @@ def render_trade_rank_table(title, entries, metric, top_n, denom, level, compare
     table_rows.append(total_row)
     table = pd.DataFrame(table_rows)
     st.markdown(f"**{title}**")
-    st.dataframe(trade_styled(table, ["증감"]) if compare else table, hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
+    trade_dataframe(trade_styled(table, ["증감"]) if compare else table, hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
     if compare and not has_prev:
         st.caption("전년 같은 기간 자료가 모아 둔 기간 밖이라 비교는 비어 있어요.")
     if level in ("경제권", "대륙"):
@@ -11201,7 +11232,7 @@ def render_trade_multi_table(title, entries, metrics, top_n, compare, key, level
     rows.append(total)
     table = pd.DataFrame(rows)
     st.markdown(f"**{title}** (순위는 {metrics[0]} 기준)")
-    st.dataframe(trade_styled(table, [c for c in table.columns if c.endswith("증감")]) if compare else table, hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
+    trade_dataframe(trade_styled(table, [c for c in table.columns if c.endswith("증감")]) if compare else table, hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
     if compare and not has_prev:
         st.caption("전년 같은 기간 자료가 모아 둔 기간 밖이라 비교는 비어 있어요.")
     import altair as alt
@@ -11616,7 +11647,7 @@ def render_trade_group_rank(data, i):
         table = pd.DataFrame([{"순위": n if r[key] is not None else "", "품목": r["name"], kind_label: trade_eok(r["cur"]),
                                "전년 동월": trade_eok(r["prev"]) if r["prev"] is not None else "-", "증감률": px_pct(r["chg"]),
                                "증감액": "-" if r["diff"] is None else f"{r['diff'] / 1e8:+,.1f}억달러"} for n, r in enumerate(rows, 1)])
-        st.dataframe(trade_styled(table, ["증감률", "증감액"]), hide_index=True, height=min(len(table) + 1, 21) * 35 + 3)
+        trade_dataframe(trade_styled(table, ["증감률", "증감액"]), hide_index=True, height=min(len(table) + 1, 21) * 35 + 3)
         st.caption(source)
 
 
@@ -11640,7 +11671,7 @@ def render_trade_monthly(data):
     table = pd.DataFrame(rows)
     with st.container(border=True):
         st.markdown("##### 최근 13개월")
-        st.dataframe(trade_styled(table, ["수출 증감", "수입 증감"]), hide_index=True, height=(len(table) + 1) * 35 + 3)
+        trade_dataframe(trade_styled(table, ["수출 증감", "수입 증감"]), hide_index=True, height=(len(table) + 1) * 35 + 3)
     first = max(0, i - 23)
     idx = pd.to_datetime(months[first:i + 1], format="%Y-%m")
     with st.container(border=True):
@@ -11684,7 +11715,7 @@ def render_trade_tenday(data):
             st.markdown(f"##### {title} ({kind})")
             table = pd.DataFrame([{"항목": names.get(r["rank"], f"{r['rank']}번째 항목"), "누계": trade_cheon(r["cur"]), "전년 같은 기간": trade_cheon(r["prev"]),
                                    "증감": px_pct(r["yoy"]), "비중": f"{r['cur'] / total * 100:.1f}%"} for r in items])
-            st.dataframe(trade_styled(table, ["증감"]), hide_index=True, height=(len(table) + 1) * 35 + 3)
+            trade_dataframe(trade_styled(table, ["증감"]), hide_index=True, height=(len(table) + 1) * 35 + 3)
     st.caption("10일 단위 안내", help="관세청 잠정치예요(1일부터 10일·20일·말일까지의 누계). 확정치는 다음 달 중순에 나와 조금 달라질 수 있어요.  \n"
                "전년 같은 기간과 조업일수(주말·휴일)가 다르면 증감률이 왜곡돼요.  \n"
                "항목 이름은 관세청이 순번으로만 줘서, 월별 정식 통계의 금액과 맞춰 확인한 이름이에요. 확인하지 못한 항목은 '○번째 항목'으로 보여요.")
@@ -11700,14 +11731,14 @@ def render_trade_country(data):
                            "수입": trade_eok(r["imp"]), "수입 증감": px_pct(r["imp_yoy"]), "무역수지": trade_eok(r["bal"])} for n, r in enumerate(top, 1)])
     with st.container(border=True):
         st.markdown("##### 국가별 수출입 (수출 상위 30곳)")
-        st.dataframe(trade_styled(table, ["증감", "수입 증감"]), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
+        trade_dataframe(trade_styled(table, ["증감", "수입 증감"]), hide_index=True, height=min(len(table) + 1, 16) * 35 + 3)
     reg = tc.group_table(data.get("region") or {}, months, i)
     if reg:
         with st.container(border=True):
             st.markdown("##### 경제권별")
             rt = pd.DataFrame([{"경제권": r["name"], "수출": trade_eok(r["exp"]), "증감": px_pct(r["exp_yoy"]), "수입": trade_eok(r["imp"]), "수입 증감": px_pct(r["imp_yoy"]),
                                 "무역수지": trade_eok(r["bal"])} for r in reg])
-            st.dataframe(trade_styled(rt, ["증감", "수입 증감"]), hide_index=True, height=(len(rt) + 1) * 35 + 3)
+            trade_dataframe(trade_styled(rt, ["증감", "수입 증감"]), hide_index=True, height=(len(rt) + 1) * 35 + 3)
             st.caption("경제권은 서로 겹치는 묶음이에요(예: EU와 EU28, OECD). 합산하지 마세요.")
     with st.container(border=True):
         st.markdown("##### 월별 추이 (수출, 억달러)")
@@ -11733,7 +11764,10 @@ def render_trade():
                    help=f"관세청 수출입 통계(통관 기준, 달러)예요. 월별 확정치는 보통 다음 달 중순에 나와요.  \n"
                    f"월별 자료 {months[0].replace('-', '.')} ~ {months[-1].replace('-', '.')} · 자료 갱신 {str(data.get('updated', ''))[:16].replace('T', ' ')}  \n"
                    "증감은 전년 같은 달 대비이고, 파랑은 늘어난 것·빨강은 줄어든 것이에요.")
-        view = st.radio("보기", [v for v in TRADE_VIEWS if SHOW_HIDDEN or v not in ("10일", "국가")], horizontal=True, key="tr_view", label_visibility="collapsed")  # 10일·국가는 관리자 주소에서만 (2026.11 정리)
+        with st.container(key="tr_mode_bar"):  # 다른 탭처럼 '조회 방식' 글자와 선택지를 한 줄에
+            c1, c2 = st.columns([1, 4], vertical_alignment="center")
+            c1.markdown('<span class="mode-lbl">조회 방식</span>', unsafe_allow_html=True)
+            view = c2.radio("보기", [v for v in TRADE_VIEWS if SHOW_HIDDEN or v not in ("10일", "국가")], horizontal=True, key="tr_view", label_visibility="collapsed")  # 10일·국가는 관리자 주소에서만 (2026.11 정리)
         track_choice("tr_view", "AI 무역 통계")
         {"AI 검색": render_trade_ai, "일반 검색": render_trade_search, "월간": render_trade_monthly, "10일": render_trade_tenday, "국가": render_trade_country}[view](data)
 
