@@ -60,5 +60,6 @@ check(n == 1 and G.format(1) not in store and set(r["s"]) == {"재계", "유통"
 gst = {G.format(1): {"u": G.format(1), "t": "Samsung", "c": ["Samsung"]}, "https://press.example/CBMiAAA1": {"u": "https://press.example/CBMiAAA1", "t": "Samsung", "c": ["Apple"]}}
 cd.rekey_store(gst, gmap)
 check(list(gst) == ["https://press.example/CBMiAAA1"] and set(gst["https://press.example/CBMiAAA1"]["c"]) == {"Samsung", "Apple"}, "외신 줄(기업 c)도 옮기고 합침")
+check(cd.clean_url("https://www.yna.co.kr/amp/view/AKR1") == "https://www.yna.co.kr/view/AKR1" and cd.clean_url("https://www.yna.co.kr/view/AKR1") == "https://www.yna.co.kr/view/AKR1", "연합 AMP 주소는 보통 주소로(같은 기사 두 줄 방지)")
 print("실패:", fails) if fails else print("모두 통과")
 sys.exit(1 if fails else 0)

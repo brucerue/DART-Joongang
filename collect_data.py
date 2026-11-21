@@ -197,7 +197,15 @@ def decode_google(session, gid):
             url = json.loads('"' + url.replace('"', '\\"') + '"')  # 한글 주소도 깨지지 않게 JSON 규칙으로 푼다
         except ValueError:
             return None
-    return url if url.startswith(("http://", "https://")) and "news.google.com" not in url else None
+    return clean_url(url) if url.startswith(("http://", "https://")) and "news.google.com" not in url else None
+
+
+def clean_url(url):
+    """원문 주소 다듬기: 모바일 AMP 주소를 보통 주소로 (같은 기사가 /view/와 /amp/view/ 두 줄로 쌓이지 않게)"""
+    url = re.sub(r"(?<=[a-z])/amp(?=/)", "", url, count=1)  # yna.co.kr/amp/view/… -> yna.co.kr/view/…
+    url = re.sub(r"/amp/?$", "", url)
+    url = re.sub(r"([?&])(amp|outputType=amp)(&|$)", lambda m: m.group(1) if m.group(3) else "", url).rstrip("?&")
+    return url
 
 
 def resolve_urls(item_lists, gmap, now, session=None, budget=GURL_BUDGET_SEC, gap=GURL_GAP, decoder=decode_google):
@@ -325,8 +333,17 @@ def main():
             errors.append(f"{sector}/일반: {e}")
     # 구글 뉴스 주소 -> 원문 주소 (단독 먼저). 못 바꾼 건 구글 주소 그대로, 다음 회차에 다시
     gpath_map = os.path.join(args.out, GURL_FILE)
-    gmap = {k: v for k, v in load_json(gpath_map).items() if isinstance(v, list) and len(v) == 2
+    gmap = {k: [clean_url(v[0]), v[1]] for k, v in load_json(gpath_map).items() if isinstance(v, list) and len(v) == 2
             and v[1] >= (now - timedelta(days=GURL_KEEP_DAYS)).strftime("%Y-%m-%d")}
+    for u in [u for u in store if clean_url(u) != u and "news.google.com" not in u]:  # 예전에 AMP 주소로 저장된 줄도 보통 주소로 합침
+        r = store.pop(u)
+        r["u"] = clean_url(u)
+        cur = store.get(r["u"])
+        if cur is None:
+            store[r["u"]] = r
+        else:
+            for k in ("s", "g"):
+                cur[k] = list(dict.fromkeys((cur.get(k) or []) + (r.get(k) or [])))
     order = [v for (m, _), v in found.items() if m == "단독"] + [v for (m, _), v in found.items() if m == "통신"] + [v for (m, _), v in found.items() if m == "일반"]
     g_ok, g_fail = resolve_urls(order, gmap, now)
     moved = rekey_store(store, gmap)

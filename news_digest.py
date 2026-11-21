@@ -192,8 +192,10 @@ def google_fetch(term, domains, extra, cutoff):
     return out
 
 
-GOOGLE_COOLDOWN = 180  # 구글이 막히면(503·429·응답 없음) 이 시간(초) 동안 이 회차의 남은 구글 검색을 바로 건너뛴다 (재시도로 발송이 늦어지지 않게; 빠진 기사는 48시간을 다시 훑는 다음 회차가 메움)
-GOOGLE_STATE = {"down_until": 0.0}
+GOOGLE_COOLDOWN = 60  # 구글이 정말 막히면 이 시간(초) 동안 이 회차의 남은 구글 검색을 바로 건너뛴다 (재시도로 발송이 늦어지지 않게; 빠진 기사는 48시간을 다시 훑는 다음 회차가 메움)
+GOOGLE_BLOCK_STREAK = 8  # 막힘(503·429·응답 없음)이 성공 없이 이만큼 연달아 나야 '정말 막힘'으로 본다. 한두 번은 흔해서
+# (2026.11.22: 한 번만 나도 건너뛰게 했더니 새벽 1~9시 국내 기사를 거의 못 모았음 — 같은 시간 외신은 대부분 정상)
+GOOGLE_STATE = {"down_until": 0.0, "streak": 0}
 
 
 def google_blocked(e):
@@ -210,11 +212,16 @@ def google_search(terms, domains, extra, cutoff):
         if time.monotonic() < GOOGLE_STATE["down_until"]:
             return [], "구글 뉴스가 잠시 막혀 이번 회차는 건너뜀"
         try:
-            return google_fetch(job[0], job[1], extra, cutoff), None
+            got = google_fetch(job[0], job[1], extra, cutoff)
         except Exception as e:  # 일부 실패는 건너뜀
             if google_blocked(e):
-                GOOGLE_STATE["down_until"] = time.monotonic() + GOOGLE_COOLDOWN
+                GOOGLE_STATE["streak"] += 1
+                if GOOGLE_STATE["streak"] >= GOOGLE_BLOCK_STREAK:
+                    GOOGLE_STATE["down_until"] = time.monotonic() + GOOGLE_COOLDOWN
+                    GOOGLE_STATE["streak"] = 0
             return [], str(e)
+        GOOGLE_STATE["streak"] = 0
+        return got, None
 
     with ThreadPoolExecutor(max_workers=6) as pool:
         got = list(pool.map(one, jobs))

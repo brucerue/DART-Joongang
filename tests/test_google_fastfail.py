@@ -1,4 +1,4 @@
-"""구글 뉴스가 막히면(503·429·시간 초과) 그 회차의 남은 구글 검색을 바로 건너뛴다 (가짜 응답)"""
+"""구글 뉴스가 정말 막히면(503·429·시간 초과가 성공 없이 8번 연달아) 그 회차의 남은 구글 검색을 바로 건너뛴다. 한두 번 실패로는 멈추지 않는다 (가짜 응답)"""
 import pathlib, sys, time
 from datetime import datetime
 REPO = pathlib.Path(__file__).resolve().parents[1]
@@ -12,16 +12,19 @@ def check(c, m):
 calls = []
 def fake_fetch(term, domains, extra, cutoff):
     calls.append(term)
-    if term == "A":
+    if term.startswith("A"):
         r = requests.models.Response(); r.status_code = 503
         raise requests.HTTPError("503 Service Unavailable", response=r)
     time.sleep(0.05)
     return [{"title": term, "url": f"https://x/{term}", "publisher": "p", "category": "언론", "dt": datetime.now(nd.KST)}]
 nd.google_fetch = fake_fetch
-nd.GOOGLE_STATE["down_until"] = 0.0
-terms = ["A"] + [f"T{i}" for i in range(40)]
+nd.GOOGLE_STATE.update(down_until=0.0, streak=0)
+items0, _ = nd.google_search(["A1", "T1", "A2", "T2", "T3"], ["a.com"], "", datetime.now(nd.KST))
+check(len(items0) == 3 and nd.GOOGLE_STATE["down_until"] == 0.0, "한두 번 실패(사이사이 성공)로는 멈추지 않고 나머지는 다 찾음")
+calls.clear()
+terms = [f"A{i}" for i in range(12)] + [f"T{i}" for i in range(40)]
 items, err = nd.google_search(terms, ["a.com"], "단독", datetime.now(nd.KST))
-check(len(calls) < 20, f"503 뒤 남은 검색은 묻지 않고 건너뜀 (물은 수 {len(calls)}/{len(terms)})")
+check(len(calls) < 25, f"8번 연달아 막히면 남은 검색은 묻지 않고 건너뜀 (물은 수 {len(calls)}/{len(terms)})")
 check(nd.GOOGLE_STATE["down_until"] > time.monotonic(), "막힘 기록(쉬는 시간)")
 calls.clear()
 items2, err2 = nd.google_search(["B", "C"], ["a.com"], "", datetime.now(nd.KST))
