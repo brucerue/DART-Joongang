@@ -67,8 +67,13 @@ labs = [t.label for t in at.tabs]
 check(labs[0] == "오늘의 현황", f"탭 {labs}")
 md0 = " ".join(m.value for m in at.markdown)
 check("오늘 산업면, 한눈에." in md0 and 'class="ov-card"' in md0 and "기아 미국 공장 증설" in md0, "섹터를 안 골라도 한눈에 보기(섹터 카드·오늘의 단독)")
-check(not at.session_state.get("td_groups") and any("섹터나 팀을 하나 이상" in i.value for i in at.info), f"처음엔 섹터 선택 없음 {list(at.session_state.get('td_groups') or [])}")
-at.session_state["td_groups"] = ["차·배터리", "중후장대", "에너지·화학"]; at.run()  # 모아 둔 줄은 옛 이름 '자동차' -> 읽을 때 차·배터리로
+check(not at.session_state.get("td_groups") and any("섹터나 팀을 하나 이상" in c.value for c in at.caption), f"처음엔 섹터 선택 없음 {list(at.session_state.get('td_groups') or [])}")
+btns = [b for b in at.button if str(b.key).startswith("ovb_")]
+check(len(btns) >= 10 and btns[0].label.endswith("자세히 보기"), f"섹터 카드마다 '자세히 보기' 버튼 {len(btns)}")
+btns[0].click().run()
+check(not at.exception, f"카드를 눌러 창을 열어도 오류 없음 {[str(e.value)[:120] for e in at.exception]}")
+at.session_state["td_groups"] = ["차·배터리", "중후장대", "에너지·화학"]; at.run()
+check(at.query_params.get("td") in (["차·배터리,중후장대,에너지·화학"], "차·배터리,중후장대,에너지·화학"), f"고른 섹터를 주소에 남김 {at.query_params.get('td')}")  # 모아 둔 줄은 옛 이름 '자동차' -> 읽을 때 차·배터리로
 md = " ".join(m.value for m in at.markdown)
 check("신형 전기차 공개" in md and "기아 미국 공장 증설" in md and "너무 오래된" not in md, "자동차 기사·단독 표시, 오래된 기사 제외")
 import re as _re
@@ -84,5 +89,7 @@ md = " ".join(m.value for m in at.markdown)
 check(not at.exception and "삼성전자 HBM4 양산" in md and "LG전자 신형 냉장고" in md and "신형 전기차 공개" not in md, "섹터를 바꾸면 그 섹터 기사만")
 check(not [r for r in at.radio if r.key == "td_period"], "기간 선택지 없음(24시간 고정)")
 at.button_group(key="td_groups").set_value([]).run()
-check(any("섹터나 팀을 하나 이상" in i.value for i in at.info), "섹터 없으면 안내")
+check(any("섹터나 팀을 하나 이상" in c.value for c in at.caption) and not at.query_params.get("td"), "섹터 없으면 안내 · 주소에서도 지움")
+at2 = AppTest.from_file(REPO + "/app.py", default_timeout=300); at2.query_params["td"] = "반도체·전자,없는섹터"; at2.run()
+check(list(at2.session_state["td_groups"]) == ["반도체·전자"], f"주소의 td로 내 섹터를 되살림 {at2.session_state['td_groups'] if 'td_groups' in at2.session_state else None}")
 print("실패", fails); sys.exit(1 if fails else 0)

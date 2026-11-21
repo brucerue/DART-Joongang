@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.21 14:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.21 15:30"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8495,8 +8495,16 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .ov-stats .v.ac { color: #0b6e5f; }
 .ov-sub { display: flex; align-items: baseline; gap: 0.5rem; font-size: 1.02rem; font-weight: 700; color: #15171c; margin: 1.4rem 0 0.7rem; }
 .ov-sub small { font-size: 0.78rem; font-weight: 400; color: #5b6070; }
-.ov-sub.ov-detail { margin-top: 1.8rem; padding-top: 1.4rem; border-top: 1px solid #e4e4df; }
-.ov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: 0.65rem; }
+.st-key-ov_grid { display: grid !important; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: 0.65rem !important; }
+.st-key-ov_grid > div { width: auto !important; min-width: 0; }
+[class*="st-key-ovc_"] { position: relative; gap: 0 !important; height: 100%; }
+[class*="st-key-ovc_"] [data-testid="stMarkdownContainer"] { margin-bottom: 0 !important; }
+[class*="st-key-ovb_"] { position: absolute !important; inset: 0; margin: 0 !important; z-index: 2; width: auto !important; }
+[class*="st-key-ovb_"] [data-testid="stTooltipHoverTarget"], [class*="st-key-ovb_"] .stButton { width: 100%; height: 100%; }
+[class*="st-key-ovb_"] button { width: 100% !important; height: 100% !important; opacity: 0; cursor: pointer; }
+[class*="st-key-ovc_"]:hover .ov-card, [class*="st-key-ovc_"]:focus-within .ov-card { border-color: #15171c; }
+.ov-card .more { margin-top: auto; font-size: 0.76rem; color: #0b6e5f; font-weight: 600; }
+.ov-card { min-height: 9.5rem; }
 .ov-card { background: #ffffff; border: 1px solid #e4e4df; border-radius: 14px; padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; }
 .ov-card .hd { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
 .ov-card .nm { font-weight: 700; color: #15171c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -8505,8 +8513,7 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .ov-card .bar { height: 4px; background: #edede8; border-radius: 2px; overflow: hidden; }
 .ov-card .bar span { display: block; height: 100%; background: #15171c; border-radius: 2px; }
 .ov-card .ld { display: flex; gap: 0.45rem; align-items: flex-start; font-size: 0.88rem; line-height: 1.45; }
-.ov-card .ld a { color: #15171c; text-decoration: none; word-break: keep-all; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.ov-card .ld a:hover { color: #0b6e5f; }
+.ov-card .ld .tt { color: #15171c; word-break: keep-all; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .ov-card .ld.none { color: #5b6070; font-size: 0.82rem; }
 .ov-card .b { flex: none; font-size: 0.68rem; font-weight: 700; border-radius: 4px; padding: 0.05rem 0.35rem; margin-top: 0.15rem; background: #edede8; color: #3a3e48; }
 .ov-card .b.ex { background: #0b6e5f; color: #ffffff; }
@@ -8523,7 +8530,8 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
   .ov-stats { max-width: none; }
   .ov-stats > div { padding: 0.65rem 0.85rem; }
   .ov-stats .v { font-size: 1.5rem; }
-  .ov-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+  .st-key-ov_grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem !important; }
+  .ov-card { min-height: 8.5rem; }
   .ov-card { padding: 0.75rem 0.8rem; gap: 0.55rem; }
   .ov-card .ld { font-size: 0.82rem; }
   .ov-ex li { grid-template-columns: 2.9rem minmax(0, 1fr); padding: 0.7rem 0.9rem; }
@@ -11922,45 +11930,112 @@ def ov_excl_html(items):
     return f'<ol class="ov-ex">{"".join(out)}</ol>'
 
 
-def today_overview_html(ov, stamp):
-    """오늘의 현황 맨 위 '한눈에 보기': 제목·숫자판·섹터 카드·오늘의 단독 (HTML, 글은 모두 escape)"""
+def today_hero_html(ov, stamp):
+    """오늘의 현황 맨 위: 날짜·제목·전체 건수 숫자판 (HTML)"""
     t = ov["totals"]
     stats = "".join(f'<div><span class="l">{k}</span><span class="v{" ac" if k == "단독" else ""}">{t.get(k, 0):,}</span></div>'
                     for k in ("단독", "통신", "공시"))
-    top = max([c["n"] for c in ov["cards"]] + [1])
-    cards = []
-    for c in ov["cards"]:
-        lead = ""
-        if c["lead"]:
-            badge = f'<span class="b{" ex" if c["lead_kind"] == "단독" else ""}">{c["lead_kind"]}</span>'
-            lead = f'<div class="ld">{badge}{_ov_link(c["lead"])}</div>'
-        else:
-            lead = '<div class="ld none">최근 24시간 기사 없음</div>'
-        ex = f' <small>단독 {c["ex"]}</small>' if c["ex"] else ""
-        cards.append(f'<div class="ov-card"><div class="hd"><span class="nm">{html.escape(c["sector"])}</span>'
-                     f'<span class="n">{c["n"]}{ex}</span></div><div class="bar"><span style="width:{max(3, round(c["n"] / top * 100))}%"></span></div>{lead}</div>')
-    excl = ov["exclusives"][:TODAY_OV_EXCL]
-    excl_html = ov_excl_html(excl) if excl else '<div class="ov-none">최근 24시간에 모아 둔 단독이 없어요.</div>'
     return (f'<div class="ov"><div class="ov-top"><div><div class="ov-date">{html.escape(stamp)}</div>'
-            f'<div class="ov-h">오늘 산업면, 한눈에.</div></div><div class="ov-stats">{stats}</div></div>'
-            f'<div class="ov-sub">섹터별 <small>최근 24시간 단독·통신</small></div><div class="ov-grid">{"".join(cards)}</div>'
-            f'<div class="ov-sub">오늘의 단독 <small>{len(ov["exclusives"])}건</small></div>{excl_html}</div>')
+            f'<div class="ov-h">오늘 산업면, 한눈에.</div></div><div class="ov-stats">{stats}</div></div></div>')
 
 
-def render_today_overview(rec, rows, since, updated):
-    """오늘의 현황 맨 위: 섹터를 고르지 않아도 보이는 전체 요약"""
-    ov = tdc.overview(rows, list(NEWS_SECTORS), since)
+def ov_card_html(c, top):
+    """섹터 카드 하나 (HTML). 카드 전체가 '자세히' 버튼이라 안에는 링크를 두지 않는다"""
+    if c["lead"]:
+        badge = f'<span class="b{" ex" if c["lead_kind"] == "단독" else ""}">{c["lead_kind"]}</span>'
+        title = re.sub(r"^\s*\[(단독|속보)\]\s*", "", c["lead"]["title"])
+        lead = f'<div class="ld">{badge}<span class="tt">{html.escape(title)}</span></div>'
+    else:
+        lead = '<div class="ld none">최근 24시간 기사 없음</div>'
+    ex = f' <small>단독 {c["ex"]}</small>' if c["ex"] else ""
+    return (f'<div class="ov-card"><div class="hd"><span class="nm">{html.escape(c["sector"])}</span>'
+            f'<span class="n">{c["n"]}{ex}</span></div><div class="bar"><span style="width:{max(3, round(c["n"] / top * 100))}%"></span></div>'
+            f'{lead}<div class="more">자세히 보기 ›</div></div>')
+
+
+def today_price_ctx():
+    """특징주용 시세: (시세표 또는 None, 기준 글, {섹터: [(낱개 섹터, 종목코드들)]})"""
+    prices = get_prices()
+    if not prices:
+        return None, "", {}
     try:
-        u = datetime.strptime(updated, "%Y-%m-%d %H:%M")
-        stamp = f"{u.month}월 {u.day}일 {WEEKDAY_KO[u.weekday()]}요일 · {u:%H:%M} 기준"
-    except ValueError:
-        stamp = "최근 24시간"
-    st.markdown(today_overview_html(ov, stamp), unsafe_allow_html=True)
-    rest = ov["exclusives"][TODAY_OV_EXCL:]
-    if rest:
-        with st.expander(f"단독 더 보기 ({len(rest)}건)"):
-            st.markdown(ov_excl_html(rest), unsafe_allow_html=True)
-    st.markdown('<div class="ov-sub ov-detail">섹터별 자세히 <small>특징주·실적 일정·기사 전체</small></div>', unsafe_allow_html=True)
+        intra = get_intraday()
+        snap, when = brief_snap(prices, intra)
+        if when.endswith("현재") and sc.intraday_ready(intra, prices):  # 장중이면 날짜도 붙인다 (예: 10.23 15:30 현재)
+            when = f"{intra['date'][4:6]}.{intra['date'][6:]} {when}"
+        return snap, when, today_price_codes(prices)
+    except Exception:
+        return None, "", {}
+
+
+def render_today_sector(sec, ctx, head=True):
+    """한 섹터의 자세한 내용: 건수·특징주·판매·실적 일정·단독·통신·공시. ctx = rows·since·now·snap·when·codes_by"""
+    rows, since, now = ctx["rows"], ctx["since"], ctx["now"]
+    snap, when, codes_by = ctx["snap"], ctx["when"], ctx["codes_by"]
+    cnt = tdc.counts(rows, sec, since)
+    pills = "".join(f'<span class="td-pill {cls}">{k} <b>{cnt[k]}</b></span>' for k, cls in (("단독", "k1"), ("통신", "k2"), ("공시", "k3")))
+    name = f'<span class="n">{html.escape(sec)}</span>' if head else ""  # 창(팝업)에선 창 제목이 섹터 이름
+    st.markdown(f'<div class="td-head">{name}<span class="pills">{pills}</span></div>', unsafe_allow_html=True)
+    if snap is not None and codes_by.get(sec):
+        block = movers_html([(label, *tdc.movers(snap, codes, 2)) for label, codes in codes_by[sec]], when)
+        if block:
+            st.markdown(block, unsafe_allow_html=True)
+    if sec == CAR_NAME:
+        line = today_sales_line(now)
+        if line:
+            st.markdown(line, unsafe_allow_html=True)
+    if earnings_names(sec):
+        events = today_earnings(sec, str(now.date()))
+        if events:
+            st.markdown(f'<div class="td-lbl">실적·IR 일정 <small>앞으로 {TODAY_EARN_DAYS}일</small></div>{earnings_html(events)}', unsafe_allow_html=True)
+    for kind in ("단독", "통신"):
+        items = tdc.sector_items(rows, sec, kind, since)
+        if not items:
+            continue
+        clusters = cluster_news(items)
+        st.markdown(f'<div class="td-lbl {"k1" if kind == "단독" else "k2"}">{kind} <small>{len(items)}건 → 묶음 {len(clusters)}건</small></div>', unsafe_allow_html=True)
+        top = TODAY_TOP[kind]
+        st.markdown(news_html(clusters[:top], now), unsafe_allow_html=True)
+        if len(clusters) > top:
+            with st.expander(f"{kind} 더 보기 ({len(clusters) - top}건)"):
+                st.markdown(news_html(clusters[top:], now), unsafe_allow_html=True)
+    disc = tdc.sector_items(rows, sec, "공시", since)
+    if disc:
+        with st.expander(f"공시 {len(disc)}건"):
+            st.markdown("\n".join(f"- [{d['title'].replace('[', '(').replace(']', ')')}]({d['url']}) · {d['publisher']} · {d['dt']:%m.%d %H:%M}" for d in disc[:30]))
+    if not any(cnt.values()) and not (snap is not None and codes_by.get(sec)):
+        st.caption("최근 24시간에 모아 둔 기사·공시가 없어요.")
+
+
+def open_today_sector(sec, ctx):
+    """섹터 카드를 누르면 뜨는 창 (휴대폰에선 화면을 거의 다 채움)"""
+    def body():
+        render_today_sector(sec, ctx, head=False)
+    st.dialog(sec, width="large")(body)()
+
+
+TD_QP = "td"  # 오늘의 현황 '내 섹터'를 주소에 남기는 이름 (예: ?td=차·배터리,중후장대). 북마크하면 다음에도 그대로
+
+
+def today_restore_groups():
+    """처음 열 때 주소의 td=…로 '내 섹터'를 되살린다"""
+    if "td_groups" in st.session_state:
+        return
+    raw = st.query_params.get(TD_QP, "")
+    picked = [g for g in str(raw).split(",") if g in NEWS_SECTORS]
+    if picked:
+        st.session_state["td_groups"] = picked
+
+
+def today_remember_groups(groups):
+    """고른 '내 섹터'를 주소에 적어 둔다(바뀔 때만). 고른 게 없으면 지운다"""
+    want = ",".join(groups)
+    if str(st.query_params.get(TD_QP, "")) == want:
+        return
+    if want:
+        st.query_params[TD_QP] = want
+    elif TD_QP in st.query_params:
+        del st.query_params[TD_QP]
 
 
 def _render_today_body(rec):
@@ -11968,60 +12043,54 @@ def _render_today_body(rec):
     since = tdc.window_start(now, "24시간")  # 기간은 24시간으로 고정 (선택지 없음)
     updated = str(rec.get("updated", ""))[:16].replace("T", " ")
     rows = today_rows(updated, since.strftime("%Y-%m-%d %H:%M"), rec)
-    render_today_overview(rec, rows, since, updated)
-    team_buttons("td", NEWS_SECTORS, "td_groups")
+    ov = tdc.overview(rows, list(NEWS_SECTORS), since)
+    try:
+        u = datetime.strptime(updated, "%Y-%m-%d %H:%M")
+        stamp = f"{u.month}월 {u.day}일 {WEEKDAY_KO[u.weekday()]}요일 · {u:%H:%M} 기준"
+    except ValueError:
+        stamp = "최근 24시간"
+    st.markdown(today_hero_html(ov, stamp), unsafe_allow_html=True)
+    ctx = {"rows": rows, "since": since, "now": now, "snap": None, "when": "", "codes_by": {}, "_prices": False}
+
+    def with_prices():
+        if not ctx["_prices"]:
+            ctx["snap"], ctx["when"], ctx["codes_by"] = today_price_ctx()
+            ctx["_prices"] = True
+        return ctx
+
+    # 1) 내 섹터: 고른 섹터의 자세한 내용을 맨 위에 (주소에 기억)
+    st.markdown('<div class="ov-sub">내 섹터 <small>고른 섹터는 주소에 남아요 · 이 주소를 북마크하면 다음에도 그대로</small></div>', unsafe_allow_html=True)
+    today_restore_groups()
+    team_buttons("td", NEWS_SECTORS, "td_groups", label="섹터·팀 고르기")
     st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key="td_groups", label_visibility="collapsed")
     track_choice("td_groups", "오늘의 현황 섹터")
     groups = [g for g in (st.session_state.get("td_groups") or []) if g in NEWS_SECTORS]
+    today_remember_groups(groups)
     st.caption(f"{since:%m.%d %H:%M} 이후 · 자료 갱신 {updated}" if updated else f"{since:%m.%d %H:%M} 이후")
     if not groups:
-        st.info("섹터나 팀을 하나 이상 골라 주세요.")
-        return
-    prices = get_prices()
-    snap, when, codes_by = None, "", {}
-    if prices:
-        try:
-            intra = get_intraday()
-            snap, when = brief_snap(prices, intra)
-            if when.endswith("현재") and sc.intraday_ready(intra, prices):  # 장중이면 날짜도 붙인다 (예: 10.23 15:30 현재)
-                when = f"{intra['date'][4:6]}.{intra['date'][6:]} {when}"
-            codes_by = today_price_codes(prices)
-        except Exception:
-            snap = None
+        st.caption("섹터나 팀을 하나 이상 고르면 특징주·실적 일정·기사가 여기 맨 위에 나와요. 다른 섹터는 아래 카드를 누르면 바로 떠요.")
     for sec in groups:
         with st.container(border=True):
-            cnt = tdc.counts(rows, sec, since)
-            pills = "".join(f'<span class="td-pill {cls}">{k} <b>{cnt[k]}</b></span>' for k, cls in (("단독", "k1"), ("통신", "k2"), ("공시", "k3")))
-            st.markdown(f'<div class="td-head"><span class="n">{html.escape(sec)}</span><span class="pills">{pills}</span></div>', unsafe_allow_html=True)
-            if snap is not None and codes_by.get(sec):
-                block = movers_html([(label, *tdc.movers(snap, codes, 2)) for label, codes in codes_by[sec]], when)
-                if block:
-                    st.markdown(block, unsafe_allow_html=True)
-            if sec == CAR_NAME:
-                line = today_sales_line(now)
-                if line:
-                    st.markdown(line, unsafe_allow_html=True)
-            if earnings_names(sec):
-                events = today_earnings(sec, str(now.date()))
-                if events:
-                    st.markdown(f'<div class="td-lbl">실적·IR 일정 <small>앞으로 {TODAY_EARN_DAYS}일</small></div>{earnings_html(events)}', unsafe_allow_html=True)
-            for kind in ("단독", "통신"):
-                items = tdc.sector_items(rows, sec, kind, since)
-                if not items:
-                    continue
-                clusters = cluster_news(items)
-                st.markdown(f'<div class="td-lbl {"k1" if kind == "단독" else "k2"}">{kind} <small>{len(items)}건 → 묶음 {len(clusters)}건</small></div>', unsafe_allow_html=True)
-                top = TODAY_TOP[kind]
-                st.markdown(news_html(clusters[:top], now), unsafe_allow_html=True)
-                if len(clusters) > top:
-                    with st.expander(f"{kind} 더 보기 ({len(clusters) - top}건)"):
-                        st.markdown(news_html(clusters[top:], now), unsafe_allow_html=True)
-            disc = tdc.sector_items(rows, sec, "공시", since)
-            if disc:
-                with st.expander(f"공시 {len(disc)}건"):
-                    st.markdown("\n".join(f"- [{d['title'].replace('[', '(').replace(']', ')')}]({d['url']}) · {d['publisher']} · {d['dt']:%m.%d %H:%M}" for d in disc[:30]))
-            if not any(cnt.values()) and not (snap is not None and codes_by.get(sec)):
-                st.caption("최근 24시간에 모아 둔 기사·공시가 없어요.")
+            render_today_sector(sec, with_prices())
+    # 2) 전체 섹터 카드: 누르면 그 섹터 창
+    top = max([c["n"] for c in ov["cards"]] + [1])
+    st.markdown('<div class="ov-sub">전체 섹터 <small>최근 24시간 단독·통신 · 카드를 누르면 자세히</small></div>', unsafe_allow_html=True)
+    with st.container(key="ov_grid"):
+        for i, c in enumerate(ov["cards"]):
+            with st.container(key=f"ovc_{i}"):
+                st.markdown(ov_card_html(c, top), unsafe_allow_html=True)
+                if log_if(st.button(f"{c['sector']} 자세히 보기", key=f"ovb_{i}"), "오늘의 현황 섹터 창"):
+                    open_today_sector(c["sector"], with_prices())
+    # 3) 오늘의 단독
+    excl = ov["exclusives"]
+    st.markdown(f'<div class="ov-sub">오늘의 단독 <small>{len(excl)}건</small></div>', unsafe_allow_html=True)
+    if excl:
+        st.markdown(ov_excl_html(excl[:TODAY_OV_EXCL]), unsafe_allow_html=True)
+        if len(excl) > TODAY_OV_EXCL:
+            with st.expander(f"단독 더 보기 ({len(excl) - TODAY_OV_EXCL}건)"):
+                st.markdown(ov_excl_html(excl[TODAY_OV_EXCL:]), unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="ov-none">최근 24시간에 모아 둔 단독이 없어요.</div>', unsafe_allow_html=True)
 
 
 # ------------------------------------------------------------
