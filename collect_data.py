@@ -15,6 +15,8 @@ import json
 import os
 import re
 import sys
+import time
+import urllib.parse
 from datetime import datetime, timedelta
 
 import requests
@@ -151,6 +153,99 @@ def drop_reposts(store):
     return len(bad)
 
 
+GURL_FILE = "gurl.json"  # 구글 뉴스 주소 -> 원문 주소 짝 (한 번 바꾼 건 다시 묻지 않게, 최근 GURL_KEEP_DAYS일)
+GURL_KEEP_DAYS = 7
+GURL_BUDGET_SEC = 60  # 한 회차에 원문 주소 바꾸기에 쓰는 최대 시간 (발송 전 '기사 모아두기'가 6분 안에 끝나야 함)
+GURL_GAP = 0.3  # 구글에 묻는 간격(초)
+_GURL_RE = re.compile(r"news\.google\.com/(?:rss/)?articles/([^?/#]+)")
+
+
+def google_id(url):
+    """구글 뉴스 기사 주소 -> 기사 번호(없으면 None)"""
+    m = _GURL_RE.search(str(url or ""))
+    return m.group(1) if m else None
+
+
+def decode_google(session, gid):
+    """구글 뉴스 기사 번호 -> 언론사 원문 주소 (못 바꾸면 None). 기사 페이지의 서명(data-n-a-sg)·시각(data-n-a-ts)으로
+    구글 뉴스 내부 주소(batchexecute)에 물어본다. 2026.11.21 GitHub 서버에서 시험: 최근 단독 30건 모두 성공."""
+    r = session.get(f"https://news.google.com/rss/articles/{gid}", timeout=15)
+    sg = re.search(r'data-n-a-sg="([^"]+)"', r.text)
+    ts = re.search(r'data-n-a-ts="([^"]+)"', r.text)
+    if not (sg and ts):
+        return None
+    inner = ('["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",null,1,null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],'
+             f'"{gid}",{ts.group(1)},"{sg.group(1)}"]')
+    body = "f.req=" + urllib.parse.quote(json.dumps([[["Fbv4je", inner, None, "generic"]]]))
+    r2 = session.post("https://news.google.com/_/DotsSplashUi/data/batchexecute", data=body,
+                      headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"}, timeout=15)
+    m = re.search(r'\[\\"garturlres\\",\\"(.*?)\\"', r2.text)
+    if not m:
+        return None
+    url = m.group(1)
+    for _ in range(3):  # 두 겹으로 이스케이프돼 있다(\\u003d -> \u003d -> =)
+        if "\\" not in url:
+            break
+        try:
+            url = json.loads('"' + url.replace('"', '\\"') + '"')  # 한글 주소도 깨지지 않게 JSON 규칙으로 푼다
+        except ValueError:
+            return None
+    return url if url.startswith(("http://", "https://")) and "news.google.com" not in url else None
+
+
+def resolve_urls(item_lists, gmap, now, session=None, budget=GURL_BUDGET_SEC, gap=GURL_GAP, decoder=decode_google):
+    """기사 목록들(앞쪽이 먼저: 단독 -> 통신 -> 일반)의 구글 뉴스 주소를 원문 주소로 바꾼다(제자리에서). 처음 보는 기사만 구글에 묻고
+    (budget초까지), 답은 gmap{기사번호: [원문 주소, 날짜]}에 적어 둔다. 못 바꾼 기사는 구글 주소 그대로. -> (새로 바꾼 수, 못 바꾼 수)"""
+    session = session or requests.Session()
+    session.headers.setdefault("User-Agent", "Mozilla/5.0")
+    todo = []
+    for items in item_lists:
+        for it in items:
+            gid = google_id(it.get("url"))
+            if gid and gid not in gmap and gid not in todo:
+                todo.append(gid)
+    start, ok, fail, streak = time.time(), 0, 0, 0
+    for gid in todo:
+        if time.time() - start > budget or streak >= 3:  # 시간이 다 됐거나 연달아 막히면 다음 회차에
+            break
+        try:
+            got = decoder(session, gid)
+        except Exception:
+            got = None
+        if got:
+            gmap[gid] = [got, now.strftime("%Y-%m-%d")]
+            ok, streak = ok + 1, 0
+        else:
+            fail, streak = fail + 1, streak + 1
+        time.sleep(gap)
+    for items in item_lists:
+        for it in items:
+            gid = google_id(it.get("url"))
+            if gid in gmap:
+                it["url"] = gmap[gid][0]
+    return ok, fail
+
+
+def rekey_store(store, gmap):
+    """모아 둔 줄(store: {주소: 줄}) 중 구글 주소인데 원문 주소를 알게 된 것은 원문 주소로 옮긴다(같은 기사가 이미 있으면 섹터·꼬리표를 합침) -> 옮긴 수"""
+    n = 0
+    for u in list(store):
+        gid = google_id(u)
+        if gid not in gmap:
+            continue
+        new = gmap[gid][0]
+        r = store.pop(u)
+        r["u"] = new
+        cur = store.get(new)
+        if cur is None:
+            store[new] = r
+        else:
+            cur["s"] = list(dict.fromkeys(cur["s"] + r["s"]))
+            cur["g"] = list(dict.fromkeys(cur["g"] + r["g"]))
+        n += 1
+    return n
+
+
 def general_file(sector):
     """섹터의 '일반' 기사 파일 이름 (한글·중간점 없는 이름: 앱의 general_file과 같은 규칙)"""
     return "general/" + hashlib.md5(sector.encode("utf-8")).hexdigest()[:10] + ".json"
@@ -204,6 +299,7 @@ def main():
     errors, added = [], 0
     removed = drop_reposts(store)
     idx = repost_index(store.values())
+    found = {}  # (종류, 섹터) -> 기사들
     for sector in SECTORS:
         for mode in [m for m in ("통신", "단독") if m in modes]:
             try:
@@ -213,18 +309,35 @@ def main():
                 continue
             if mode == "단독":  # 통신은 같은 제목이 날마다 새로 나오기도 해서([인사]·[그래픽] 등) 단독만
                 items = [i for i in items if not is_repost(i["title"], i.get("publisher", ""), i["dt"].astimezone(KST).strftime(FMT), i["url"], idx)]
-            dump[f"{mode}|{sector}"] = items  # 텔레그램 발송도 이걸 쓰므로 다시 올라온 기사는 알림도 안 감
-            added += merge(store, [to_row(i, mode, sector) for i in items])
+            found[(mode, sector)] = items
+    for sector in (SECTORS if "일반" in modes else []):
+        try:
+            found[("일반", sector)] = nd.collect("일반", sector, cutoff)
+        except Exception as e:
+            errors.append(f"{sector}/일반: {e}")
+    # 구글 뉴스 주소 -> 원문 주소 (단독 먼저). 못 바꾼 건 구글 주소 그대로, 다음 회차에 다시
+    gpath_map = os.path.join(args.out, GURL_FILE)
+    gmap = {k: v for k, v in load_json(gpath_map).items() if isinstance(v, list) and len(v) == 2
+            and v[1] >= (now - timedelta(days=GURL_KEEP_DAYS)).strftime("%Y-%m-%d")}
+    order = [v for (m, _), v in found.items() if m == "단독"] + [v for (m, _), v in found.items() if m == "통신"] + [v for (m, _), v in found.items() if m == "일반"]
+    g_ok, g_fail = resolve_urls(order, gmap, now)
+    moved = rekey_store(store, gmap)
+    with open(gpath_map, "w", encoding="utf-8") as f:
+        json.dump(gmap, f, ensure_ascii=False, separators=(",", ":"))
+    print(f"원문 주소: 새로 {g_ok}건 바꿈, 못 바꿈 {g_fail}건, 모아 둔 것 {moved}건 옮김, 기억 {len(gmap)}건")
+    for (mode, sector), items in found.items():
+        if mode == "일반":
+            continue
+        dump[f"{mode}|{sector}"] = items  # 텔레그램 발송도 이걸 쓰므로 다시 올라온 기사는 알림도 안 감
+        added += merge(store, [to_row(i, mode, sector) for i in items])
     general_from = (now - timedelta(days=GENERAL_DAYS)).strftime(FMT)
     general_n = 0
     for sector in (SECTORS if "일반" in modes else []):  # '일반'은 섹터별 파일에 최근 GENERAL_DAYS일만
         gpath = os.path.join(args.out, general_file(sector))
         gstore = {r["u"]: r for r in load_json(gpath).get("items", []) if r.get("d", "") >= general_from}
-        try:
-            items = nd.collect("일반", sector, cutoff)
-        except Exception as e:
-            errors.append(f"{sector}/일반: {e}")
-        else:
+        rekey_store(gstore, gmap)
+        items = found.get(("일반", sector))
+        if items is not None:
             dump[f"일반|{sector}"] = items
             general_n += merge(gstore, [to_row(i, "일반", sector) for i in items])
         os.makedirs(os.path.dirname(gpath), exist_ok=True)
