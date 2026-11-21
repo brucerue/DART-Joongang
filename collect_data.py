@@ -54,7 +54,7 @@ GEMINI_DEFAULT_MODEL = "gemini-3.6-flash"  # app.py의 GEMINI_MODEL 기본값과
 GEMINI_LITE_MODEL = "gemini-3.5-flash-lite"
 
 
-def collect_global(out_dir, now, errors):
+def collect_global(out_dir, now, errors, gmap=None):
     """외신을 모아 섹터별 파일(global/·korea/)에 최근 7일 쌓는다. 기업별 = 해외 섹터 기업의 별칭이 제목에 든 기사,
     한국 관련 = 한국 낱말 + 섹터 낱말로 본문까지 찾은 기사. 새 제목은 Gemini로 한글 제목을 붙인다(GEMINI_API_KEY 없으면 건너뜀 — 앱이 볼 때 옮김).
     -> (새로 들어온 건수, 새로 옮긴 제목 수)"""
@@ -81,6 +81,9 @@ def collect_global(out_dir, now, errors):
 
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(one, jobs))
+    if gmap is not None:  # 외신도 구글 뉴스 주소 -> 원문 주소 (국내 다음 순서, GURL_GLOBAL_SEC초까지)
+        g_ok, g_fail = resolve_urls([items for _, items in results if items], gmap, now, budget=GURL_GLOBAL_SEC)
+        print(f"외신 원문 주소: 새로 {g_ok}건 바꿈, 못 바꿈 {g_fail}건")
     keep_from = (now - timedelta(days=gc.GLOBAL_KEEP_DAYS)).strftime(FMT)
     files = {}  # 파일 경로 -> (kind, 섹터, {주소: 줄})
     for kind, sec in [("global", g) for g in groups] + [("korea", s2) for s2 in gc.KOREA_TOPICS]:
@@ -88,6 +91,9 @@ def collect_global(out_dir, now, errors):
         files[path] = (kind, sec, {r["u"]: r for r in load_json(path).get("items", [])
                                    if r.get("d", "") >= keep_from and not (gc.korea_noise if kind == "korea" else gc.is_junk)(r.get("t", ""), r.get("p", ""))
                                    and (not r.get("c") or any(gc.title_has(r.get("t", ""), gc.aliases(c)) for c in r["c"]))})  # 규칙이 바뀌면 모아 둔 것도 다시 거름
+    if gmap is not None:
+        for _, _, st in files.values():
+            rekey_store(st, gmap)
     added = 0
     for (kind, sec, term, _), items in results:
         store = files[os.path.join(out_dir, gc.file_name(kind, sec))][2]
@@ -156,6 +162,7 @@ def drop_reposts(store):
 GURL_FILE = "gurl.json"  # 구글 뉴스 주소 -> 원문 주소 짝 (한 번 바꾼 건 다시 묻지 않게, 최근 GURL_KEEP_DAYS일)
 GURL_KEEP_DAYS = 7
 GURL_BUDGET_SEC = 60  # 한 회차에 원문 주소 바꾸기에 쓰는 최대 시간 (발송 전 '기사 모아두기'가 6분 안에 끝나야 함)
+GURL_GLOBAL_SEC = 45  # 외신에 쓰는 시간(초) — 정각 회차에만 돈다
 GURL_GAP = 0.3  # 구글에 묻는 간격(초)
 _GURL_RE = re.compile(r"news\.google\.com/(?:rss/)?articles/([^?/#]+)")
 
@@ -240,8 +247,9 @@ def rekey_store(store, gmap):
         if cur is None:
             store[new] = r
         else:
-            cur["s"] = list(dict.fromkeys(cur["s"] + r["s"]))
-            cur["g"] = list(dict.fromkeys(cur["g"] + r["g"]))
+            for k in ("s", "g", "c"):  # 섹터·꼬리표·(외신) 기업을 합친다
+                if r.get(k):
+                    cur[k] = list(dict.fromkeys((cur.get(k) or []) + r[k]))
         n += 1
     return n
 
@@ -322,8 +330,6 @@ def main():
     order = [v for (m, _), v in found.items() if m == "단독"] + [v for (m, _), v in found.items() if m == "통신"] + [v for (m, _), v in found.items() if m == "일반"]
     g_ok, g_fail = resolve_urls(order, gmap, now)
     moved = rekey_store(store, gmap)
-    with open(gpath_map, "w", encoding="utf-8") as f:
-        json.dump(gmap, f, ensure_ascii=False, separators=(",", ":"))
     print(f"원문 주소: 새로 {g_ok}건 바꿈, 못 바꿈 {g_fail}건, 모아 둔 것 {moved}건 옮김, 기억 {len(gmap)}건")
     for (mode, sector), items in found.items():
         if mode == "일반":
@@ -345,8 +351,10 @@ def main():
         with open(gpath, "w", encoding="utf-8") as f:
             json.dump({"updated": now.strftime(FMT), "sector": sector, "items": grows}, f, ensure_ascii=False, separators=(",", ":"))
     if "외신" in modes:
-        g_added, g_ko = collect_global(args.out, now, errors)
+        g_added, g_ko = collect_global(args.out, now, errors, gmap)
         print(f"외신: 새로 {g_added}건, 한글 제목 {g_ko}건")
+    with open(gpath_map, "w", encoding="utf-8") as f:  # 바꾼 주소 짝 저장 (국내·외신)
+        json.dump(gmap, f, ensure_ascii=False, separators=(",", ":"))
     if args.no_disc:
         pass
     elif os.environ.get("DART_API_KEY", "").strip():

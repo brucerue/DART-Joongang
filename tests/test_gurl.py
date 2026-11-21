@@ -57,5 +57,8 @@ store = {G.format(1): {"u": G.format(1), "s": ["재계"], "g": ["A"]},
 n = cd.rekey_store(store, gmap)
 r = store["https://press.example/CBMiAAA1"]
 check(n == 1 and G.format(1) not in store and set(r["s"]) == {"재계", "유통"} and G.format(9) in store, f"구글 주소 줄을 원문 주소로 옮기고 합침 {store.keys()}")
+gst = {G.format(1): {"u": G.format(1), "t": "Samsung", "c": ["Samsung"]}, "https://press.example/CBMiAAA1": {"u": "https://press.example/CBMiAAA1", "t": "Samsung", "c": ["Apple"]}}
+cd.rekey_store(gst, gmap)
+check(list(gst) == ["https://press.example/CBMiAAA1"] and set(gst["https://press.example/CBMiAAA1"]["c"]) == {"Samsung", "Apple"}, "외신 줄(기업 c)도 옮기고 합침")
 print("실패:", fails) if fails else print("모두 통과")
 sys.exit(1 if fails else 0)

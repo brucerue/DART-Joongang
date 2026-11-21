@@ -192,14 +192,28 @@ def google_fetch(term, domains, extra, cutoff):
     return out
 
 
+GOOGLE_COOLDOWN = 180  # 구글이 막히면(503·429·응답 없음) 이 시간(초) 동안 이 회차의 남은 구글 검색을 바로 건너뛴다 (재시도로 발송이 늦어지지 않게; 빠진 기사는 48시간을 다시 훑는 다음 회차가 메움)
+GOOGLE_STATE = {"down_until": 0.0}
+
+
+def google_blocked(e):
+    """구글이 막혔다고 볼 오류인지: 503·429 응답 또는 응답 없음(시간 초과·연결 끊김)"""
+    code = getattr(getattr(e, "response", None), "status_code", None)
+    return code in (429, 503) or isinstance(e, (requests.Timeout, requests.ConnectionError))
+
+
 def google_search(terms, domains, extra, cutoff):
     chunks = [tuple(domains[i:i + SITE_CHUNK]) for i in range(0, len(domains), SITE_CHUNK)]
     jobs = [(t, c) for t in terms for c in chunks]
 
     def one(job):
+        if time.monotonic() < GOOGLE_STATE["down_until"]:
+            return [], "구글 뉴스가 잠시 막혀 이번 회차는 건너뜀"
         try:
             return google_fetch(job[0], job[1], extra, cutoff), None
         except Exception as e:  # 일부 실패는 건너뜀
+            if google_blocked(e):
+                GOOGLE_STATE["down_until"] = time.monotonic() + GOOGLE_COOLDOWN
             return [], str(e)
 
     with ThreadPoolExecutor(max_workers=6) as pool:
@@ -823,6 +837,25 @@ def item_line(it, more=""):
     return line + ("\n" + it["detail"] if it.get("detail") else "")
 
 
+CLUSTER_SHOW = 2  # 같은 사건 묶음: 대표 기사 밑에 다른 매체 기사 제목을 이만큼 더 보여 준다(나머지는 '+N건')
+
+
+def cluster_line(c, mode):
+    """묶음 하나 -> 메시지 줄(여러 줄이면 한 덩어리). 기사는 대표 아래 다른 매체 제목을 CLUSTER_SHOW개까지 '└'로 보여 줘
+    누가 같은 기사를 냈는지 바로 보이게 한다. 공시는 예전처럼 '(+N건)'만."""
+    it, others = c["rep"], c["others"]
+    if mode == "공시" or not others:
+        return item_line(it, f" (+{len(others)}건)" if others else "")
+    shown, pubs = [], {it.get("publisher", "")}
+    for o in others:
+        if len(shown) < CLUSTER_SHOW and o.get("publisher", "") not in pubs:
+            shown.append(o)
+            pubs.add(o.get("publisher", ""))
+    rest = len(others) - len(shown)
+    sub = [f'   └ <a href="{html.escape(o["url"], quote=True)}">{html.escape(o["title"])}</a> · {html.escape(o.get("publisher", ""))}' for o in shown]
+    return "\n".join([item_line(it, f" (+{rest}건)" if rest else "")] + sub)
+
+
 def disclosure_clusters(items):
     """공시 -> 묶음. 같은 날 같은 회사가 같은 제목으로 낸 공시(예: 기업설명회 안내를 날짜별로 두 번)는 한 줄로 묶고 '(+N건)'으로 보여 준다."""
     groups = {}
@@ -850,8 +883,7 @@ def build_messages(mode, now, sections, earn_only=False):
             if it["url"] in seen_urls:
                 continue
             seen_urls.add(it["url"])
-            more = f" (+{len(c['others'])}건)" if c["others"] else ""
-            lines.append(item_line(it, more))
+            lines.append(cluster_line(c, mode))
     if hidden:
         lines.append(f"  … 외 {hidden}건")
     msgs, cur = [], head
@@ -881,8 +913,7 @@ def combine_messages(now, parts, earn_only=False):
                 if it["url"] in seen_urls:
                     continue
                 seen_urls.add(it["url"])
-                more = f" (+{len(c['others'])}건)" if c["others"] else ""
-                lines.append(item_line(it, more))
+                lines.append(cluster_line(c, mode))
         if hidden:
             lines.append(f"  … 외 {hidden}건")
         bodies.append(f"<b>━ {names.get(mode, mode)} ━</b>\n" + "\n".join(lines))

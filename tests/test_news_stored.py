@@ -7,7 +7,11 @@ os.environ["NAVER_CLIENT_ID"] = "nid"; os.environ["NAVER_CLIENT_SECRET"] = "nsec
 import pandas as pd
 KST = dtm.timezone(dtm.timedelta(hours=9))
 now = dtm.datetime.now(KST)
-def d(h): return (now - dtm.timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M")
+def d(h):  # h시간 전. 하루 안쪽 기사는 '오늘' 기간에 들도록 자정을 넘기지 않게(자정 직후에 돌려도 시험이 흔들리지 않게)
+    t = now - dtm.timedelta(hours=h)
+    if h < 24 and t.date() != now.date():
+        t = max(now.replace(hour=0, minute=0, second=0, microsecond=0), now - dtm.timedelta(minutes=1))
+    return t.strftime("%Y-%m-%dT%H:%M")
 REC = {"updated": d(0.5), "items": [
     {"t": "현대차 美 공장 증설", "u": "https://x/1", "p": "연합뉴스", "k": "통신", "d": d(1), "s": ["자동차"], "g": ["현대차"]},
     {"t": "기아 EV5 유럽 출시", "u": "https://x/2", "p": "연합뉴스", "k": "통신", "d": d(30), "s": ["자동차"], "g": ["기아"]},
