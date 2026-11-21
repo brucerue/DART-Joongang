@@ -1,0 +1,380 @@
+{
+ "date": "2026-07-04",
+ "oid": "011",
+ "paper": "서울경제",
+ "collected_at": "2026-11-10T01:22",
+ "pages_found": 18,
+ "status": "ok",
+ "items": [
+  {
+   "pg": "1",
+   "title": "[단독] 서울시 ‘닥공’…기부채납 절반 줄인다",
+   "url": "https://n.news.naver.com/article/011/0004637923"
+  },
+  {
+   "pg": "1",
+   "title": "“영광·울주에 원전 4기 더 지을 땅 있다”",
+   "url": "https://n.news.naver.com/article/011/0004637959"
+  },
+  {
+   "pg": "1",
+   "title": "2000억 조달 못해…홈플러스 파산 수순[시그널]",
+   "url": "https://n.news.naver.com/article/011/0004637960"
+  },
+  {
+   "pg": "1",
+   "title": "李 “산업화 불꽃 위에 피지컬 AI 융합…세계 제조업 1위로”",
+   "url": "https://n.news.naver.com/article/011/0004637962"
+  },
+  {
+   "pg": "2",
+   "title": "홈플러스 1.3만명 실직 위기…협력사 4603곳도 대금 지급 막혀",
+   "url": "https://n.news.naver.com/article/011/0004637947"
+  },
+  {
+   "pg": "2",
+   "title": "정부, 홈플 임금체불 직원에 1인당 최대 2100만원 지급",
+   "url": "https://n.news.naver.com/article/011/0004637961"
+  },
+  {
+   "pg": "2",
+   "title": "홈플 익스프레스 팔고 37곳 폐점 배수진에도…메리츠·MBK 기싸움에 벼랑 끝 [시그널]",
+   "url": "https://n.news.naver.com/article/011/0004637979"
+  },
+  {
+   "pg": "3",
+   "title": "강북·서남권 개발 숨통 튼다...서울시가 꺼낸 ‘반값 카드’ [집슐랭]",
+   "url": "https://n.news.naver.com/article/011/0004638054"
+  },
+  {
+   "pg": "3",
+   "title": "중산층 구매가능 서울 주택 13년새 32→7%로 뚝",
+   "url": "https://n.news.naver.com/article/011/0004637989"
+  },
+  {
+   "pg": "3",
+   "title": "강남 현금 공공기여 70%로 늘려 강북 SOC에 재배분",
+   "url": "https://n.news.naver.com/article/011/0004637993"
+  },
+  {
+   "pg": "4",
+   "title": "앤트로픽에 메타까지…AI칩 주도권 품은 삼성 파운드리",
+   "url": "https://n.news.naver.com/article/011/0004637930"
+  },
+  {
+   "pg": "4",
+   "title": "고가 메모리 비중 줄었나…시장 흔든 K반도체 kg당 수출단가 하락",
+   "url": "https://n.news.naver.com/article/011/0004637958"
+  },
+  {
+   "pg": "4",
+   "title": "D램 가격 올랐지만…kg당 수출 단가 9개월만 하락 [Pick코노미]",
+   "url": "https://n.news.naver.com/article/011/0004638040"
+  },
+  {
+   "pg": "5",
+   "title": "김동관 “55조 들여 우주 독립”…K저궤도 위성 10년내 상용화",
+   "url": "https://n.news.naver.com/article/011/0004637972"
+  },
+  {
+   "pg": "5",
+   "title": "삼성, 구미 로봇공장 19조 투입…울산엔 전고체배터리 거점 마련",
+   "url": "https://n.news.naver.com/article/011/0004637975"
+  },
+  {
+   "pg": "5",
+   "title": "SK, 울산 등 영남권내 2GW급 AI 인프라 구축…한화는 국방 특화 AIDC",
+   "url": "https://n.news.naver.com/article/011/0004637985"
+  },
+  {
+   "pg": "6",
+   "title": "위성락 “쿠팡 정보유출, 美서 있었어도 심각한 이슈 됐을것”",
+   "url": "https://n.news.naver.com/article/011/0004637973"
+  },
+  {
+   "pg": "6",
+   "title": "정점식 “노란봉투법·더 센 상법이 호남 반도체 발목 잡아”",
+   "url": "https://n.news.naver.com/article/011/0004637982"
+  },
+  {
+   "pg": "6",
+   "title": "與 당권주자들, 보완수사권 진실게임…1인1표제·전북 소외론 설전도",
+   "url": "https://n.news.naver.com/article/011/0004637971"
+  },
+  {
+   "pg": "6",
+   "title": "李정부 부동산 정책 지지율, 26%로 4개월 만에 반토막",
+   "url": "https://n.news.naver.com/article/011/0004637974"
+  },
+  {
+   "pg": "6",
+   "title": "李, 다음주 나토서 K방산 세일즈…몽골선 핵심광물 협력 확대",
+   "url": "https://n.news.naver.com/article/011/0004637980"
+  },
+  {
+   "pg": "6",
+   "title": "국힘, 스레드 가입 열풍…보수 청년 따라 ‘우향우’",
+   "url": "https://n.news.naver.com/article/011/0004637984"
+  },
+  {
+   "pg": "8",
+   "title": "중기에 15조 경영자금 공급…법인세 납부기한 연장도",
+   "url": "https://n.news.naver.com/article/011/0004637760"
+  },
+  {
+   "pg": "8",
+   "title": "‘30년 누더기’ 카드 소득공제 5조 눈앞…이대로 놔두면 재정절벽[리셋, 낡은 세법]",
+   "url": "https://n.news.naver.com/article/011/0004637963"
+  },
+  {
+   "pg": "8",
+   "title": "하이닉스 선물환 매도설에 환율 30원 ‘뚝’…韓 외환보유액은 13위로 밀려나",
+   "url": "https://n.news.naver.com/article/011/0004637969"
+  },
+  {
+   "pg": "8",
+   "title": "KB금융, 차기 회장 후보에 양종희 등 6인",
+   "url": "https://n.news.naver.com/article/011/0004638000"
+  },
+  {
+   "pg": "10",
+   "title": "3000만원대 SUV에 고성능 AI칩 장착…‘중국판 테슬라’ 샤오펑의 승부수 [정다은의 차이나코어]",
+   "url": "https://n.news.naver.com/article/011/0004638071"
+  },
+  {
+   "pg": "10",
+   "title": "저커버그 “AI 에이전트 개발 예상보다 더뎌”...부진 인정",
+   "url": "https://n.news.naver.com/article/011/0004637866"
+  },
+  {
+   "pg": "10",
+   "title": "‘트럼프 축제’된 美 건국기념일…하메네이 국장엔 수천만명 동원",
+   "url": "https://n.news.naver.com/article/011/0004637964"
+  },
+  {
+   "pg": "10",
+   "title": "투어 한 번에 경제효과 7.6조원...‘테일러노믹스’ 결혼식도 통할까",
+   "url": "https://n.news.naver.com/article/011/0004637965"
+  },
+  {
+   "pg": "11",
+   "title": "‘獨’주 끝냈다…이젠 테슬라 천하",
+   "url": "https://n.news.naver.com/article/011/0004637910"
+  },
+  {
+   "pg": "11",
+   "title": "칩플레이션에도…삼성, 50만원 안팎 중저가폰 출시",
+   "url": "https://n.news.naver.com/article/011/0004637936"
+  },
+  {
+   "pg": "11",
+   "title": "삼성 손잡은 현대차, 아이오닉3로 유럽서 반격",
+   "url": "https://n.news.naver.com/article/011/0004637994"
+  },
+  {
+   "pg": "11",
+   "title": "HD현대, 베트남 거점 첫 항만 크레인 수주",
+   "url": "https://n.news.naver.com/article/011/0004637995"
+  },
+  {
+   "pg": "11",
+   "title": "셀트리온, 고수익 제품 앞세워 실적 신기록",
+   "url": "https://n.news.naver.com/article/011/0004637998"
+  },
+  {
+   "pg": "11",
+   "title": "‘동박 1위’ 中 론디안 美 IPO 신청…2대 주주 SK, 1조 이상 쥐나",
+   "url": "https://n.news.naver.com/article/011/0004638007"
+  },
+  {
+   "pg": "12",
+   "title": "예탁원, 디지털혁신 대비 ‘토큰증권·IT구축’ 조직 상설화",
+   "url": "https://n.news.naver.com/article/011/0004637896"
+  },
+  {
+   "pg": "12",
+   "title": "채권시장 공급 폭탄…“상위등급 회사채 옥석가리기 해야” [시그널]",
+   "url": "https://n.news.naver.com/article/011/0004637950"
+  },
+  {
+   "pg": "12",
+   "title": "[단독] 미래에셋證 1.3조 조달 추진…SK하이닉스가 투자한다 [시그널]",
+   "url": "https://n.news.naver.com/article/011/0004637953"
+  },
+  {
+   "pg": "12",
+   "title": "하루 758P 출렁…210조 몰린 단일종목 레버리지의 그림자",
+   "url": "https://n.news.naver.com/article/011/0004637970"
+  },
+  {
+   "pg": "12",
+   "title": "대형사 주식매매규정 위반…금투사 내부통제 허술",
+   "url": "https://n.news.naver.com/article/011/0004637976"
+  },
+  {
+   "pg": "13",
+   "title": "유진투자증권, 외국개미 韓 주식 직구 추진…알파카와 MOU",
+   "url": "https://n.news.naver.com/article/011/0004637904"
+  },
+  {
+   "pg": "13",
+   "title": "반도체 효과에…“2분기 영업익 249% 증가”",
+   "url": "https://n.news.naver.com/article/011/0004637990"
+  },
+  {
+   "pg": "13",
+   "title": "반도체 ETF 중 올해 수익률 1위…급등주 덜고 성장주 담아 주목 [ETF 줌인]",
+   "url": "https://n.news.naver.com/article/011/0004637992"
+  },
+  {
+   "pg": "15",
+   "title": "‘배터리 속여 판매’…소비자분쟁조정위, 벤츠 EQE 차량 집단분쟁조정 절차 개시 결정",
+   "url": "https://n.news.naver.com/article/011/0004637770"
+  },
+  {
+   "pg": "15",
+   "title": "완도 저온창고 화재, 불티→우레탄 착화로 확산…소방청 ‘신속동료구조팀’ 의무화",
+   "url": "https://n.news.naver.com/article/011/0004637802"
+  },
+  {
+   "pg": "15",
+   "title": "“3만원에 예비군훈련 연기” 허위진단서 1430장 발급한 한의사 구속기소",
+   "url": "https://n.news.naver.com/article/011/0004637902"
+  },
+  {
+   "pg": "15",
+   "title": "배재고, 6일 광주일고 찾아 사과…5·18 민주묘지 참배도",
+   "url": "https://n.news.naver.com/article/011/0004637997"
+  },
+  {
+   "pg": "15",
+   "title": "“국회 병력 빼야” 참모 건의에도 김명수 “내개 권한 없다” 묵살",
+   "url": "https://n.news.naver.com/article/011/0004638003"
+  },
+  {
+   "pg": "15",
+   "title": "200만원에도 빈자리 없다…입시학원 ‘썸머스쿨’ 열풍",
+   "url": "https://n.news.naver.com/article/011/0004638043"
+  },
+  {
+   "pg": "17",
+   "title": "‘헤이세이는 왜 실패했는가’ 外 [북스&]",
+   "url": "https://n.news.naver.com/article/011/0004637966"
+  },
+  {
+   "pg": "17",
+   "title": "억압된 세상 향한 외침…누가 그녀들을 미치게 했을까 [북스&]",
+   "url": "https://n.news.naver.com/article/011/0004637967"
+  },
+  {
+   "pg": "17",
+   "title": "재벌로 회귀한 주인공의 통쾌한 복수[핫웹소설]",
+   "url": "https://n.news.naver.com/article/011/0004637968"
+  },
+  {
+   "pg": "17",
+   "title": "능력주의에 대한 착각…“인생은 제비뽑기다” [북스&]",
+   "url": "https://n.news.naver.com/article/011/0004637981"
+  },
+  {
+   "pg": "17",
+   "title": "정치권력에 취한 신앙, 민주주의를 위기로 내몰다[북스&]",
+   "url": "https://n.news.naver.com/article/011/0004637988"
+  },
+  {
+   "pg": "17",
+   "title": "[베스트셀러]서점가 포켓몬 열풍…‘생태도감 특별판’ 1위",
+   "url": "https://n.news.naver.com/article/011/0004637987"
+  },
+  {
+   "pg": "18",
+   "title": "깨지지 않는 삶은 없다…이어 붙일수록 빛나는 ‘균열의 흔적’[조상인의 미담]",
+   "url": "https://n.news.naver.com/article/011/0004637951"
+  },
+  {
+   "pg": "19",
+   "title": "[지금, 명의] 눈에도 암이 생긴다…시력 넘어 생명까지 위협",
+   "url": "https://n.news.naver.com/article/011/0004638051"
+  },
+  {
+   "pg": "19",
+   "title": "“몰랐어요” 안통합니다…출국 전 감기약 성분표, 뜯어봐야 할 이유[안경진의 약이야기]",
+   "url": "https://n.news.naver.com/article/011/0004637861"
+  },
+  {
+   "pg": "19",
+   "title": "‘쿵’ 멎었다가 다시 뛰는 심장…그냥 넘겼다간 [건강 팁]",
+   "url": "https://n.news.naver.com/article/011/0004638052"
+  },
+  {
+   "pg": "19",
+   "title": "편한 줄은 알았는데…혈당센서, 1형 당뇨 사망 위험 62% 낮췄다[헬시타임]",
+   "url": "https://n.news.naver.com/article/011/0004638153"
+  },
+  {
+   "pg": "21",
+   "title": "박지성, 문체부 ‘K-축구 혁신위’ 위원장 맡는다",
+   "url": "https://n.news.naver.com/article/011/0004637926"
+  },
+  {
+   "pg": "21",
+   "title": "모비스 ‘원클럽맨’ 3인방 “이젠 지도자로 우승 두드릴 것”",
+   "url": "https://n.news.naver.com/article/011/0004637927"
+  },
+  {
+   "pg": "21",
+   "title": "‘검은 황금’ 캐던 삶…그 시절 태백을 만나다",
+   "url": "https://n.news.naver.com/article/011/0004637948"
+  },
+  {
+   "pg": "21",
+   "title": "예술의전당·별마당…실내악으로 물드는 서울",
+   "url": "https://n.news.naver.com/article/011/0004637949"
+  },
+  {
+   "pg": "22",
+   "title": "지드래곤, 부산 세계유산위원회 홍보대사로",
+   "url": "https://n.news.naver.com/article/011/0004637753"
+  },
+  {
+   "pg": "22",
+   "title": "유흥식 추기경 “교황 방북, 북한의 자세에 달렸다”",
+   "url": "https://n.news.naver.com/article/011/0004637901"
+  },
+  {
+   "pg": "22",
+   "title": "LH 신임 사장에 이성훈 靑국토교통비서관",
+   "url": "https://n.news.naver.com/article/011/0004637956"
+  },
+  {
+   "pg": "22",
+   "title": "“한국, 조선업만 투자...급성장하는 美데이터센터 먹거리로 활용해야”",
+   "url": "https://n.news.naver.com/article/011/0004638025"
+  },
+  {
+   "pg": "23",
+   "title": "[동십자각] 모두가 도전할 수 있는 나라",
+   "url": "https://n.news.naver.com/article/011/0004637978"
+  },
+  {
+   "pg": "23",
+   "title": "[사설] OECD “韓 정부부채 비율 2050년 200%” 섬뜩한 경고",
+   "url": "https://n.news.naver.com/article/011/0004638027"
+  },
+  {
+   "pg": "23",
+   "title": "[사설] 美 “한국이 쿠팡 차별”…갈등으로 비화하지 않게 해야",
+   "url": "https://n.news.naver.com/article/011/0004638028"
+  },
+  {
+   "pg": "23",
+   "title": "[사설] K테크패스, 중기에도 해외 우수인재 유입 통로 되길",
+   "url": "https://n.news.naver.com/article/011/0004638029"
+  },
+  {
+   "pg": "23",
+   "title": "[윤종빈의 정치웨이브] 대통령 지지율, 경제에 달렸다",
+   "url": "https://n.news.naver.com/article/011/0004638038"
+  }
+ ]
+}

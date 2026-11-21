@@ -1,0 +1,410 @@
+{
+ "date": "2026-11-03",
+ "oid": "023",
+ "paper": "조선일보",
+ "collected_at": "2026-11-10T00:26",
+ "pages_found": 25,
+ "status": "ok",
+ "items": [
+  {
+   "pg": "A1",
+   "title": "성장 36번 외쳤지만, 방점은 현금 복지",
+   "url": "https://n.news.naver.com/article/023/0004007428"
+  },
+  {
+   "pg": "A1",
+   "title": "북한에 뺏긴 태권도",
+   "url": "https://n.news.naver.com/article/023/0004007426"
+  },
+  {
+   "pg": "A1",
+   "title": "대통령까지… ‘1호기’ 탑승자 168명 정보 유출",
+   "url": "https://n.news.naver.com/article/023/0004007427"
+  },
+  {
+   "pg": "A1",
+   "title": "[단독] 지방 기업 전기료 지원하려 태양광 단가 깎아 업계 반발",
+   "url": "https://n.news.naver.com/article/023/0004007434"
+  },
+  {
+   "pg": "A2",
+   "title": "외국인 유학생 30만명 돌파… “이제 숫자 늘리기보다 교육의 질 높여야”",
+   "url": "https://n.news.naver.com/article/023/0004007424"
+  },
+  {
+   "pg": "A2",
+   "title": "“과잠 입고 서울 누빌래요” 베트남 학생 1만5000명 줄섰다",
+   "url": "https://n.news.naver.com/article/023/0004007425"
+  },
+  {
+   "pg": "A3",
+   "title": "미래기금 34%는 현금 복지… 46%는 세수 줄어도 못 없애는 고정지출",
+   "url": "https://n.news.naver.com/article/023/0004007420"
+  },
+  {
+   "pg": "A3",
+   "title": "李, 조희대에 “잘 계세요?”… 野 항의엔 “자꾸 방해되는 얘기”",
+   "url": "https://n.news.naver.com/article/023/0004007421"
+  },
+  {
+   "pg": "A3",
+   "title": "국방 예산 설명하며 李 “전작권 조기 환수”",
+   "url": "https://n.news.naver.com/article/023/0004007422"
+  },
+  {
+   "pg": "A4",
+   "title": "가스·석탄값 뛰는데 전기요금은 동결… 한전, 55조 전력망 투자 괜찮나",
+   "url": "https://n.news.naver.com/article/023/0004007417"
+  },
+  {
+   "pg": "A5",
+   "title": "美상공회의소 부사장 “한미 무역 불균형이 美 자극… 한국, 시장 더 열어야”",
+   "url": "https://n.news.naver.com/article/023/0004007415"
+  },
+  {
+   "pg": "A5",
+   "title": "北자폭드론 위협 나흘 후… 軍, 몸집 줄인 드론본부 출범",
+   "url": "https://n.news.naver.com/article/023/0004007414"
+  },
+  {
+   "pg": "A5",
+   "title": "北이 훔친 비트코인, 테슬라 보유량 넘어… 北 한해 수출액 3배",
+   "url": "https://n.news.naver.com/article/023/0004007416"
+  },
+  {
+   "pg": "A6",
+   "title": "일주일째 진보 진영 때린 李… 전두환까지 언급하며 “언행불일치, 내로남불”",
+   "url": "https://n.news.naver.com/article/023/0004007413"
+  },
+  {
+   "pg": "A6",
+   "title": "‘민주·조국당 합당’ 재부상… 與내부 조사선 반대가 많아",
+   "url": "https://n.news.naver.com/article/023/0004007412"
+  },
+  {
+   "pg": "A8",
+   "title": "기업들도 AI비서 경계… JP모건·아마존 “보안 위험” 접근 막아",
+   "url": "https://n.news.naver.com/article/023/0004007411"
+  },
+  {
+   "pg": "A8",
+   "title": "“무조건 환불받아” AI비서 시켰더니… 의원에 메일 폭탄, 거짓말까지",
+   "url": "https://n.news.naver.com/article/023/0004007410"
+  },
+  {
+   "pg": "A10",
+   "title": "손님 끊긴 구둣방 새단장 후, 年 사용료 66% 올린다는 서울시",
+   "url": "https://n.news.naver.com/article/023/0004007407"
+  },
+  {
+   "pg": "A10",
+   "title": "한국 6000만원 VS 미국 200억원",
+   "url": "https://n.news.naver.com/article/023/0004007409"
+  },
+  {
+   "pg": "A10",
+   "title": "“대통령, 대법관 후보 선정 개입은 안되고 대법원장도 대통령 판단 제한하면 안돼”",
+   "url": "https://n.news.naver.com/article/023/0004007406"
+  },
+  {
+   "pg": "A10",
+   "title": "판사 80% “재판 중 AI 가짜판례 경험”",
+   "url": "https://n.news.naver.com/article/023/0004007408"
+  },
+  {
+   "pg": "A12",
+   "title": "안전의 역설… 하청 챙길수록 ‘사용자’로 판정",
+   "url": "https://n.news.naver.com/article/023/0004007404"
+  },
+  {
+   "pg": "A12",
+   "title": "[단독] “국가 R&D 의제 설정 주도” 서울대 공대, 위원회 띄웠다",
+   "url": "https://n.news.naver.com/article/023/0004007435"
+  },
+  {
+   "pg": "A12",
+   "title": "“모든 학문 분야에 AI 융합… 글쓰기·토론 수업만 금지”",
+   "url": "https://n.news.naver.com/article/023/0004007493"
+  },
+  {
+   "pg": "A14",
+   "title": "네타냐후 퇴진하나",
+   "url": "https://n.news.naver.com/article/023/0004007401"
+  },
+  {
+   "pg": "A14",
+   "title": "접전지 미시간서 민주당 내분… 현역 의원이 공화당 후보 지지 선언",
+   "url": "https://n.news.naver.com/article/023/0004007403"
+  },
+  {
+   "pg": "A14",
+   "title": "불가리아, 총리 이어 대통령까지 친러파가 장악",
+   "url": "https://n.news.naver.com/article/023/0004007400"
+  },
+  {
+   "pg": "A14",
+   "title": "트럼프 “민주당이 의회 장악하면, ‘미스터 비토’ 되겠다”",
+   "url": "https://n.news.naver.com/article/023/0004007402"
+  },
+  {
+   "pg": "A16",
+   "title": "“美서 목수로 20년 외도… 뒤처진 만큼 2배 노력했죠”",
+   "url": "https://n.news.naver.com/article/023/0004007391"
+  },
+  {
+   "pg": "A16",
+   "title": "김홍신 작가 등단 50주년 “역사의 잘못, 글로 꾸짖어야”",
+   "url": "https://n.news.naver.com/article/023/0004007388"
+  },
+  {
+   "pg": "A16",
+   "title": "자유 대한민국의 초석 이승만… 교과서에선 ‘反통일세력’처럼 묘사",
+   "url": "https://n.news.naver.com/article/023/0004007393"
+  },
+  {
+   "pg": "A18",
+   "title": "100년 전이나 지금이나… 환상은 달콤, 현실은 씁쓸",
+   "url": "https://n.news.naver.com/article/023/0004007386"
+  },
+  {
+   "pg": "A18",
+   "title": "“여성 거장의 목소리·몸짓·작업 모습… 작품에 못 담은 삶, 끝까지 기록할 것”",
+   "url": "https://n.news.naver.com/article/023/0004007390"
+  },
+  {
+   "pg": "A18",
+   "title": "[이번 주 뭐 볼까] 드론으로 바라본 삶의 가장 예술적인 찰나… 브래드 월스 사진전",
+   "url": "https://n.news.naver.com/article/023/0004007394"
+  },
+  {
+   "pg": "A20",
+   "title": "“포퓰리즘 버리고 국익 택한 獨 총리들… 우리도 과감한 결단 내릴 지도자 절실”",
+   "url": "https://n.news.naver.com/article/023/0004007380"
+  },
+  {
+   "pg": "A20",
+   "title": "“큰 나무 같은 분”… 연기를 삶으로 실천한 ‘시대의 어른’",
+   "url": "https://n.news.naver.com/article/023/0004007381"
+  },
+  {
+   "pg": "A20",
+   "title": "‘왕과 비’ ‘명성황후’ 사극 작가 정하연 별세",
+   "url": "https://n.news.naver.com/article/023/0004007383"
+  },
+  {
+   "pg": "A23",
+   "title": "한국시리즈 MVP 출신끼리 붙었다… 두 감독 중 누가 웃을까",
+   "url": "https://n.news.naver.com/article/023/0004007395"
+  },
+  {
+   "pg": "A23",
+   "title": "장우진, 한국 선수 첫 WTT 챔피언스 정상",
+   "url": "https://n.news.naver.com/article/023/0004007397"
+  },
+  {
+   "pg": "A23",
+   "title": "경주차 배기음이 자장가였던 아이, 20세에 F1 시즌 챔피언",
+   "url": "https://n.news.naver.com/article/023/0004007398"
+  },
+  {
+   "pg": "A23",
+   "title": "이탈리아서 열린 미국 대학 농구 ‘교황 더비’",
+   "url": "https://n.news.naver.com/article/023/0004007396"
+  },
+  {
+   "pg": "A27",
+   "title": "[TV조선] 3기 최종 우승자는 누구?",
+   "url": "https://n.news.naver.com/article/023/0004007392"
+  },
+  {
+   "pg": "A27",
+   "title": "[제31회 LG배 조선일보 기왕전] 대차",
+   "url": "https://n.news.naver.com/article/023/0004007389"
+  },
+  {
+   "pg": "A32",
+   "title": "[전문기자의 시선] 8배 커진 K뮤지컬 지원 예산 ‘어떻게 키울까’에 더 집중해야",
+   "url": "https://n.news.naver.com/article/023/0004007350"
+  },
+  {
+   "pg": "A32",
+   "title": "[김교석의 남자의 물건] [46] 익숙한 클래식에 새로움 3% 더한 ‘요즘 V넥’",
+   "url": "https://n.news.naver.com/article/023/0004007345"
+  },
+  {
+   "pg": "A32",
+   "title": "[손재권의 변곡점] 한국이 AI 해킹을 막을 수 없는 이유",
+   "url": "https://n.news.naver.com/article/023/0004007349"
+  },
+  {
+   "pg": "A33",
+   "title": "[기고] 기업들의 ‘눈속임 친환경’, 체계적 감시로 뿌리 뽑아야",
+   "url": "https://n.news.naver.com/article/023/0004007342"
+  },
+  {
+   "pg": "A33",
+   "title": "[이기호의 유머란 무엇인가] 차마 농담조차 할 수 없던 내 존재의 급소",
+   "url": "https://n.news.naver.com/article/023/0004007344"
+  },
+  {
+   "pg": "A33",
+   "title": "[윤희영의 News English] ‘올해의 단어’로 선정된 ‘maxxing’ 무슨 뜻일까",
+   "url": "https://n.news.naver.com/article/023/0004007348"
+  },
+  {
+   "pg": "A33",
+   "title": "[류호정의 톱밥 먹는 중입니다] [33] 근사한 목수의 신혼집을 꿈꿨건만",
+   "url": "https://n.news.naver.com/article/023/0004007343"
+  },
+  {
+   "pg": "A33",
+   "title": "[리빙포인트] 주방 기름 때 쉽게 닦으려면",
+   "url": "https://n.news.naver.com/article/023/0004007418"
+  },
+  {
+   "pg": "A34",
+   "title": "무슨 일 벌어지려고 이러나, ’1000년래 최강' 엘니뇨",
+   "url": "https://n.news.naver.com/article/023/0004007353"
+  },
+  {
+   "pg": "A34",
+   "title": "[데스크에서] 무책임한 농정과 ‘칭찬 쇼’",
+   "url": "https://n.news.naver.com/article/023/0004007351"
+  },
+  {
+   "pg": "A34",
+   "title": "[만물상] ‘北 신흥 특권층’ 해커",
+   "url": "https://n.news.naver.com/article/023/0004007331"
+  },
+  {
+   "pg": "A34",
+   "title": "[김국현의 과학기술 유행어 도감] [22] 아이폰 ‘힌지니어’의 굴욕",
+   "url": "https://n.news.naver.com/article/023/0004007347"
+  },
+  {
+   "pg": "A35",
+   "title": "[태평로] 북·중·러 앞의 ‘삶은 개구리’들",
+   "url": "https://n.news.naver.com/article/023/0004007352"
+  },
+  {
+   "pg": "A35",
+   "title": "[우정아의 아트 스토리] [656] 화랑에 틈입한 막걸리집",
+   "url": "https://n.news.naver.com/article/023/0004007346"
+  },
+  {
+   "pg": "A35",
+   "title": "[사설] 반도체 추가 세수 3년 뒤 끝, 늘어난 씀씀이 어쩔 건가",
+   "url": "https://n.news.naver.com/article/023/0004007354"
+  },
+  {
+   "pg": "A35",
+   "title": "[사설] 대통령 시정 연설 때 야당의 야유, 국민에 대한 무례다",
+   "url": "https://n.news.naver.com/article/023/0004007355"
+  },
+  {
+   "pg": "A35",
+   "title": "[사설] 대통령의 내로남불 비판, 그것 역시 내로남불",
+   "url": "https://n.news.naver.com/article/023/0004007356"
+  },
+  {
+   "pg": "B1",
+   "title": "‘검은 월요일’ 없었다… 코스피, 예상 뒤집고 반등",
+   "url": "https://n.news.naver.com/article/023/0004007358"
+  },
+  {
+   "pg": "B1",
+   "title": "호반 “한진칼 최대 주주 됐다”… 조원태 “한진칼 주식 더 산다”",
+   "url": "https://n.news.naver.com/article/023/0004007359"
+  },
+  {
+   "pg": "B2",
+   "title": "“1600조 메가 프로젝트 투자… 반도체 공장만 지어선 안 돼”",
+   "url": "https://n.news.naver.com/article/023/0004007361"
+  },
+  {
+   "pg": "B2",
+   "title": "에쓰오일 새 공장 곧 가동… 石化 재편은 평행선",
+   "url": "https://n.news.naver.com/article/023/0004007363"
+  },
+  {
+   "pg": "B2",
+   "title": "정장 지양?… 면접 복장 지침에 취준생 혼란",
+   "url": "https://n.news.naver.com/article/023/0004007364"
+  },
+  {
+   "pg": "B2",
+   "title": "주식 판 돈, 이젠 하루 만에 받는다",
+   "url": "https://n.news.naver.com/article/023/0004007360"
+  },
+  {
+   "pg": "B3",
+   "title": "포스코그룹 빛보는 에너지 사업… 철강 턱밑 추격",
+   "url": "https://n.news.naver.com/article/023/0004007366"
+  },
+  {
+   "pg": "B3",
+   "title": "퇴임 두 달 만에 동종 업계 두산 사장으로… HD현대 주요 계열사 CEO 이직 논란",
+   "url": "https://n.news.naver.com/article/023/0004007365"
+  },
+  {
+   "pg": "B3",
+   "title": "체험 행사·할인 쿠폰… 실속 없는 통신3사 장기 고객 이벤트",
+   "url": "https://n.news.naver.com/article/023/0004007367"
+  },
+  {
+   "pg": "B3",
+   "title": "[단독] 고흥에 투자·입주 예정 기업 임원들 ‘제2우주센터’ 건립지 심사에 참여",
+   "url": "https://n.news.naver.com/article/023/0004007433"
+  },
+  {
+   "pg": "B4",
+   "title": "[경제계 인사] DL케미칼 사장 김길수, DL에너지 대표 정삼두 외",
+   "url": "https://n.news.naver.com/article/023/0004007368"
+  },
+  {
+   "pg": "B4",
+   "title": "스마트 안경 쓴 사람 다가오면 경고 알림… 사생활 침해 우려에 ‘역감시’ 앱 잇따라",
+   "url": "https://n.news.naver.com/article/023/0004007369"
+  },
+  {
+   "pg": "B4",
+   "title": "삼성·LG, 데이터센터 사업에 속도",
+   "url": "https://n.news.naver.com/article/023/0004007370"
+  },
+  {
+   "pg": "B4",
+   "title": "똑똑해진 위성… 재난 피해 파악하고 유가 예측도",
+   "url": "https://n.news.naver.com/article/023/0004007371"
+  },
+  {
+   "pg": "B6",
+   "title": "인터넷은행 ‘마통’ 금리 두달 연속 7%대… 5대 은행보다 높아",
+   "url": "https://n.news.naver.com/article/023/0004007375"
+  },
+  {
+   "pg": "B6",
+   "title": "은행 ‘수퍼앱’ 키웠지만 1인당 이용 시간은 줄어",
+   "url": "https://n.news.naver.com/article/023/0004007374"
+  },
+  {
+   "pg": "B6",
+   "title": "국내 투자자, 지난달 미국 주식 7조 넘게 순매수",
+   "url": "https://n.news.naver.com/article/023/0004007376"
+  },
+  {
+   "pg": "B7",
+   "title": "막연한 노후 불안 없애려면… 국민연금 예상 수령액부터 확인하라",
+   "url": "https://n.news.naver.com/article/023/0004007377"
+  },
+  {
+   "pg": "B7",
+   "title": "“제로금리·1100원 환율 시대 안 올 듯… 달러 쪼개사고 단기채 담아라”",
+   "url": "https://n.news.naver.com/article/023/0004007379"
+  },
+  {
+   "pg": "B7",
+   "title": "주가 반토막 난 무늬만 고배당?… 진짜 배당주 고르는 4가지 기준",
+   "url": "https://n.news.naver.com/article/023/0004007378"
+  }
+ ]
+}

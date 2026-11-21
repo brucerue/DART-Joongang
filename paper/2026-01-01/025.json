@@ -1,0 +1,410 @@
+{
+ "date": "2026-01-01",
+ "oid": "025",
+ "paper": "중앙일보",
+ "collected_at": "2026-11-10T01:02",
+ "pages_found": 34,
+ "status": "ok",
+ "items": [
+  {
+   "pg": "A1",
+   "title": "경기·부산 여당 압도…서울 초접전, 누구도 안심 못 한다 [중앙일보 신년 여론조사]",
+   "url": "https://n.news.naver.com/article/025/0003493813"
+  },
+  {
+   "pg": "A1",
+   "title": "‘입틀막법’에 미국 국무부도 공개 저격",
+   "url": "https://n.news.naver.com/article/025/0003493801"
+  },
+  {
+   "pg": "A2",
+   "title": "화폐가치 44분의 1로 뚝…이란, 분노 쏟아졌다",
+   "url": "https://n.news.naver.com/article/025/0003493800"
+  },
+  {
+   "pg": "A2",
+   "title": "[인사] 중앙일보",
+   "url": "https://n.news.naver.com/article/025/0003493799"
+  },
+  {
+   "pg": "A3",
+   "title": "‘지방주도 성장론’ 꺼낸 李…“서울 경제, 중부 행정, 남부 해양”",
+   "url": "https://n.news.naver.com/article/025/0003493814"
+  },
+  {
+   "pg": "A4",
+   "title": "오세훈 37% 정원오 34%… 대통령 칭찬이 서울 흔든다 [중앙일보 신년 여론조사]",
+   "url": "https://n.news.naver.com/article/025/0003493809"
+  },
+  {
+   "pg": "A4",
+   "title": "경기, 누가 나와도 與 강세…범여권 적합도 김동연 21 추미애 20 [중앙일보 신년 여론조사]",
+   "url": "https://n.news.naver.com/article/025/0003493812"
+  },
+  {
+   "pg": "A5",
+   "title": "전재수 39% 박형준 30%…부산, 통일교 논란에도 안 흔들렸다 [중앙일보 신년 여론조사]",
+   "url": "https://n.news.naver.com/article/025/0003493810"
+  },
+  {
+   "pg": "A6",
+   "title": "쿠팡 “국정원 3명 만나…강 들어가 노트북 건지라했다” 주장",
+   "url": "https://n.news.naver.com/article/025/0003493796"
+  },
+  {
+   "pg": "A6",
+   "title": "“쿠팡 쿠폰 쓰면 배상액 줄어들 수도”…소비자들, 꼼수 공동대응",
+   "url": "https://n.news.naver.com/article/025/0003493797"
+  },
+  {
+   "pg": "A8",
+   "title": "태권도 학원비도 세액공제, 무상교육 5세→4세로 확대",
+   "url": "https://n.news.naver.com/article/025/0003493795"
+  },
+  {
+   "pg": "A8",
+   "title": "인구감소지역 여행객, 쓴 돈 절반 지역화폐로 돌려받는다",
+   "url": "https://n.news.naver.com/article/025/0003493791"
+  },
+  {
+   "pg": "A8",
+   "title": "‘장병e음’ 군 서비스 도입, 휴가 신청·병원 예약 등 한곳서 가능",
+   "url": "https://n.news.naver.com/article/025/0003493794"
+  },
+  {
+   "pg": "A10",
+   "title": "[단독] 권성동 \"총재님 카지노 하나\" 전화 다음날 한학자 보고",
+   "url": "https://n.news.naver.com/article/025/0003493817"
+  },
+  {
+   "pg": "A10",
+   "title": "3주새 의사부족 확 줄인 추계위…내부서도 “검증 안된 모델로 논의”",
+   "url": "https://n.news.naver.com/article/025/0003493788"
+  },
+  {
+   "pg": "A12",
+   "title": "\"아빠 주먹질 피하려다 더 맞아\" 쉼터 대신 노숙 택하는 아이들, 왜",
+   "url": "https://n.news.naver.com/article/025/0003493816"
+  },
+  {
+   "pg": "A12",
+   "title": "예보사장도 대통령 사시 동기…국힘 “개인로펌 정부냐”",
+   "url": "https://n.news.naver.com/article/025/0003493786"
+  },
+  {
+   "pg": "A14",
+   "title": "에스파 중국인 닝닝만 빠져…홍백가합전 덮친 ‘중·일 충돌’",
+   "url": "https://n.news.naver.com/article/025/0003493789"
+  },
+  {
+   "pg": "A14",
+   "title": "트럼프 황금함대 ‘뜻밖의 적’…펜타닐, 복병 되나",
+   "url": "https://n.news.naver.com/article/025/0003493784"
+  },
+  {
+   "pg": "A16",
+   "title": "진성준 “넉달만 할 것” 배수진…달아오르는 원내대표 선거",
+   "url": "https://n.news.naver.com/article/025/0003493785"
+  },
+  {
+   "pg": "A16",
+   "title": "50년 만에 원복…해병 1·2사단, 육군 아닌 해병대가 지휘",
+   "url": "https://n.news.naver.com/article/025/0003493781"
+  },
+  {
+   "pg": "A18",
+   "title": "\"아는 척하면 다쳐\" 매일 새벽 5시30분 출근하는 83세 의사",
+   "url": "https://n.news.naver.com/article/025/0003493811"
+  },
+  {
+   "pg": "A18",
+   "title": "[오늘의 날씨] 1월 1일",
+   "url": "https://n.news.naver.com/article/025/0003493775"
+  },
+  {
+   "pg": "A18",
+   "title": "‘김태촌 검거’ 조승식 전 대검 강력부장 별세",
+   "url": "https://n.news.naver.com/article/025/0003493777"
+  },
+  {
+   "pg": "A18",
+   "title": "케네디 가문의 비극…외손녀마저 떠났다",
+   "url": "https://n.news.naver.com/article/025/0003493780"
+  },
+  {
+   "pg": "A18",
+   "title": "[사랑방] 한국관광공사 사장에 박성혁",
+   "url": "https://n.news.naver.com/article/025/0003493782"
+  },
+  {
+   "pg": "A18",
+   "title": "[사랑방] 서울미디어그룹 수석부회장 민병관",
+   "url": "https://n.news.naver.com/article/025/0003493783"
+  },
+  {
+   "pg": "A18",
+   "title": "[인사] 중앙그룹",
+   "url": "https://n.news.naver.com/article/025/0003493776"
+  },
+  {
+   "pg": "A18",
+   "title": "[인사] 헌법재판소",
+   "url": "https://n.news.naver.com/article/025/0003493778"
+  },
+  {
+   "pg": "A18",
+   "title": "[부고] 이복돈씨 外",
+   "url": "https://n.news.naver.com/article/025/0003493779"
+  },
+  {
+   "pg": "A19",
+   "title": "이 붉은 말처럼 새해도 힘차게",
+   "url": "https://n.news.naver.com/article/025/0003493772"
+  },
+  {
+   "pg": "A19",
+   "title": "[outlook] 낙서처럼 보이시나요? ‘사유의 실험실’ 입니다",
+   "url": "https://n.news.naver.com/article/025/0003493774"
+  },
+  {
+   "pg": "A20",
+   "title": "[김형석의 100년 산책] 국민 교육 백년 대계, 개성과 창의성 키우는 방향이어야",
+   "url": "https://n.news.naver.com/article/025/0003493767"
+  },
+  {
+   "pg": "A20",
+   "title": "[노트북을 열며] 모발 구독서비스와 쿠팡",
+   "url": "https://n.news.naver.com/article/025/0003493764"
+  },
+  {
+   "pg": "A21",
+   "title": "[양성희의 문화산책] 팀플레이의 정석 보여준 ‘흑백요리사 2’",
+   "url": "https://n.news.naver.com/article/025/0003493763"
+  },
+  {
+   "pg": "A21",
+   "title": "[시조가 있는 아침] (310) 혹한(酷寒)",
+   "url": "https://n.news.naver.com/article/025/0003493756"
+  },
+  {
+   "pg": "A22",
+   "title": "[강경훈의 퍼스펙티브] 주택시장 양극화 완전히 차단하려는 접근은 비현실적",
+   "url": "https://n.news.naver.com/article/025/0003493765"
+  },
+  {
+   "pg": "A22",
+   "title": "[정재훈의 음식과 약] 수용성 비타민에 대한 오해",
+   "url": "https://n.news.naver.com/article/025/0003493760"
+  },
+  {
+   "pg": "A23",
+   "title": "[신현호의 법과 삶] 의료사고에 대한 사법온정주의의 폐해",
+   "url": "https://n.news.naver.com/article/025/0003493762"
+  },
+  {
+   "pg": "A23",
+   "title": "[김병기 ‘필향만리’] 致遠恐泥(치원공니)",
+   "url": "https://n.news.naver.com/article/025/0003493759"
+  },
+  {
+   "pg": "A24",
+   "title": "김병기 특검하고 장경태·최민희 책임 물어야 [강찬호의 시선]",
+   "url": "https://n.news.naver.com/article/025/0003493768"
+  },
+  {
+   "pg": "A24",
+   "title": "[이우영의 과학 산책] 기적의 해",
+   "url": "https://n.news.naver.com/article/025/0003493758"
+  },
+  {
+   "pg": "A24",
+   "title": "아침의 문장",
+   "url": "https://n.news.naver.com/article/025/0003493753"
+  },
+  {
+   "pg": "A25",
+   "title": "[시론] ‘융합·협업형 공무원’ 키워 국가 난제 맡기자",
+   "url": "https://n.news.naver.com/article/025/0003493766"
+  },
+  {
+   "pg": "A25",
+   "title": "[조건형의 마켓 나우] 예금과 투자 사이 새로운 길, 종합투자계좌",
+   "url": "https://n.news.naver.com/article/025/0003493761"
+  },
+  {
+   "pg": "A26",
+   "title": "[김승현의 시시각각] 김낙수보다 더 딱한 장군들",
+   "url": "https://n.news.naver.com/article/025/0003493769"
+  },
+  {
+   "pg": "A26",
+   "title": "[사설] 병오년 새해, 놓쳐서는 안 될 구조개혁 골든타임",
+   "url": "https://n.news.naver.com/article/025/0003493773"
+  },
+  {
+   "pg": "A26",
+   "title": "[사설] 또 대통령 변호인 공직 등용, 이러니 ‘보은’ 지적 나온다",
+   "url": "https://n.news.naver.com/article/025/0003493771"
+  },
+  {
+   "pg": "A26",
+   "title": "[박용석 만평] 1월 1일",
+   "url": "https://n.news.naver.com/article/025/0003493713"
+  },
+  {
+   "pg": "A27",
+   "title": "[중앙시평] 만기친람 개인기에 묻힌 정책 논쟁",
+   "url": "https://n.news.naver.com/article/025/0003493770"
+  },
+  {
+   "pg": "A27",
+   "title": "[신복룡의 신 영웅전] 천하 명신 위징의 이야기",
+   "url": "https://n.news.naver.com/article/025/0003493757"
+  },
+  {
+   "pg": "E1",
+   "title": "기관도 학계도 시장도…“새해 서울 집값 오를 것”",
+   "url": "https://n.news.naver.com/article/025/0003493751"
+  },
+  {
+   "pg": "E1",
+   "title": "재계 ‘성과급의 계절’…손 내미는 반도체·조선, 손 시려운 석화·배터리",
+   "url": "https://n.news.naver.com/article/025/0003493754"
+  },
+  {
+   "pg": "E2",
+   "title": "쇠고기 5%·쌀 8%·고등어 10%↑…‘서민 밥상’ 때린 물가",
+   "url": "https://n.news.naver.com/article/025/0003493750"
+  },
+  {
+   "pg": "E2",
+   "title": "당국, 새해에도 대출 자제령…주담대 6% 돌파",
+   "url": "https://n.news.naver.com/article/025/0003493749"
+  },
+  {
+   "pg": "E2",
+   "title": "테슬라 ‘모델3’ 940만원 파격 할인",
+   "url": "https://n.news.naver.com/article/025/0003493752"
+  },
+  {
+   "pg": "E3",
+   "title": "법인 127곳 사라진 그곳…4대그룹 총수, 다시 중국 찾는 이유",
+   "url": "https://n.news.naver.com/article/025/0003493818"
+  },
+  {
+   "pg": "E3",
+   "title": "셀트리온 ‘매출 4조-이익 1조’ 보인다",
+   "url": "https://n.news.naver.com/article/025/0003493748"
+  },
+  {
+   "pg": "E3",
+   "title": "정기선의 새해 ‘기·도’",
+   "url": "https://n.news.naver.com/article/025/0003493745"
+  },
+  {
+   "pg": "E4",
+   "title": "AI 인재 품은 스타트업 통째로 산다…빅테크 살벌한 M&A 전쟁 [팩플]",
+   "url": "https://n.news.naver.com/article/025/0003493815"
+  },
+  {
+   "pg": "E4",
+   "title": "한국인이 만든 화이트와인, 세계 와인대회 2위",
+   "url": "https://n.news.naver.com/article/025/0003493746"
+  },
+  {
+   "pg": "E4",
+   "title": "[우리말 바루기] ‘환골탈퇴’를 할 수 없는 이유",
+   "url": "https://n.news.naver.com/article/025/0003493747"
+  },
+  {
+   "pg": "E4",
+   "title": "[Biz & Now] 두산에너빌리티, 야월해상풍력과 5700억대 계약",
+   "url": "https://n.news.naver.com/article/025/0003493744"
+  },
+  {
+   "pg": "E4",
+   "title": "[Biz & Now] ‘자금세탁방지 의무 위반’ 코빗, 과태료 27억3000만원",
+   "url": "https://n.news.naver.com/article/025/0003493743"
+  },
+  {
+   "pg": "E4",
+   "title": "[Biz & Now] 요기요, 아파트 현관까지 로봇 배달 서비스",
+   "url": "https://n.news.naver.com/article/025/0003493740"
+  },
+  {
+   "pg": "E4",
+   "title": "[인사] 일동제약 회장에 ‘창업주 3세’ 윤웅섭",
+   "url": "https://n.news.naver.com/article/025/0003493741"
+  },
+  {
+   "pg": "E4",
+   "title": "[인사] 투썸플레이스 外",
+   "url": "https://n.news.naver.com/article/025/0003493742"
+  },
+  {
+   "pg": "E5",
+   "title": "[반퇴시대 재산리모델링] 임대소득으로 생활비 쓰는 70대, 금융자산으로 증여 대비를",
+   "url": "https://n.news.naver.com/article/025/0003493736"
+  },
+  {
+   "pg": "E5",
+   "title": "[알면 쏠쏠한 경제 비크닉] ‘최대 30만원’ 으뜸효율 가전 환급…예산 소진 때까지 선착순입니다",
+   "url": "https://n.news.naver.com/article/025/0003493738"
+  },
+  {
+   "pg": "E6",
+   "title": "착지할 곳은 시상대 꼭대기",
+   "url": "https://n.news.naver.com/article/025/0003493739"
+  },
+  {
+   "pg": "E6",
+   "title": "동계올림픽·월드컵·AG…스포츠 보면 한해 다간다",
+   "url": "https://n.news.naver.com/article/025/0003493734"
+  },
+  {
+   "pg": "E7",
+   "title": "‘진짜 영포티’ 노경은-김진성 신년 인터뷰 “후배들에겐 의지를, 40대에겐 희망을”",
+   "url": "https://n.news.naver.com/article/025/0003493836"
+  },
+  {
+   "pg": "E7",
+   "title": "링크보다 더 찼던 ‘세상 얼음’…다 깼으니 후회 없다",
+   "url": "https://n.news.naver.com/article/025/0003493731"
+  },
+  {
+   "pg": "E7",
+   "title": "[오늘의 운세] 1월 1일",
+   "url": "https://n.news.naver.com/article/025/0003493755"
+  },
+  {
+   "pg": "U1",
+   "title": "[outlook] 호모 사피엔스의 종언? 인간과 AI, 공존이냐 종속이냐",
+   "url": "https://n.news.naver.com/article/025/0003493730"
+  },
+  {
+   "pg": "U2",
+   "title": "유진이 맞이한 유토피아, 선우가 처한 디스토피아",
+   "url": "https://n.news.naver.com/article/025/0003493728"
+  },
+  {
+   "pg": "U4",
+   "title": "2036년 어느날, 연구실 가니 AI가 불치병 구조 찾아놨다",
+   "url": "https://n.news.naver.com/article/025/0003493729"
+  },
+  {
+   "pg": "U5",
+   "title": "“AI가 다 하는 시대…인간은 능력보다 욕구가 중요해진다”",
+   "url": "https://n.news.naver.com/article/025/0003493727"
+  },
+  {
+   "pg": "U6",
+   "title": "거리 지키는 로보캅…중국선 더 이상 영화가 아니다",
+   "url": "https://n.news.naver.com/article/025/0003493735"
+  },
+  {
+   "pg": "U7",
+   "title": "이준석 \"의원 300명 짜고 AI 거부\"…2028 총선 경고 [이준석·염재호 대담]",
+   "url": "https://n.news.naver.com/article/025/0003493732"
+  }
+ ]
+}

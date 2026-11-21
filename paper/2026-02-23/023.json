@@ -1,0 +1,400 @@
+{
+ "date": "2026-02-23",
+ "oid": "023",
+ "paper": "조선일보",
+ "collected_at": "2026-11-10T01:08",
+ "pages_found": 23,
+ "status": "ok",
+ "items": [
+  {
+   "pg": "A1",
+   "title": "[단독] 韓, 美에 ‘日 빼고 훈련’ 제안… 美는 ‘그냥 우리끼리 하겠다’ 답변",
+   "url": "https://n.news.naver.com/article/023/0003960457"
+  },
+  {
+   "pg": "A1",
+   "title": "[단독]현대차그룹, 새만금에 10조 투자해 AI, 수소, 로봇 미래 3대 축 키운다",
+   "url": "https://n.news.naver.com/article/023/0003960458"
+  },
+  {
+   "pg": "A1",
+   "title": "관세전쟁 리셋, 트럼프 “전세계에 15%”",
+   "url": "https://n.news.naver.com/article/023/0003960452"
+  },
+  {
+   "pg": "A1",
+   "title": "두개의 왕관 김길리, 새 쇼트트랙 여제",
+   "url": "https://n.news.naver.com/article/023/0003960451"
+  },
+  {
+   "pg": "A2",
+   "title": "메달 7개, 돌아온 ‘쇼트 강국’… 마냥 웃을 수만은 없다",
+   "url": "https://n.news.naver.com/article/023/0003960449"
+  },
+  {
+   "pg": "A2",
+   "title": "민정아, 고마웠어… 역대 최다 메달 남긴 최민정, 올림픽 은퇴 선언",
+   "url": "https://n.news.naver.com/article/023/0003960450"
+  },
+  {
+   "pg": "A3",
+   "title": "美, 관세 254조원 돌려주나… “소송은 고양이 목에 방울 달기”",
+   "url": "https://n.news.naver.com/article/023/0003960448"
+  },
+  {
+   "pg": "A3",
+   "title": "트럼프 플랜B… 임시 관세로 시간 벌고 ‘수퍼 301조’ 통해 원상복구",
+   "url": "https://n.news.naver.com/article/023/0003960447"
+  },
+  {
+   "pg": "A3",
+   "title": "日, 대미투자 그대로 진행… 유럽은 보복조치 거론",
+   "url": "https://n.news.naver.com/article/023/0003960446"
+  },
+  {
+   "pg": "A4",
+   "title": "당정청, 계획대로 대미 투자 추진… 與 “특별법 처리할 것”",
+   "url": "https://n.news.naver.com/article/023/0003960444"
+  },
+  {
+   "pg": "A4",
+   "title": "더 커진 불확실성… 美, 곳간 메우려 반도체·로봇에 관세 때릴 수도",
+   "url": "https://n.news.naver.com/article/023/0003960445"
+  },
+  {
+   "pg": "A5",
+   "title": "[단독] ‘국빈 방한’ 룰라 “韓·브라질 관계 ‘전략적 동반자’로 격상...공급망·첨단산업 협력 확대”",
+   "url": "https://n.news.naver.com/article/023/0003960454"
+  },
+  {
+   "pg": "A5",
+   "title": "[단독] 김정은 딸, ‘주애’ 아닌 ‘주해’? 정부, 미사일 총국장 역할할 가능성 주시",
+   "url": "https://n.news.naver.com/article/023/0003960456"
+  },
+  {
+   "pg": "A6",
+   "title": "민주당은 ‘입법 폭주’, 국힘은 ‘절윤 내전’… 강성 지지층만 보는 선거",
+   "url": "https://n.news.naver.com/article/023/0003960442"
+  },
+  {
+   "pg": "A6",
+   "title": "재·보선에 조국·송영길·한동훈 출마설… ‘미니 총선급’ 판 커지나",
+   "url": "https://n.news.naver.com/article/023/0003960443"
+  },
+  {
+   "pg": "A10",
+   "title": "‘아미’ 26만명 뜬다, 광화문 들떴다",
+   "url": "https://n.news.naver.com/article/023/0003960440"
+  },
+  {
+   "pg": "A10",
+   "title": "[단독] 대검도 안 막았는데... 송영길 상고 포기, 박철우가 결정했다",
+   "url": "https://n.news.naver.com/article/023/0003960455"
+  },
+  {
+   "pg": "A10",
+   "title": "김병기 두달 만에 소환 통보… 전재수 수사는 ‘제자리’",
+   "url": "https://n.news.naver.com/article/023/0003960438"
+  },
+  {
+   "pg": "A10",
+   "title": "20만원 BTS 티켓 “100만원에 팔아요”",
+   "url": "https://n.news.naver.com/article/023/0003960439"
+  },
+  {
+   "pg": "A12",
+   "title": "대기업 포기하고 서울대·의대로… 연고대 계약학과, 144명 등록 안해",
+   "url": "https://n.news.naver.com/article/023/0003960433"
+  },
+  {
+   "pg": "A12",
+   "title": "건조특보에 강풍까지… 전국이 산불 ‘시한폭탄’",
+   "url": "https://n.news.naver.com/article/023/0003960437"
+  },
+  {
+   "pg": "A12",
+   "title": "산불 비상인데… 산림청장은 만취 운전으로 직권 면직",
+   "url": "https://n.news.naver.com/article/023/0003960436"
+  },
+  {
+   "pg": "A12",
+   "title": "신영자 롯데재단 의장 별세",
+   "url": "https://n.news.naver.com/article/023/0003960434"
+  },
+  {
+   "pg": "A12",
+   "title": "[부음] 김덕성 별세 외",
+   "url": "https://n.news.naver.com/article/023/0003960435"
+  },
+  {
+   "pg": "A14",
+   "title": "트럼프가 임명한 보수 대법관 2명도 “위법”",
+   "url": "https://n.news.naver.com/article/023/0003960430"
+  },
+  {
+   "pg": "A14",
+   "title": "美대법 “파괴적 권력 안돼”… 트럼프 비판, 3권 분립 보루로",
+   "url": "https://n.news.naver.com/article/023/0003960432"
+  },
+  {
+   "pg": "A14",
+   "title": "우크라, 모스크바보다 더 멀리있는 러 미사일 공장 타격",
+   "url": "https://n.news.naver.com/article/023/0003960431"
+  },
+  {
+   "pg": "A14",
+   "title": "‘다카이치 비난 여론 조작’ 중국계 계정 394개 찾았다",
+   "url": "https://n.news.naver.com/article/023/0003960429"
+  },
+  {
+   "pg": "A18",
+   "title": "액션 확 덜어내니… 마지막 초능력 ‘한 방’ 더 강력하네",
+   "url": "https://n.news.naver.com/article/023/0003960421"
+  },
+  {
+   "pg": "A18",
+   "title": "깃털처럼 가벼운 문장, 솜털 이불 되어 상실의 마음 감싼다",
+   "url": "https://n.news.naver.com/article/023/0003960422"
+  },
+  {
+   "pg": "A18",
+   "title": "[일사일언] “이래야 진짜 래퍼지”",
+   "url": "https://n.news.naver.com/article/023/0003960420"
+  },
+  {
+   "pg": "A18",
+   "title": "윤심덕, 현해탄서 살아남아 파리서 나혜석 만났다면…",
+   "url": "https://n.news.naver.com/article/023/0003960423"
+  },
+  {
+   "pg": "A18",
+   "title": "올해 베를린영화제 최고상은 독일·튀르키예 영화 ‘옐로우 레터스’",
+   "url": "https://n.news.naver.com/article/023/0003960308"
+  },
+  {
+   "pg": "A21",
+   "title": "[TV조선] 부부 금슬 위해 찾은 한의원",
+   "url": "https://n.news.naver.com/article/023/0003960414"
+  },
+  {
+   "pg": "A21",
+   "title": "[제30회 LG배 조선일보 기왕전] 결정타",
+   "url": "https://n.news.naver.com/article/023/0003960415"
+  },
+  {
+   "pg": "A23",
+   "title": "남자 쇼트트랙, 금메달 못 땄지만… ‘추월 마스터’ 얻었다",
+   "url": "https://n.news.naver.com/article/023/0003960427"
+  },
+  {
+   "pg": "A23",
+   "title": "롱트랙 강국 네덜란드, 金 5개 따내며 쇼트도 점령",
+   "url": "https://n.news.naver.com/article/023/0003960424"
+  },
+  {
+   "pg": "A23",
+   "title": "한국 빙속, 24년 만의 ‘노 메달’",
+   "url": "https://n.news.naver.com/article/023/0003960428"
+  },
+  {
+   "pg": "A23",
+   "title": "中 구아이링, 프리스타일 스키 2연패",
+   "url": "https://n.news.naver.com/article/023/0003960426"
+  },
+  {
+   "pg": "A25",
+   "title": "금 6개 휩쓴 클레보… ‘노 골드’ 수모 단지누",
+   "url": "https://n.news.naver.com/article/023/0003960418"
+  },
+  {
+   "pg": "A25",
+   "title": "손흥민, 메시 앞에서 1도움",
+   "url": "https://n.news.naver.com/article/023/0003960419"
+  },
+  {
+   "pg": "A25",
+   "title": "티띠꾼, 태국서 열린 LPGA 첫 우승",
+   "url": "https://n.news.naver.com/article/023/0003960417"
+  },
+  {
+   "pg": "A25",
+   "title": "[오늘의 경기] 2026년 2월 23일",
+   "url": "https://n.news.naver.com/article/023/0003960416"
+  },
+  {
+   "pg": "A28",
+   "title": "[에디터의 Q] “저가 항공식 AI·청년 정당 추진, 서울시장 후보 내서 여권표 뺏겠다”",
+   "url": "https://n.news.naver.com/article/023/0003960379"
+  },
+  {
+   "pg": "A29",
+   "title": "[민태기의 사이언스토리] 에펠탑에 이름 새겨질 여성 과학자로 본 성평등의 역사",
+   "url": "https://n.news.naver.com/article/023/0003960380"
+  },
+  {
+   "pg": "A29",
+   "title": "[기고] 주식시장 깨운 실용주의, 노동시장에서도 보여달라",
+   "url": "https://n.news.naver.com/article/023/0003960382"
+  },
+  {
+   "pg": "A29",
+   "title": "[조용헌 살롱] [1531] 강남 아파트를 떠받치는 세 동물",
+   "url": "https://n.news.naver.com/article/023/0003960381"
+  },
+  {
+   "pg": "A29",
+   "title": "[리빙포인트] 욕조 찌든 때엔 베이킹소다",
+   "url": "https://n.news.naver.com/article/023/0003960384"
+  },
+  {
+   "pg": "A30",
+   "title": "[기자의 시각] 서울에서 열린 이란 추모 쇼",
+   "url": "https://n.news.naver.com/article/023/0003960385"
+  },
+  {
+   "pg": "A30",
+   "title": "[萬物相] 김주애? 김주해?",
+   "url": "https://n.news.naver.com/article/023/0003960386"
+  },
+  {
+   "pg": "A30",
+   "title": "[문태준의 가슴이 따뜻해지는 詩] [109] 사랑법 다섯째",
+   "url": "https://n.news.naver.com/article/023/0003960388"
+  },
+  {
+   "pg": "A30",
+   "title": "[朝鮮칼럼] 미국 국방전략의 대전환, 시험대에 선 한미동맹",
+   "url": "https://n.news.naver.com/article/023/0003960391"
+  },
+  {
+   "pg": "A31",
+   "title": "[사설] 한국에서만 벌이는 러시아 망동, 원칙 없는 외교 탓 아닌가",
+   "url": "https://n.news.naver.com/article/023/0003960392"
+  },
+  {
+   "pg": "A31",
+   "title": "[사설] 국힘 선거 참패 불보듯해도 ‘나만 살자’ 영남 의원들 침묵",
+   "url": "https://n.news.naver.com/article/023/0003960393"
+  },
+  {
+   "pg": "A31",
+   "title": "[광화문·뷰] 보수 분열과 민주당 장기 집권",
+   "url": "https://n.news.naver.com/article/023/0003960387"
+  },
+  {
+   "pg": "A31",
+   "title": "[강헌의 히스토리 인 팝스] [301] 우크라이나에 평화를",
+   "url": "https://n.news.naver.com/article/023/0003960390"
+  },
+  {
+   "pg": "A31",
+   "title": "[사설] 美에선 대법원이 트럼프 폭주 제동, 韓 국회 폭주는 누가 막나",
+   "url": "https://n.news.naver.com/article/023/0003960395"
+  },
+  {
+   "pg": "B1",
+   "title": "50개 국가전략기술 수준, 중국에 6개만 앞서",
+   "url": "https://n.news.naver.com/article/023/0003960396"
+  },
+  {
+   "pg": "B1",
+   "title": "[모닝] 샘 올트먼 “기업들이 해고를 AI 탓으로 돌리며 ‘AI워싱’하고 있다”",
+   "url": "https://n.news.naver.com/article/023/0003960356"
+  },
+  {
+   "pg": "B1",
+   "title": "소·돼지·닭 동시 전염병에 밥상 물가 ‘들썩’",
+   "url": "https://n.news.naver.com/article/023/0003960312"
+  },
+  {
+   "pg": "B2",
+   "title": "다주택자 압박에… 강남 아파트 값 잡히나",
+   "url": "https://n.news.naver.com/article/023/0003960398"
+  },
+  {
+   "pg": "B2",
+   "title": "파죽지세 코스피, 증권가 전망 줄줄이 7000대까지 상향",
+   "url": "https://n.news.naver.com/article/023/0003960399"
+  },
+  {
+   "pg": "B2",
+   "title": "국세청, 부동산 유튜버 등 16명 탈세 조사",
+   "url": "https://n.news.naver.com/article/023/0003960401"
+  },
+  {
+   "pg": "B2",
+   "title": "제조업 취업자 비율 15.2% 역대 최저, 청년 ‘고용 한파’… 작년 6만여명 감소",
+   "url": "https://n.news.naver.com/article/023/0003960400"
+  },
+  {
+   "pg": "B3",
+   "title": "[단독] 쿠팡, 美 집단소송에 세계 최대 로펌 커클랜드앤엘리스 선임",
+   "url": "https://n.news.naver.com/article/023/0003960459"
+  },
+  {
+   "pg": "B3",
+   "title": "정부, ‘근로자 추정제’ 자영업자 반발 우려했나… 경영계 간담회에 소상공인 단체 이례적 포함",
+   "url": "https://n.news.naver.com/article/023/0003960404"
+  },
+  {
+   "pg": "B3",
+   "title": "“점주에 특정 플랫폼 강제”… 처갓집치킨 ‘배민 온리’ 프로모션 논란",
+   "url": "https://n.news.naver.com/article/023/0003960403"
+  },
+  {
+   "pg": "B3",
+   "title": "“AI로 메모리 부족… 일부 제조사 사업 접을 것”",
+   "url": "https://n.news.naver.com/article/023/0003960405"
+  },
+  {
+   "pg": "B4",
+   "title": "LG전자, 글로벌 사우스 공략… “2030년 매출 2배”",
+   "url": "https://n.news.naver.com/article/023/0003960352"
+  },
+  {
+   "pg": "B4",
+   "title": "‘풀스택’부터 ‘에이전틱’까지… MWC 2026서 선보이는 통신 3사 AI 전략",
+   "url": "https://n.news.naver.com/article/023/0003960351"
+  },
+  {
+   "pg": "B4",
+   "title": "AI붐으로 자산 폭등한 美 빅테크 리더들, ‘절세’하러 회사도 집도 옮긴다",
+   "url": "https://n.news.naver.com/article/023/0003960342"
+  },
+  {
+   "pg": "B4",
+   "title": "사진 몇 장으로 영화 뺨치는 영상 제작… 中 AI ‘시댄스’, 저작권 문제로 출시 연기",
+   "url": "https://n.news.naver.com/article/023/0003960407"
+  },
+  {
+   "pg": "B6",
+   "title": "“삼성전자·하이닉스 고점?… 아직 팔 때 아니다”",
+   "url": "https://n.news.naver.com/article/023/0003960409"
+  },
+  {
+   "pg": "B6",
+   "title": "“싼 주식 찾는 대신 가치가 계속 올라가는 자산 선점해야”",
+   "url": "https://n.news.naver.com/article/023/0003960408"
+  },
+  {
+   "pg": "B6",
+   "title": "“워시는 정치적 동물… 자산시장 안 좋을 수도”",
+   "url": "https://n.news.naver.com/article/023/0003960410"
+  },
+  {
+   "pg": "B7",
+   "title": "아동 수는 줄었지만… 아동용품 매출은 늘어",
+   "url": "https://n.news.naver.com/article/023/0003960413"
+  },
+  {
+   "pg": "B7",
+   "title": "백화점, 95년 이어온 ‘층별 구성’ 사라진다",
+   "url": "https://n.news.naver.com/article/023/0003960412"
+  },
+  {
+   "pg": "B7",
+   "title": "온라인 쇼핑몰 결제수수료 10%로 줄인 서비스",
+   "url": "https://n.news.naver.com/article/023/0003960411"
+  }
+ ]
+}
