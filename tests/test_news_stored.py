@@ -53,7 +53,7 @@ fails = []
 def check(c, m):
     print(("  ✅ " if c else "  ❌ ") + m)
     if not c: fails.append(m)
-def md(at): return " ".join(m.value for m in at.markdown if "class=\"ov" not in m.value)  # 오늘의 현황 한눈에 보기(전 섹터)는 뺌
+def md(at): return " ".join(m.value for m in at.markdown)
 def caps(at): return " ".join(c.value for c in at.caption)
 at = AppTest.from_file(REPO + "/app.py", default_timeout=300); at.run()
 import time as _t; _t.sleep(1.5)  # 앱을 열면 뒤에서 모아 둔 기사 파일을 미리 받는다

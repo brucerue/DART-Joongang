@@ -1,5 +1,4 @@
 """'오늘의 현황' 탭의 계산(화면 없음): 모아 둔 기사·공시 줄(data 브랜치 recent.json)을 섹터·종류·기간으로 거르고, 시세표에서 등락 상·하위 종목을 고른다."""
-import re
 from datetime import datetime, timedelta, timezone
 
 KST = timezone(timedelta(hours=9))
@@ -49,40 +48,3 @@ def movers(snap, codes, n=2):
 def counts(rows, sector, since):
     """섹터의 since 이후 통신·단독·공시 건수 {종류: 건수}"""
     return {k: len(sector_items(rows, sector, k, since)) for k in ("통신", "단독", "공시")}
-
-
-LEAD_SKIP = re.compile(r"^\s*\[(부고|인사|게시판|포토|사진|날씨|모집|알림)\]")
-
-
-def _title_key(title):
-    """같은 기사 판정용 제목: [단독]·공백·따옴표를 뺀다"""
-    t = str(title or "").replace("[단독]", "").replace("[속보]", "")
-    return "".join(ch for ch in t if ch.isalnum())
-
-
-def overview(rows, sectors, since):
-    """'한눈에 보기'(오늘의 현황 맨 위) 계산 -> {totals{단독,통신,공시}, cards[{sector,n,lead,lead_kind}], exclusives[...]}.
-    totals·exclusives는 여러 섹터에 같이 걸린 기사(같은 주소, 또는 같은 매체·같은 제목)를 한 번만 센다.
-    lead: 그 섹터의 가장 최근 단독, 없으면 가장 최근 통신."""
-    totals, cards, excl = {}, [], {}
-    for kind in ("단독", "통신", "공시"):
-        seen, n = set(), 0
-        for sec in sectors:
-            for it in sector_items(rows, sec, kind, since):
-                key = (it["publisher"], _title_key(it["title"]))
-                if it["url"] in seen or key in seen:
-                    if kind == "단독" and key in excl and sec not in excl[key]["sectors"]:
-                        excl[key]["sectors"].append(sec)
-                    continue
-                seen.update((it["url"], key))
-                n += 1
-                if kind == "단독":
-                    excl[key] = dict(it, sectors=[sec])
-        totals[kind] = n
-    for sec in sectors:
-        ex, wire = sector_items(rows, sec, "단독", since), sector_items(rows, sec, "통신", since)
-        plain = [w for w in wire if not LEAD_SKIP.match(w["title"])] or wire  # 부고·인사·게시판은 대표 기사로 쓰지 않음
-        lead, lead_kind = (ex[0], "단독") if ex else ((plain[0], "통신") if plain else (None, ""))
-        cards.append({"sector": sec, "n": len(ex) + len(wire), "ex": len(ex), "lead": lead, "lead_kind": lead_kind})
-    exclusives = sorted(excl.values(), key=lambda x: x["dt"], reverse=True)
-    return {"totals": totals, "cards": cards, "exclusives": exclusives}
