@@ -1,0 +1,13 @@
+name: gn-decode-test (임시)
+on:
+  push:
+    branches: [gn-decode-test]
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -q requests && python gn_decode_test.py
