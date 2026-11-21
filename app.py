@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.21 17:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.21 18:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8478,7 +8478,11 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .cb-latest a, .cb-latest .x { display: block; color: #0b2545; font-weight: 600; text-decoration: none; line-height: 1.45; margin-top: 0.15rem; word-break: keep-all; }
 .cb-latest a:hover { color: #1f3a68; text-decoration: underline; }
 /* 2026.11.21 보기 다듬기 (기능 그대로) */
-/* 1) 오늘의 현황: 섹터 카드 안 기사는 박스 대신 얇은 줄로 나눔 */
+/* 1) 기사 목록: 기사마다 박스 대신 흰 판 하나에 얇은 줄로 나눔 (산업 뉴스 등). 오늘의 현황은 섹터 카드가 이미 흰 판이라 판 없이 줄만 */
+[data-testid="stMarkdownContainer"]:has(> .news-item) { background: #ffffff; border: 1px solid #e3e8ef; border-radius: 14px; padding: 0 1.1rem; }
+.news-item { background: transparent; border: 0; border-top: 1px solid #eef2f7; border-radius: 0; padding: 0.8rem 0.1rem; margin: 0; }
+[data-testid="stMarkdownContainer"] > .news-item:first-child { border-top: 0; }
+.st-key-today_wrap [data-testid="stMarkdownContainer"]:has(> .news-item) { background: transparent; border: 0; border-radius: 0; padding: 0; }
 .st-key-today_wrap .news-item { background: transparent; border: 0; border-top: 1px solid #eef2f7; border-radius: 0; padding: 0.7rem 0.1rem; margin: 0; }
 .st-key-today_wrap .td-lbl + div .news-item:first-child, .st-key-today_wrap [data-testid="stMarkdownContainer"] > .news-item:first-child { border-top: 0; padding-top: 0.2rem; }
 /* 2) NEW 표시: 빨간 글자 상자 대신 작은 점 (글자는 화면 읽기 프로그램용으로 남김) */
