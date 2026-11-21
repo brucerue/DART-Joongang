@@ -486,7 +486,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.21 12:15"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.21 13:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8483,6 +8483,53 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .news-item { border-radius: 14px; padding: 0.9rem 1.1rem; }
 .news-item > a:hover { text-decoration: none; }
 [data-testid="stExpander"] details { border-color: #e4e4df !important; border-radius: 14px !important; background: #ffffff; }
+/* 오늘의 현황 '한눈에 보기' (2026.11 리디자인) */
+.ov { margin: 0.2rem 0 0.4rem; }
+.ov-top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 1rem 1.5rem; margin-bottom: 1.6rem; }
+.ov-date { font-size: 0.82rem; color: #5b6070; font-variant-numeric: tabular-nums; }
+.ov-h { font-size: clamp(1.6rem, 5.5vw, 2.3rem); font-weight: 800; letter-spacing: -0.04em; line-height: 1.2; color: #15171c; margin-top: 0.2rem; }
+.ov-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: #ffffff; border: 1px solid #e4e4df; border-radius: 16px; flex: 1 1 18rem; max-width: 26rem; }
+.ov-stats > div { padding: 0.8rem 1.1rem; display: flex; flex-direction: column; }
+.ov-stats > div + div { border-left: 1px solid #e4e4df; }
+.ov-stats .l { font-size: 0.75rem; color: #5b6070; }
+.ov-stats .v { font-size: 1.8rem; font-weight: 600; line-height: 1.15; color: #15171c; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.ov-stats .v.ac { color: #0b6e5f; }
+.ov-sub { display: flex; align-items: baseline; gap: 0.5rem; font-size: 1.02rem; font-weight: 700; color: #15171c; margin: 1.4rem 0 0.7rem; }
+.ov-sub small { font-size: 0.78rem; font-weight: 400; color: #5b6070; }
+.ov-sub.ov-detail { margin-top: 1.8rem; padding-top: 1.4rem; border-top: 1px solid #e4e4df; }
+.ov-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr)); gap: 0.65rem; }
+.ov-card { background: #ffffff; border: 1px solid #e4e4df; border-radius: 14px; padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.7rem; min-width: 0; }
+.ov-card .hd { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.ov-card .nm { font-weight: 700; color: #15171c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ov-card .n { font-size: 0.82rem; color: #5b6070; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ov-card .n small { color: #0b6e5f; font-weight: 600; margin-left: 0.2rem; }
+.ov-card .bar { height: 4px; background: #edede8; border-radius: 2px; overflow: hidden; }
+.ov-card .bar span { display: block; height: 100%; background: #15171c; border-radius: 2px; }
+.ov-card .ld { display: flex; gap: 0.45rem; align-items: flex-start; font-size: 0.88rem; line-height: 1.45; }
+.ov-card .ld a { color: #15171c; text-decoration: none; word-break: keep-all; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ov-card .ld a:hover { color: #0b6e5f; }
+.ov-card .ld.none { color: #5b6070; font-size: 0.82rem; }
+.ov-card .b { flex: none; font-size: 0.68rem; font-weight: 700; border-radius: 4px; padding: 0.05rem 0.35rem; margin-top: 0.15rem; background: #edede8; color: #3a3e48; }
+.ov-card .b.ex { background: #0b6e5f; color: #ffffff; }
+.ov-ex { list-style: none; margin: 0; padding: 0.2rem 0; background: #ffffff; border: 1px solid #e4e4df; border-radius: 16px; }
+.ov-ex li { display: grid; grid-template-columns: 3.4rem minmax(0, 1fr) auto; gap: 0.15rem 0.9rem; align-items: baseline; padding: 0.75rem 1.2rem; }
+.ov-ex li + li { border-top: 1px solid #efefea; }
+.ov-ex .t { font-size: 0.8rem; color: #5b6070; font-variant-numeric: tabular-nums; }
+.ov-ex a { font-weight: 600; color: #15171c; text-decoration: none; word-break: keep-all; }
+.ov-ex a:hover { color: #0b6e5f; }
+.ov-ex .m { font-size: 0.8rem; color: #5b6070; white-space: nowrap; }
+.ov-ex .m.me { color: #0b6e5f; font-weight: 600; }
+.ov-none { color: #5b6070; font-size: 0.88rem; }
+@media (max-width: 640px) {
+  .ov-stats { max-width: none; }
+  .ov-stats > div { padding: 0.65rem 0.85rem; }
+  .ov-stats .v { font-size: 1.5rem; }
+  .ov-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+  .ov-card { padding: 0.75rem 0.8rem; gap: 0.55rem; }
+  .ov-card .ld { font-size: 0.82rem; }
+  .ov-ex li { grid-template-columns: 2.9rem minmax(0, 1fr); padding: 0.7rem 0.9rem; }
+  .ov-ex .m { grid-column: 2; white-space: normal; }
+}
 </style>
 """
 
@@ -11856,20 +11903,81 @@ def render_today_board():
         log_use("오늘의 현황 시세판", once=True)
         render_px_board(data)
 
+TODAY_OV_EXCL = 6  # 한눈에 보기: '오늘의 단독'에 먼저 보여 주는 건수 (나머지는 펼치기)
+WEEKDAY_KO = "월화수목금토일"
+
+
+def _ov_link(item, cls=""):
+    url = item["url"] if str(item.get("url", "")).startswith(("http://", "https://")) else "#"
+    title = re.sub(r"^\s*\[(단독|속보)\]\s*", "", item["title"])
+    return f'<a class="{cls}" href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(title)}</a>'
+
+
+def ov_excl_html(items):
+    """오늘의 단독 줄들 -> HTML (시각 · 제목 · 매체·섹터). 중앙일보 단독은 강조색"""
+    out = []
+    for it in items:
+        me = " me" if "중앙" in it["publisher"] else ""
+        out.append(f'<li><span class="t">{it["dt"]:%H:%M}</span>{_ov_link(it)}'
+                   f'<span class="m{me}">{html.escape(it["publisher"])} · {html.escape(", ".join(it["sectors"]))}</span></li>')
+    return f'<ol class="ov-ex">{"".join(out)}</ol>'
+
+
+def today_overview_html(ov, stamp):
+    """오늘의 현황 맨 위 '한눈에 보기': 제목·숫자판·섹터 카드·오늘의 단독 (HTML, 글은 모두 escape)"""
+    t = ov["totals"]
+    stats = "".join(f'<div><span class="l">{k}</span><span class="v{" ac" if k == "단독" else ""}">{t.get(k, 0):,}</span></div>'
+                    for k in ("단독", "통신", "공시"))
+    top = max([c["n"] for c in ov["cards"]] + [1])
+    cards = []
+    for c in ov["cards"]:
+        lead = ""
+        if c["lead"]:
+            badge = f'<span class="b{" ex" if c["lead_kind"] == "단독" else ""}">{c["lead_kind"]}</span>'
+            lead = f'<div class="ld">{badge}{_ov_link(c["lead"])}</div>'
+        else:
+            lead = '<div class="ld none">최근 24시간 기사 없음</div>'
+        ex = f' <small>단독 {c["ex"]}</small>' if c["ex"] else ""
+        cards.append(f'<div class="ov-card"><div class="hd"><span class="nm">{html.escape(c["sector"])}</span>'
+                     f'<span class="n">{c["n"]}{ex}</span></div><div class="bar"><span style="width:{max(3, round(c["n"] / top * 100))}%"></span></div>{lead}</div>')
+    excl = ov["exclusives"][:TODAY_OV_EXCL]
+    excl_html = ov_excl_html(excl) if excl else '<div class="ov-none">최근 24시간에 모아 둔 단독이 없어요.</div>'
+    return (f'<div class="ov"><div class="ov-top"><div><div class="ov-date">{html.escape(stamp)}</div>'
+            f'<div class="ov-h">오늘 산업면, 한눈에.</div></div><div class="ov-stats">{stats}</div></div>'
+            f'<div class="ov-sub">섹터별 <small>최근 24시간 단독·통신</small></div><div class="ov-grid">{"".join(cards)}</div>'
+            f'<div class="ov-sub">오늘의 단독 <small>{len(ov["exclusives"])}건</small></div>{excl_html}</div>')
+
+
+def render_today_overview(rec, rows, since, updated):
+    """오늘의 현황 맨 위: 섹터를 고르지 않아도 보이는 전체 요약"""
+    ov = tdc.overview(rows, list(NEWS_SECTORS), since)
+    try:
+        u = datetime.strptime(updated, "%Y-%m-%d %H:%M")
+        stamp = f"{u.month}월 {u.day}일 {WEEKDAY_KO[u.weekday()]}요일 · {u:%H:%M} 기준"
+    except ValueError:
+        stamp = "최근 24시간"
+    st.markdown(today_overview_html(ov, stamp), unsafe_allow_html=True)
+    rest = ov["exclusives"][TODAY_OV_EXCL:]
+    if rest:
+        with st.expander(f"단독 더 보기 ({len(rest)}건)"):
+            st.markdown(ov_excl_html(rest), unsafe_allow_html=True)
+    st.markdown('<div class="ov-sub ov-detail">섹터별 자세히 <small>특징주·실적 일정·기사 전체</small></div>', unsafe_allow_html=True)
+
 
 def _render_today_body(rec):
+    now = datetime.now(KST)
+    since = tdc.window_start(now, "24시간")  # 기간은 24시간으로 고정 (선택지 없음)
+    updated = str(rec.get("updated", ""))[:16].replace("T", " ")
+    rows = today_rows(updated, since.strftime("%Y-%m-%d %H:%M"), rec)
+    render_today_overview(rec, rows, since, updated)
     team_buttons("td", NEWS_SECTORS, "td_groups")
     st.pills("섹터", list(NEWS_SECTORS), selection_mode="multi", key="td_groups", label_visibility="collapsed")
     track_choice("td_groups", "오늘의 현황 섹터")
     groups = [g for g in (st.session_state.get("td_groups") or []) if g in NEWS_SECTORS]
-    now = datetime.now(KST)
-    since = tdc.window_start(now, "24시간")  # 기간은 24시간으로 고정 (선택지 없음)
-    updated = str(rec.get("updated", ""))[:16].replace("T", " ")
     st.caption(f"{since:%m.%d %H:%M} 이후 · 자료 갱신 {updated}" if updated else f"{since:%m.%d %H:%M} 이후")
     if not groups:
         st.info("섹터나 팀을 하나 이상 골라 주세요.")
         return
-    rows = today_rows(updated, since.strftime("%Y-%m-%d %H:%M"), rec)
     prices = get_prices()
     snap, when, codes_by = None, "", {}
     if prices:

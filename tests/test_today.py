@@ -50,11 +50,23 @@ snap = pd.DataFrame([{"code": "1", "name": "A", "close": 100.0, "rate": 3.0}, {"
                      {"code": "3", "name": "C", "close": 70.0, "rate": 1.0}, {"code": "4", "name": "D", "close": 20.0, "rate": None}])
 up, down = tdc.movers(snap, ["1", "2", "3", "4"], 1)
 check([r["name"] for r in up] == ["A"] and [r["name"] for r in down] == ["B"], f"등락 상·하위 {up} {down}")
+# 한눈에 보기 계산: 두 섹터에 걸린 같은 단독은 한 번만, 대표 기사는 단독 우선·부고 건너뜀
+OV = ROWS + [{"t": "[단독] 기아 미국 공장 증설", "u": "https://x/3b", "p": "한국경제", "k": "단독", "d": d(3), "s": ["반도체"], "g": []},
+             {"t": "[부고] 홍길동씨 별세", "u": "https://x/8", "p": "연합뉴스", "k": "통신", "d": d(0.5), "s": ["반도체"], "g": []}]
+ov = tdc.overview(OV, ["자동차", "반도체"], since)
+check(ov["totals"] == {"단독": 1, "통신": 4, "공시": 1}, f"전체 건수(겹침 한 번) {ov['totals']}")
+check(ov["exclusives"][0]["sectors"] == ["자동차", "반도체"], f"단독의 섹터 모음 {ov['exclusives'][0]['sectors']}")
+cards = {c["sector"]: c for c in ov["cards"]}
+check(cards["자동차"]["lead_kind"] == "단독" and cards["반도체"]["lead"]["title"] == "[단독] 기아 미국 공장 증설", "대표 기사는 단독 우선")
+ov2 = tdc.overview([r for r in OV if r["k"] != "단독"], ["반도체"], since)
+check(ov2["cards"][0]["lead"]["title"] == "삼성전자 HBM4 양산", f"부고는 대표 기사로 안 씀 {ov2['cards'][0]['lead']['title']}")
 # 앱
 at = AppTest.from_file(REPO + "/app.py", default_timeout=300); at.run()
 check(not at.exception, f"예외 없음 {[str(e.value)[:120] for e in at.exception]}")
 labs = [t.label for t in at.tabs]
 check(labs[0] == "오늘의 현황", f"탭 {labs}")
+md0 = " ".join(m.value for m in at.markdown)
+check("오늘 산업면, 한눈에." in md0 and 'class="ov-card"' in md0 and "기아 미국 공장 증설" in md0, "섹터를 안 골라도 한눈에 보기(섹터 카드·오늘의 단독)")
 check(not at.session_state.get("td_groups") and any("섹터나 팀을 하나 이상" in i.value for i in at.info), f"처음엔 섹터 선택 없음 {list(at.session_state.get('td_groups') or [])}")
 at.session_state["td_groups"] = ["차·배터리", "중후장대", "에너지·화학"]; at.run()  # 모아 둔 줄은 옛 이름 '자동차' -> 읽을 때 차·배터리로
 md = " ".join(m.value for m in at.markdown)
