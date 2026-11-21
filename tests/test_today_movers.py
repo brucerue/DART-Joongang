@@ -29,7 +29,7 @@ def check(c, m):
     print(("  ✅ " if c else "  ❌ ") + m)
     if not c: fails.append(m)
 at = AppTest.from_file(REPO + "/app.py", default_timeout=300); at.run()
-at.session_state["td_groups"] = ["차·배터리", "항공"]; at.run()
+[b for b in at.button if b.label == "차·배터리 자세히 보기"][0].click().run()  # 섹터 카드를 누르면 창
 check(not at.exception, f"오류 없음 {[str(e.value)[:150] for e in at.exception]}")
 md = "".join(m.value for m in at.markdown)
 check("특징주" in md, "특징주 칸이 나옴")
@@ -38,6 +38,8 @@ import re
 blocks = re.findall(r'<div class="td-movers">(.*?)</div>', md)
 car = [b for b in blocks if 'mv-part">자동차<' in b]
 check(car and len(re.findall(r'class="mv (?:up|down)"', car[0])) <= 4, "자동차 줄: 상승·하락 최대 2개씩")
-check(any('mv-part' not in b for b in blocks), "묶지 않은 섹터(항공)는 이름 없이 한 줄")
+[b for b in at.button if b.label == "항공 자세히 보기"][0].click().run()
+blocks = re.findall(r'<div class="td-movers">(.*?)</div>', "".join(m.value for m in at.markdown))
+check(blocks and all('mv-part' not in b for b in blocks), "묶지 않은 섹터(항공)는 이름 없이 한 줄")
 print("실패:", fails) if fails else print("모두 통과")
 sys.exit(1 if fails else 0)

@@ -66,30 +66,21 @@ check(not at.exception, f"예외 없음 {[str(e.value)[:120] for e in at.excepti
 labs = [t.label for t in at.tabs]
 check(labs[0] == "오늘의 현황", f"탭 {labs}")
 md0 = " ".join(m.value for m in at.markdown)
-check("오늘 산업면, 한눈에." in md0 and 'class="ov-card"' in md0 and "기아 미국 공장 증설" in md0, "섹터를 안 골라도 한눈에 보기(섹터 카드·오늘의 단독)")
-check(not at.session_state.get("td_groups") and any("섹터나 팀을 하나 이상" in c.value for c in at.caption), f"처음엔 섹터 선택 없음 {list(at.session_state.get('td_groups') or [])}")
-btns = [b for b in at.button if str(b.key).startswith("ovb_")]
-check(len(btns) >= 10 and btns[0].label.endswith("자세히 보기"), f"섹터 카드마다 '자세히 보기' 버튼 {len(btns)}")
-btns[0].click().run()
+check("오늘 산업면, 한눈에." in md0 and 'class="ov-card"' in md0 and "기아 미국 공장 증설" in md0, "첫 화면: 섹터 카드·오늘의 단독")
+check(not [p for p in at.button_group if p.key == "td_groups"] and "ov-stats" not in md0, "섹터 고르기·숫자판은 없음(2026.11.21 단순화)")
+btns = {b.label: b for b in at.button if str(b.key).startswith("ovb_")}
+check(len(btns) >= 10 and "차·배터리 자세히 보기" in btns, f"섹터 카드마다 '자세히 보기' 버튼 {list(btns)[:3]}")
+def open_card(name):
+    b = [x for x in at.button if x.label == f"{name} 자세히 보기"][0]
+    b.click().run()
+    return " ".join(m.value for m in at.markdown)
+md = open_card("차·배터리")  # 모아 둔 줄은 옛 이름 '자동차' -> 읽을 때 차·배터리로
 check(not at.exception, f"카드를 눌러 창을 열어도 오류 없음 {[str(e.value)[:120] for e in at.exception]}")
-at.session_state["td_groups"] = ["차·배터리", "중후장대", "에너지·화학"]; at.run()
-check(at.query_params.get("td") in (["차·배터리,중후장대,에너지·화학"], "차·배터리,중후장대,에너지·화학"), f"고른 섹터를 주소에 남김 {at.query_params.get('td')}")  # 모아 둔 줄은 옛 이름 '자동차' -> 읽을 때 차·배터리로
-md = " ".join(m.value for m in at.markdown)
-check("신형 전기차 공개" in md and "기아 미국 공장 증설" in md and "너무 오래된" not in md, "자동차 기사·단독 표시, 오래된 기사 제외")
+check("신형 전기차 공개" in md and "너무 오래된" not in md, "차·배터리 창: 통신 기사 표시, 오래된 기사 제외")
 import re as _re
 pills = _re.findall(r'td-pill k\d">(\S+) <b>(\d+)</b>', md)
-check(pills[:3] == [("단독", "1"), ("통신", "2"), ("공시", "1")], f"섹터 머리의 건수 알약 {pills[:3]}")
-cap = " ".join(c.value for c in at.caption)
-check("이후 · 자료 갱신" in cap, "기간은 24시간 고정 안내")
-# 묶기: 두 통신 기사는 한 묶음
+check(pills[:3] == [("단독", "1"), ("통신", "2"), ("공시", "1")], f"창 머리의 건수 알약 {pills[:3]}")
 check("묶음 1건" in md, "같은 사건 통신 기사는 한 묶음")
-# 섹터 바꾸기
-at.button_group(key="td_groups").set_value(["반도체·전자"]).run()
-md = " ".join(m.value for m in at.markdown)
-check(not at.exception and "삼성전자 HBM4 양산" in md and "LG전자 신형 냉장고" in md and "신형 전기차 공개" not in md, "섹터를 바꾸면 그 섹터 기사만")
-check(not [r for r in at.radio if r.key == "td_period"], "기간 선택지 없음(24시간 고정)")
-at.button_group(key="td_groups").set_value([]).run()
-check(any("섹터나 팀을 하나 이상" in c.value for c in at.caption) and not at.query_params.get("td"), "섹터 없으면 안내 · 주소에서도 지움")
-at2 = AppTest.from_file(REPO + "/app.py", default_timeout=300); at2.query_params["td"] = "반도체·전자,없는섹터"; at2.run()
-check(list(at2.session_state["td_groups"]) == ["반도체·전자"], f"주소의 td로 내 섹터를 되살림 {at2.session_state['td_groups'] if 'td_groups' in at2.session_state else None}")
+md = open_card("반도체·전자")
+check(not at.exception and "LG전자 신형 냉장고" in md, "다른 카드를 누르면 그 섹터 창")
 print("실패", fails); sys.exit(1 if fails else 0)
