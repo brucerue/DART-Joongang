@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.21 13:10"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.21 14:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3807,7 +3807,7 @@ def name_key(name, words=False, keep_space=False):
     return re.sub(r"[\s\-.,&·()/]", "", text)
 
 
-NEWS_NOT_MATCH = {"인텔": ("인텔리전", "인텔리"), "엘에프": ("엘에프피",)}  # 검색어가 다른 낱말의 일부로 들어가는 경우: 그 낱말은 지우고 비교한다 (인텔 ≠ 인텔리전스, LF ≠ LFP 배터리. 키는 name_key 결과)
+NEWS_NOT_MATCH = {"인텔": ("인텔리전", "인텔리"), "엘에프": ("엘에프피",), "재계": ("재계약",)}  # 검색어가 다른 낱말의 일부로 들어가는 경우: 그 낱말은 지우고 비교한다 (인텔 ≠ 인텔리전스, LF ≠ LFP 배터리, 재계 ≠ 재계약(연예인 소속사 기사). 키는 name_key 결과)
 
 
 def key_in_title(k, tk, title):
