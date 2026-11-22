@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.22 09:20"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.22 09:45"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8523,6 +8523,10 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 /* 9) 안내 상자(파랑·노랑): 연한 회색으로 차분하게 (빨간 오류·초록 완료는 그대로) */
 [data-testid="stAlertContainer"]:has([data-testid="stAlertContentInfo"]), [data-testid="stAlertContainer"]:has([data-testid="stAlertContentWarning"]) { background: #eef1f5 !important; }
 [data-testid="stAlertContentInfo"], [data-testid="stAlertContentWarning"], [data-testid="stAlertContentInfo"] p, [data-testid="stAlertContentWarning"] p { color: #3a4250 !important; }
+/* 계산기 창 탭(9개): 창이 좁아 PC에서도 한 줄에 다 넣지 않고 5개씩 2줄로 (2026.11.22 '표 증감'·'글자 수'가 칸을 넘침) */
+.st-key-calc_box [data-testid="stTabs"] [role="tablist"] { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)) !important; gap: 0.3rem !important; }
+.st-key-calc_box [data-testid="stTab"] { flex: none !important; border-radius: 10px !important; padding: 0.45rem 0.1rem !important; }
+.st-key-calc_box [data-testid="stTab"] p { font-size: 0.78rem !important; white-space: nowrap; letter-spacing: -0.03em; }
 </style>
 """
 
