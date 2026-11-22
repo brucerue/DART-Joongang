@@ -55,26 +55,52 @@ GNEWS_ALIASES = {
     "HD Hyundai": ["HD Hyundai", "HD Korea Shipbuilding", "Hyundai Heavy"], "Hanwha Ocean": ["Hanwha Ocean"],
     "Samsung Heavy Industries": ["Samsung Heavy"], "Hanwha Group": ["Hanwha"], "Korean Air": ["Korean Air"],
     "LG Chem": ["LG Chem"], "SK Group": ["SK Group", "SK Inc"], "Naver": ["Naver"], "Kakao": ["Kakao"],
+    # 2026.11.22 추가 (한국 기업 10곳 + 해외 외신 전용 기업)
+    "Hyundai Mobis": ["Hyundai Mobis"], "SK On": ["SK On"], "Hyundai Rotem": ["Hyundai Rotem"],
+    "LIG Nex1": ["LIG Nex1", "LIG Nex One", "LIG D&A", "LIG Defense"], "Korea Aerospace": ["Korea Aerospace", "KAI"],
+    "Hyundai Steel": ["Hyundai Steel"], "SK Innovation": ["SK Innovation"], "S-Oil": ["S-Oil"],
+    "Doosan Enerbility": ["Doosan Enerbility", "Doosan Heavy"],
+    "Volkswagen": ["Volkswagen", "VW"], "Mercedes-Benz": ["Mercedes-Benz", "Mercedes", "Benz"], "BMW": ["BMW"],
+    "CSSC": ["CSSC", "China State Shipbuilding"], "U.S. Steel": ["U.S. Steel", "US Steel"], "Cleveland-Cliffs": ["Cleveland-Cliffs", "Cleveland Cliffs"],
 }
 # 외신 '한국 기업' 섹터 (기업별): 해외 섹터와 같은 방식으로 제목에 이름이 든 기사만. 수집기·앱이 함께 쓴다
 KOREA_GROUP = "한국 기업"
 KOREAN_COMPANIES = ["Samsung Electronics", "SK hynix", "Hyundai Motor", "Kia", "LG Energy Solution", "Samsung SDI", "LG Electronics", "LG Chem",
                     "HD Hyundai", "Hanwha Ocean", "Samsung Heavy Industries", "Hanwha Aerospace", "POSCO Holdings", "Korean Air",
-                    "SK Group", "Hanwha Group", "Naver", "Kakao"]
+                    "SK Group", "Hanwha Group", "Naver", "Kakao",
+                    "Hyundai Mobis", "SK On", "Hyundai Rotem", "LIG Nex1", "Korea Aerospace", "Hyundai Steel",  # 2026.11.22 추가
+                    "SK Innovation", "S-Oil", "KEPCO", "Doosan Enerbility"]
 GN_EXTRA_FIRMS = ["Airbus"]  # 해외 섹터엔 없지만 외신 화면 섹터(항공)에 쓰는 기업 — '한국 기업' 파일에 함께 모은다
 KOREA_GROUP_FIRMS = KOREAN_COMPANIES + GN_EXTRA_FIRMS
+# 재무 '해외 섹터'엔 없고 외신에서만 찾는 해외 기업 (2026.11.22) — 같은 이름의 외신 섹터 파일에 함께 모은다(재무 화면은 그대로)
+GN_EXTRA_GROUPS = {
+    "자동차": ["Volkswagen", "Mercedes-Benz", "BMW", "Stellantis", "Waymo", "Rivian", "Gotion"],
+    "방산·항공우주": ["CSSC", "Huntington Ingalls", "Rheinmetall", "L3Harris"],
+    "철강": ["Nippon Steel", "U.S. Steel", "Cleveland-Cliffs"],
+    "에너지·정유": ["Westinghouse", "Cheniere"],
+}
+
+
+def add_extra_groups(groups):
+    """해외 섹터 기업 목록(제자리)에 외신 전용 기업(GN_EXTRA_GROUPS)을 더한다. 앱 GLOBAL_SECTORS와 수집기 global_sectors가 같이 쓴다"""
+    for g, firms in GN_EXTRA_GROUPS.items():
+        cur = groups.setdefault(g, [])
+        cur += [f for f in firms if f not in cur]
+    return groups
 # 외신 화면의 섹터(산업 뉴스와 같은 묶음) -> 합쳐 보여 줄 모아 둔 외신 [(종류, 파일 섹터, 기업 목록 또는 None=그 파일 전부)]
 # korea = 한국 관련(본문까지), global = 기업별(제목에 기업 이름). 2026.11 '기업별'·'한국 관련' 두 화면을 하나로 합침
 GN_VIEW_SECTORS = {
     "차·배터리": [("korea", "차·배터리", None), ("global", "자동차", None),
-                 ("global", KOREA_GROUP, ["Hyundai Motor", "Kia", "LG Energy Solution", "Samsung SDI", "LG Chem"])],
+                 ("global", KOREA_GROUP, ["Hyundai Motor", "Kia", "Hyundai Mobis", "LG Energy Solution", "Samsung SDI", "SK On", "LG Chem"])],
     "중후장대": [("korea", "중후장대", None), ("global", "철강", None), ("global", "방산·항공우주", None),
-             ("global", KOREA_GROUP, ["HD Hyundai", "Hanwha Ocean", "Samsung Heavy Industries", "Hanwha Aerospace", "POSCO Holdings"])],
+             ("global", KOREA_GROUP, ["HD Hyundai", "Hanwha Ocean", "Samsung Heavy Industries", "Hanwha Aerospace", "Hyundai Rotem",
+                                       "LIG Nex1", "Korea Aerospace", "POSCO Holdings", "Hyundai Steel"])],
     "반도체·전자": [("korea", "반도체·전자", None), ("global", "반도체", None), ("global", "빅테크", None),
                ("global", KOREA_GROUP, ["Samsung Electronics", "SK hynix", "LG Electronics"])],
     "IT·통신": [("korea", "IT·통신", None), ("global", "통신", None), ("global", "빅테크", None), ("global", KOREA_GROUP, ["Naver", "Kakao"])],
-    "에너지·화학": [("korea", "에너지·화학", None), ("global", "에너지·정유", None)],
-    "항공": [("korea", "항공", None), ("global", "방산·항공우주", ["Boeing"]), ("global", KOREA_GROUP, ["Korean Air", "Airbus"])],
+    "에너지·화학": [("korea", "에너지·화학", None), ("global", "에너지·정유", None),
+               ("global", KOREA_GROUP, ["SK Innovation", "S-Oil", "KEPCO", "Doosan Enerbility"])],
+    "항공": [("korea", "항공", None), ("global", "방산·항공우주", ["Boeing"]), ("global", KOREA_GROUP, ["Korean Air", "Airbus", "Korea Aerospace"])],
     "재계": [("korea", "재계", None), ("global", KOREA_GROUP, ["SK Group", "Hanwha Group"])],
     "제약·바이오": [("global", "제약·바이오", None)],
 }
@@ -91,6 +117,10 @@ def view_companies(sector, groups):
 
 # 짧아서 다른 뜻으로도 쓰이는 별칭: 이 별칭으로만 걸린 제목은 아래 낱말이 함께 있어야 남긴다 (GM = General Manager 야구 기사 등)
 ALIAS_CONTEXT = {
+    "Mercedes": r"car|cars|auto|autos|automaker|carmaker|EV|EVs|electric|vehicle|vehicles|sales|deliveries|China|tariff|tariffs|plant|factory|battery|batteries|earnings|profit|outlook|shares|recall|Daimler|CEO|Kallenius|jobs|luxury|BMW|Volkswagen|Porsche|Korea|LG|Samsung|SK",  # 'Mercedes'·'Benz'만 걸린 제목은 자동차 낱말이 함께 있어야 (F1 팀 기사 방지)
+    "Benz": r"car|cars|auto|autos|automaker|carmaker|EV|EVs|electric|vehicle|vehicles|sales|deliveries|China|tariff|tariffs|plant|factory|battery|batteries|earnings|profit|outlook|shares|recall|Daimler|CEO|Kallenius|jobs|luxury|BMW|Volkswagen|Porsche|Korea|LG|Samsung|SK",
+    "SK On": r"battery|batteries|EV|electric|cell|cells|plant|factory|Ford|Hyundai|IPO|merger|SK Innovation|loss|losses|profit|earnings|investment|Georgia|Kentucky",  # 'SK on track' 같은 문장 방지
+    "KAI": r"aircraft|jet|jets|fighter|KF-21|FA-50|T-50|helicopter|defense|aerospace|satellite|Korea Aerospace|Poland|export",
     "GM": r"car|cars|auto|automaker|vehicle|EV|electric|truck|SUV|Chevrolet|Chevy|Cadillac|Buick|GMC|Cruise|plant|factory|recall|UAW|Barra|sales|earnings|profit|shares|stock|tariff|battery|Korea|sues|lawsuit|CEO|investors|workers|layoffs|dealers|shoppers|buyers",
 }
 # '한국 관련' 외신: 한국 낱말 + 섹터 낱말이 함께 든 기사를 본문까지 찾는다 (구글은 본문도 색인)
@@ -100,7 +130,7 @@ GN_JUNK_RE = re.compile(r"Market Talk|Roundup|News Quiz|Breaking News|Live Updat
                         r"|Stock Price (?:&|and) (?:Latest )?News|Stock Price Today|stock price \\([A-Z][A-Z.]{0,7}\\)|in real time$|Stock Quotes?\b|Quote (?:&|and) News|\bQuote$|Company Profile|Executive Profile|People (?:&|and) Executives|\bBiography\b|\bProfile$"
                         r"|\([A-Z]{1,5}(?:\.[A-Z]{1,3})?\)\s*(?:Stock|Share|Shares)\s*(?:Price|Quote)", re.I)
 # 스포츠 기사 (GM=General Manager, 구단·리그 기사가 기업 별칭에 걸리는 것)
-GN_SPORTS_RE = re.compile(r"(?<![A-Za-z])(MLB|NBA|NFL|NHL|MLS|NCAA|WNBA|Premier League|Champions League|World Series|Super Bowl|Stanley Cup|playoffs?|postseason|quarterback|pitchers?|pitching|front office|outfielder|shortstop|infielder|roster|free agen(?:t|ts|cy)|draft picks?|general manager|head coach|touchdown|home runs?|Yankees|Dodgers|Mets|Red Sox|Cubs|Lakers|Knicks|Celtics|Patriots|Cowboys)(?![A-Za-z])", re.I)
+GN_SPORTS_RE = re.compile(r"(?<![A-Za-z])(MLB|NBA|NFL|NHL|MLS|NCAA|WNBA|Premier League|Champions League|World Series|Super Bowl|Stanley Cup|playoffs?|postseason|quarterback|pitchers?|pitching|front office|outfielder|shortstop|infielder|roster|free agen(?:t|ts|cy)|draft picks?|general manager|head coach|touchdown|home runs?|Yankees|Dodgers|Mets|Red Sox|Cubs|Lakers|Knicks|Celtics|Patriots|Cowboys|F1|Formula 1|Formula One|Grand Prix)(?![A-Za-z])", re.I)  # F1: 'Mercedes' 팀 기사 (2026.11.22)
 KOREA_EXCLUDE = '-"North Korea" -"North Korean" -Pyongyang -"Kim Jong"'  # 예전 검색식용(지금은 안 씀: 검색식이 길면 구글이 언론사 제한을 무시해 다른 매체만 돌아옴)
 KOREA_NK_RE = re.compile(r"(?<![A-Za-z])(North Korea|North Korean|N\.\s?Korea|Pyongyang|Kim Jong)", re.I)  # 북한 기사는 받은 뒤 제목으로 뺀다
 KOREA_TOPIC_CHUNK = 3  # 검색식 하나에 넣는 섹터 낱말 수 (2026.11 시험: 낱말이 많으면 언론사 제한이 풀려 0~2건만 남음)
@@ -109,7 +139,7 @@ KOREA_TOPICS = {
     "중후장대": ["shipbuilder", "shipbuilding", "shipyard", "defense", "arms", "steel"],
     "에너지·화학": ["refiner", "refinery", "petrochemical", "oil", "nuclear", "reactor", "power grid", "energy", "LNG"],
     "IT·통신": ["telecom", "internet", "AI", "data center"], "반도체·전자": ["chip", "chips", "chipmaker", "semiconductor", "memory", "electronics", "smartphone", "display", "appliance"],
-    "항공": ["airline", "aviation", "aircraft"], "재계": ["chaebol", "conglomerate", "tariff", "trade deal", "investment"],
+    "항공": ["airline", "aviation", "aircraft"], "재계": ["chaebol", "conglomerate", "tariff", "trade deal", "investment", "Section 232", "anti-dumping"],
 }
 KOREA_TITLE_RE = re.compile(r"(?<![A-Za-z])(South\s+Korea|Korea|Korean|Koreans|Seoul|Samsung|Hyundai|SK\s+hynix|Hynix|LG|Hanwha|POSCO|Kia|KEPCO|Naver|Kakao)(?![A-Za-z])", re.I)
 GN_KO_SYSTEM = "너는 중앙일보 산업부 기자를 돕는 번역가다. 영문 외신 기사 제목을 한국 신문 제목처럼 짧고 정확하게 옮긴다. 회사·인명은 한국 언론 표기(엔비디아, 마이크론, TSMC 등)를 쓰고, 없는 내용을 더하지 않는다."
@@ -215,7 +245,7 @@ def global_sectors(groups, english, names):
     if "반도체" in out and "Samsung" not in out["반도체"]:
         out["반도체"].append("Samsung")
     out[KOREA_GROUP] = list(KOREA_GROUP_FIRMS)
-    return out
+    return add_extra_groups(out)
 
 
 def ko_prompt(chunk):
