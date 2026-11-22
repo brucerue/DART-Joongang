@@ -262,6 +262,24 @@ def rekey_store(store, gmap):
     return n
 
 
+STALE_FIRST_SEEN_HOURS = 24  # 처음 보는 기사인데 구글 날짜가 이보다 오래됐으면 구글 날짜가 틀린 것(연합이 미리 써 둔 기사 등)으로 보고 처음 찾은 시각을 쓴다
+
+
+def fix_stale_dates(items, known, now, hours=STALE_FIRST_SEEN_HOURS):
+    """처음 보는 기사(known에 주소가 없음)인데 날짜가 hours시간보다 오래됐으면 날짜를 지금(처음 찾은 시각)으로 바꾼다(제자리에서) -> 바꾼 수.
+    2026.11.22: 연합뉴스 '차세대 원전 SMR…'(11/22 07:33 송고)을 구글이 기사 번호를 만든 11/20 16:00으로 알려 줘 '오늘'·오늘의 현황에서 빠졌음.
+    한두 회차 놓친 기사(몇 시간 전)는 그대로 둔다."""
+    n = 0
+    for it in items:
+        if it.get("url") in known:
+            continue
+        dt = it.get("dt")
+        if dt is not None and dt < now - timedelta(hours=hours):
+            it["dt"] = now
+            n += 1
+    return n
+
+
 def general_file(sector):
     """섹터의 '일반' 기사 파일 이름 (한글·중간점 없는 이름: 앱의 general_file과 같은 규칙)"""
     return "general/" + hashlib.md5(sector.encode("utf-8")).hexdigest()[:10] + ".json"
@@ -348,9 +366,11 @@ def main():
     g_ok, g_fail = resolve_urls(order, gmap, now)
     moved = rekey_store(store, gmap)
     print(f"원문 주소: 새로 {g_ok}건 바꿈, 못 바꿈 {g_fail}건, 모아 둔 것 {moved}건 옮김, 기억 {len(gmap)}건")
+    stale = 0
     for (mode, sector), items in found.items():
         if mode == "일반":
             continue
+        stale += fix_stale_dates(items, store, now)
         dump[f"{mode}|{sector}"] = items  # 텔레그램 발송도 이걸 쓰므로 다시 올라온 기사는 알림도 안 감
         added += merge(store, [to_row(i, mode, sector) for i in items])
     general_from = (now - timedelta(days=GENERAL_DAYS)).strftime(FMT)
@@ -361,6 +381,7 @@ def main():
         rekey_store(gstore, gmap)
         items = found.get(("일반", sector))
         if items is not None:
+            stale += fix_stale_dates(items, gstore, now)
             dump[f"일반|{sector}"] = items
             general_n += merge(gstore, [to_row(i, "일반", sector) for i in items])
         os.makedirs(os.path.dirname(gpath), exist_ok=True)
@@ -395,6 +416,7 @@ def main():
     if args.dump:
         with open(args.dump, "w", encoding="utf-8") as f:
             json.dump({k: [dict(i, dt=i["dt"].isoformat()) for i in v] for k, v in dump.items()}, f, ensure_ascii=False)
+    print(f"구글 날짜가 하루 넘게 지난 새 기사 {stale}건은 처음 찾은 시각으로")
     print(f"수집 완료: 다시 올라온 기사 {removed}건 지움, 새로 {added}건, 보관 {len(rows)}건(이전 {before}건), 일반 새로 {general_n}건, 실패 {len(errors)}곳")
     for e in errors:
         print("  실패:", e, file=sys.stderr)

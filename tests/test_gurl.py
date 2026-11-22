@@ -61,5 +61,12 @@ gst = {G.format(1): {"u": G.format(1), "t": "Samsung", "c": ["Samsung"]}, "https
 cd.rekey_store(gst, gmap)
 check(list(gst) == ["https://press.example/CBMiAAA1"] and set(gst["https://press.example/CBMiAAA1"]["c"]) == {"Samsung", "Apple"}, "외신 줄(기업 c)도 옮기고 합침")
 check(cd.clean_url("https://www.yna.co.kr/amp/view/AKR1") == "https://www.yna.co.kr/view/AKR1" and cd.clean_url("https://www.yna.co.kr/view/AKR1") == "https://www.yna.co.kr/view/AKR1", "연합 AMP 주소는 보통 주소로(같은 기사 두 줄 방지)")
+# 구글 날짜가 하루 넘게 지난 '처음 보는' 기사는 처음 찾은 시각으로 (연합 미리 써 둔 기사)
+from datetime import timedelta
+its = [{"url": "https://yna/AKR20261120", "dt": now - timedelta(hours=41)},   # 처음 봄 + 41시간 전 -> 지금으로
+       {"url": "https://yna/old-known", "dt": now - timedelta(hours=41)},     # 이미 모아 둔 기사 -> 그대로
+       {"url": "https://yna/missed", "dt": now - timedelta(hours=7)}]         # 몇 시간 놓친 기사 -> 그대로
+n = cd.fix_stale_dates(its, {"https://yna/old-known": {}}, now)
+check(n == 1 and its[0]["dt"] == now and its[1]["dt"] < now - timedelta(hours=40) and its[2]["dt"] == now - timedelta(hours=7), "처음 보는데 하루 넘게 지난 날짜만 처음 찾은 시각으로")
 print("실패:", fails) if fails else print("모두 통과")
 sys.exit(1 if fails else 0)
