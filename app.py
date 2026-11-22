@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.22 13:15"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.22 20:55"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3649,29 +3649,40 @@ def is_new(item, now):
     return item["dt"].astimezone(KST).date() >= now.astimezone(KST).date() - timedelta(days=1)
 
 
+EXCL_PREFIX_RE = re.compile(r"^\s*(?:[\[\(<【〈]\s*단독\s*[\]\)>】〉]|단독\s*[:,\-…]?)\s*")  # 제목 앞 '[단독]' (시간줄에선 주황 점으로 보여 줘서 뺀다)
+
+
 def news_html(clusters, now=None):
-    """묶음 목록 -> 화면에 보여줄 HTML. 제목·주소는 반드시 escape해서 넣는다."""
+    """묶음 목록 -> 기사 시간줄 HTML (2026.11.22 리디자인): 왼쪽 시각(날짜가 바뀔 때만 '오늘·어제·11.20'), 가운데 점(단독=주황, 그 밖=남색 빈 점),
+    오른쪽 명조 제목 + 매체·검색어 + 관련 기사. 제목·주소는 반드시 escape해서 넣는다."""
     now = now or datetime.now(KST)
+    today = now.astimezone(KST).date()
 
-    def link(item):
-        url = item["url"] if item["url"].startswith(("http://", "https://")) else "#"
-        badge = '<span class="news-new">NEW</span>' if is_new(item, now) else ""
-        return badge + f'<a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener noreferrer">{html.escape(item["title"])}</a>'
+    def href(item):
+        return html.escape(item["url"] if item["url"].startswith(("http://", "https://")) else "#", quote=True)
 
-    def meta(item):
-        tags = f' · <span class="news-tags">{html.escape(", ".join(item["tags"]))}</span>' if item.get("tags") else ""
-        return f'{html.escape(item["publisher"])} · {item["dt"]:%m.%d %H:%M}{tags}'
+    def day_label(d):
+        return "오늘" if d == today else ("어제" if d == today - timedelta(days=1) else f"{d.month}.{d.day}")
 
-    parts = []
+    rows, prev_day = [], None
     for c in clusters:
         rep, others = c["rep"], c["others"]
-        extra = f" · 외 {len(others)}건" if others else ""
-        block = f'<div class="news-item">{link(rep)}<div class="news-meta">{meta(rep)}{extra}</div>'
+        dt = rep["dt"].astimezone(KST)
+        excl = rep.get("kind") == "단독" or is_exclusive(rep["title"])
+        title = EXCL_PREFIX_RE.sub("", rep["title"]) if excl else rep["title"]
+        day = "" if dt.date() == prev_day else day_label(dt.date())
+        prev_day = dt.date()
+        tags = f'<span class="tag">{html.escape(", ".join(rep["tags"]))}</span>' if rep.get("tags") else ""
+        extra = f'<span class="more">외 {len(others)}건</span>' if others else ""
+        body = (f'<a href="{href(rep)}" target="_blank" rel="noopener noreferrer">{html.escape(title)}</a>'
+                f'<div class="meta">{html.escape(rep["publisher"])}{tags}{extra}</div>')
         if others:
-            rows = "".join(f"<li>{link(o)} <span>{meta(o)}</span></li>" for o in others)
-            block += f"<details><summary>관련 기사 {len(others)}건 보기</summary><ul>{rows}</ul></details>"
-        parts.append(block + "</div>")
-    return "\n".join(parts)
+            sub = "".join(f'<li><a href="{href(o)}" target="_blank" rel="noopener noreferrer">{html.escape(o["title"])}</a>'
+                          f'<span>{html.escape(o["publisher"])} · {o["dt"].astimezone(KST):%m.%d %H:%M}</span></li>' for o in others)
+            body += f"<details><summary>관련 기사 {len(others)}건 보기</summary><ul>{sub}</ul></details>"
+        rows.append(f'<li class="tl-row{" ex" if excl else ""}"><div class="tl-time"><span class="day">{day}</span><time>{dt:%H:%M}</time></div>'
+                    f'<div class="tl-mark" aria-hidden="true"></div><div class="tl-body">{body}</div></li>')
+    return f'<ol class="tl">{"".join(rows)}</ol>' if rows else ""
 
 
 def news_copy_text(res, now=None):
@@ -8278,6 +8289,7 @@ def render_overseas():
 
 STYLE = """
 <style>
+@import url("https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@700;800&display=swap");
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
 
 html, body, [class*="st-"], button, input, textarea {
@@ -8531,6 +8543,47 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .st-key-calc_box [data-testid="stTabs"] [role="tablist"] { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)) !important; gap: 0.3rem !important; }
 .st-key-calc_box [data-testid="stTab"] { flex: none !important; border-radius: 10px !important; padding: 0.45rem 0.1rem !important; }
 .st-key-calc_box [data-testid="stTab"] p { font-size: 0.78rem !important; white-space: nowrap; letter-spacing: -0.03em; }
+/* 2026.11.22 기사 시간줄 (news_html): 시각 · 점(단독 주황/그 밖 남색) · 명조 제목 */
+.tl { list-style: none; margin: 0.2rem 0 0.6rem; padding: 0; }
+[data-testid="stMarkdownContainer"]:has(> .tl) { background: #ffffff; border: 1px solid #e3e8ef; border-radius: 16px; padding: 1.1rem 1.2rem 0.3rem; }
+.st-key-today_wrap [data-testid="stMarkdownContainer"]:has(> .tl) { background: transparent; border: 0; padding: 0.2rem 0 0; }
+.tl-row { display: grid; grid-template-columns: 4.4rem 1.4rem minmax(0, 1fr); column-gap: 0.6rem; }
+.tl-time { text-align: right; padding-top: 0.1rem; font-variant-numeric: tabular-nums; }
+.tl-time time { display: block; font-size: 1.06rem; font-weight: 700; color: #15233d; letter-spacing: -0.02em; }
+.tl-time .day { display: block; font-size: 0.72rem; color: #5f6b7d; min-height: 0.95rem; }
+.tl-time .day:empty { min-height: 0; }
+.tl-mark { position: relative; }
+.tl-mark::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #e2e7ee; }
+.tl-row:first-child .tl-mark::before { top: 0.9rem; }
+.tl-row:last-child .tl-mark::before { bottom: calc(100% - 0.9rem); }
+.tl-mark::after { content: ""; position: absolute; left: 50%; top: 0.55rem; width: 0.7rem; height: 0.7rem; margin-left: -0.35rem; border-radius: 50%; background: #ffffff; border: 2px solid #1f3a68; box-sizing: border-box; }
+.tl-row.ex .tl-mark::after { background: #d9480f; border-color: #d9480f; box-shadow: 0 0 0 3px #fbe3d6; }
+.tl-body { padding: 0.1rem 0 1.1rem; max-width: 42em; min-width: 0; }
+.tl-body > a { font-family: "MaruBuri", "Nanum Myeongjo", serif; font-weight: 800; font-size: 1.1rem; line-height: 1.45; color: #15233d; text-decoration: none; word-break: keep-all; }
+.tl-body > a:hover { color: #1f3a68; text-decoration: underline; text-underline-offset: 3px; }
+.tl-body .meta { margin-top: 0.2rem; font-size: 0.8rem; color: #5f6b7d; }
+.tl-body .meta .tag { margin-left: 0.5rem; color: #1f3a68; font-weight: 600; }
+.tl-body .meta .more { margin-left: 0.5rem; }
+.tl-body details { margin-top: 0.35rem; font-size: 0.86rem; }
+.tl-body summary { color: #1f3a68; cursor: pointer; }
+.tl-body ul { margin: 0.35rem 0 0; padding-left: 1.1rem; }
+.tl-body li { margin-bottom: 0.25rem; }
+.tl-body li a { color: #1f2937; text-decoration: none; }
+.tl-body li a:hover { color: #1f3a68; text-decoration: underline; }
+.tl-body li span { color: #5f6b7d; font-size: 0.78rem; margin-left: 0.35rem; }
+@media (max-width: 640px) {
+  .tl-row { grid-template-columns: 3.1rem 1rem minmax(0, 1fr); column-gap: 0.5rem; }
+  .tl-time time { font-size: 0.95rem; }
+  .tl-body > a { font-size: 1rem; }
+  [data-testid="stMarkdownContainer"]:has(> .tl) { padding: 0.9rem 0.8rem 0.2rem; }
+}
+/* 오늘의 현황 섹터 머리: 왼쪽 막대 없이 이름을 크게, 건수는 숫자만(단독은 주황) */
+.td-head .n { font-size: 1.45rem !important; }
+.td-head .n::before { display: none !important; }
+.td-pill { background: none !important; color: #5f6b7d !important; padding: 0 !important; margin-left: 0.9rem !important; font-size: 0.8rem !important; font-variant-numeric: tabular-nums; }
+.td-pill b { font-size: 1.05rem; color: #15233d; margin-left: 0.15rem; }
+.td-pill.k1 b { color: #d9480f; }
+.td-lbl.k1::before { background: #d9480f !important; }
 </style>
 """
 
