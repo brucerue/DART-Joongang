@@ -42,6 +42,20 @@ check("공백 포함" in out(), "글자 수")
 at.number_input(key="calc_dn").set_value(3).run()
 check("영업일 뒤" in out(), "날짜")
 check(not at.exception, f"오류 없음 {at.exception}")
+# 합계: 붙여 넣은 숫자 더하기 (단위 글자는 빼고 더한 뒤 다시 붙임)
+import calc_tools as ct
+for t, want in [("-0.8억달러\n-3.4억달러", "-4.2억달러"), ("20억\n5억", "25억"), ("1조2000억원\n3000억원", "1조5000억원"),
+                ("20억\n5억\n1,234만", "25억1234만"), ("△1,234\n(500)\n300", "-1434"), ("10 20 30\n40", "100"),
+                ("1조 2,345억\n100억", "1조2445억"), ("5천억\n1조", "1조5000억"), ("12.5%\n3.2%", "15.7%"), ("0.1억\n0.2억", "0.3억")]:
+    got = ct.sum_numbers(t)["text"]
+    check(got == want, f"합계 {t!r} -> {got}")
+r = ct.sum_numbers("20억달러\n5억원\n안녕")
+check(r["text"] == "25억" and r["units"] == ["달러", "원"] and r["bad"] == ["안녕"], f"단위가 섞이면 단위 없이 + 못 읽은 줄 알림 {r}")
+check(ct.sum_numbers("") is None and ct.sum_numbers("가나다") is None, "숫자가 없으면 결과 없음")
+at.text_area(key="calc_sum").input("-0.8억달러\n-3.4억달러").run()
+check(not at.exception and "-4.2억달러" in out(), "계산기 '합계' 칸에 결과")
+at.button(key="calc_clr_sum").click().run()
+check(at.text_area(key="calc_sum").value == "" and not at.exception, "합계 지우기")
 print("실패", fails)
 # 지우기
 at.text_input(key="calc_a").input("100").run(); at.text_input(key="calc_b").input("200").run()
@@ -52,4 +66,18 @@ at.button(key="calc_clr5").click().run()
 check(at.text_area(key="calc_share").value == "" and not at.exception, "비중 지우기")
 at.button(key="calc_clr7").click().run()
 check(not at.exception and at.number_input(key="calc_dn").value == 0, f"날짜 지우기 {at.exception}")
+# 합계: 붙여 넣은 숫자 더하기 (단위 글자는 빼고 더한 뒤 다시 붙임)
+import calc_tools as ct
+for t, want in [("-0.8억달러\n-3.4억달러", "-4.2억달러"), ("20억\n5억", "25억"), ("1조2000억원\n3000억원", "1조5000억원"),
+                ("20억\n5억\n1,234만", "25억1234만"), ("△1,234\n(500)\n300", "-1434"), ("10 20 30\n40", "100"),
+                ("1조 2,345억\n100억", "1조2445억"), ("5천억\n1조", "1조5000억"), ("12.5%\n3.2%", "15.7%"), ("0.1억\n0.2억", "0.3억")]:
+    got = ct.sum_numbers(t)["text"]
+    check(got == want, f"합계 {t!r} -> {got}")
+r = ct.sum_numbers("20억달러\n5억원\n안녕")
+check(r["text"] == "25억" and r["units"] == ["달러", "원"] and r["bad"] == ["안녕"], f"단위가 섞이면 단위 없이 + 못 읽은 줄 알림 {r}")
+check(ct.sum_numbers("") is None and ct.sum_numbers("가나다") is None, "숫자가 없으면 결과 없음")
+at.text_area(key="calc_sum").input("-0.8억달러\n-3.4억달러").run()
+check(not at.exception and "-4.2억달러" in out(), "계산기 '합계' 칸에 결과")
+at.button(key="calc_clr_sum").click().run()
+check(at.text_area(key="calc_sum").value == "" and not at.exception, "합계 지우기")
 print("실패", fails)

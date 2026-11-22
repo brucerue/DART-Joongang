@@ -231,3 +231,88 @@ def table_change(text):
     total = {"name": "합계", "a": ta, "b": tb, **change(ta, tb), "share_a": 100.0 if ta else None, "share_b": 100.0 if tb else None,
              "contrib": 100.0 if tdiff else None}
     return rows, total
+
+
+KOR_UNIT_MULT = (("조", 1e12), ("억", 1e8), ("만", 1e4))
+_SUM_UNIT_RE = re.compile(r"[^\d\s.,%조억만천)]+$")  # 숫자 뒤 단위 글자(달러·원·대·명 …)
+
+
+def _sum_item(raw):
+    """한 칸 -> (값, 단위 글자, 쓴 한글 단위(조·억·만 중 가장 큰 것 또는 ''), 소수 자릿수(그 한글 단위 기준)) 또는 None"""
+    s = str(raw).strip().replace(" ", "")
+    if not s:
+        return None
+    prefix = ""
+    if s[0] in "$₩€¥£":
+        prefix, s = s[0], s[1:]
+    m = _SUM_UNIT_RE.search(s)
+    unit = m.group(0) if m else ""
+    if unit:
+        s = s[: m.start()]
+    if unit.startswith("원") or unit == "원":
+        s += "원"  # parse_num이 '원'을 알아서 지운다
+    s = re.sub(r"(\d+(?:\.\d+)?)천(?=[조억만]|$)", lambda x: str(float(x.group(1)) * 1000).rstrip("0").rstrip("."), s)  # 5천억 -> 5000억
+    v, pct = parse_num(s)
+    if v is None:
+        return None
+    big = next((w for w, _ in KOR_UNIT_MULT if w in s), "")
+    dec = 0
+    if big and re.fullmatch(r"[△▲\-−(]*[\d,]*\.?\d+" + big + r"\)?", s.replace("원", "")):  # '-0.8억'처럼 한 단위로만 쓴 값은 그 자릿수 그대로
+        mm = re.search(r"\.(\d+)", s)
+        dec = len(mm.group(1)) if mm else 0
+    elif not big:
+        mm = re.search(r"\.(\d+)", s)
+        dec = len(mm.group(1)) if mm else 0
+    if pct:
+        unit = "%" + unit
+    return v, prefix + "|" + unit, big, dec
+
+
+def _one_korean_number(parts):
+    """['1조', '2,345억', '6789만']처럼 큰 단위부터 이어 쓴 조각이면 한 숫자"""
+    order = [next((i for i, (w, _) in enumerate(KOR_UNIT_MULT) if re.search(r"\d" + w + r"[^\d]*$", p)), 3) for p in parts]
+    return all(a < b for a, b in zip(order, order[1:])) and order[0] < 3
+
+
+def sum_numbers(text):
+    """여러 줄(또는 탭·쌍점 구분)로 붙여 넣은 숫자를 더한다. '20억', '△3,000', '(1,234)', '-0.8억달러'처럼 한글 단위·단위 글자가 붙어도 된다.
+    -> {'total', 'count', 'text'(입력과 같은 꼴: 예 -4.2억달러), 'kor'(조·억·만 풀어 쓰기), 'plain'(숫자만), 'units'(쓴 단위 글자들), 'bad'(못 읽은 칸)}"""
+    items, bad = [], []
+    for line in re.split(r"[\n\r;]+", str(text or "")):
+        line = line.strip()
+        if not line:
+            continue
+        parts = [p for p in re.split(r"[\t ]+", line) if p]  # 한 줄에 여러 숫자(엑셀 가로 복사 등). '1조 2,345억'처럼 큰 단위부터 띄어 쓴 건 한 숫자
+        got = [_sum_item(p) for p in parts]
+        if len(parts) > 1 and all(g is not None for g in got) and not _one_korean_number(parts):
+            items += got
+            continue
+        one = _sum_item(line)
+        if one is not None:
+            items.append(one)
+        else:
+            bad.append(line)
+    if not items:
+        return None
+    total = sum(v for v, _, _, _ in items)
+    units = list(dict.fromkeys(u for _, u, _, _ in items))
+    prefix, unit = (units[0].split("|", 1) if len(units) == 1 else ("", ""))
+    bigs = [b for _, _, b, _ in items if b]
+    big = max(bigs, key=lambda w: dict(KOR_UNIT_MULT)[w]) if bigs else ""
+    dec = max(d for _, _, b, d in items if b == big) if bigs else max(d for _, _, _, d in items)
+    shown = total / dict(KOR_UNIT_MULT)[big] if big else total
+    if big and abs(round(shown, dec) - shown) > 1e-9 * max(1, abs(shown)):  # 그 단위로 딱 떨어지지 않으면(예 25억1234만) 풀어 쓴다
+        prefix_k = "-" if total < 0 else ""
+        text_out = f"{prefix_k}{prefix}{kor_number(abs(total))}{unit.lstrip('%')}"
+        return {"total": total, "count": len(items), "text": text_out, "kor": None, "plain": num_text(total),
+                "units": [u.replace("|", "") for u in units if u != "|"] if len(units) > 1 else [], "bad": bad}
+    num = f"{shown:.{dec}f}" if dec else str(int(round(shown)))
+    if num.startswith("-") and float(num) == 0:
+        num = num[1:]
+    sign = "-" if num.startswith("-") else ""
+    pct = unit.startswith("%")
+    tail = unit[1:] if pct else unit
+    text_out = f"{sign}{prefix}{num.lstrip('-')}{big}{'%' if pct else ''}{tail}"
+    return {"total": total, "count": len(items), "text": text_out, "kor": kor_number(total) + tail if big else None,
+            "plain": num_text(total, max(dec, 0) or 1) if not big else num_text(total), "units": [u.replace("|", "") for u in units if u != "|"] if len(units) > 1 else [],
+            "bad": bad}
