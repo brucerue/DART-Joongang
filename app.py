@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.22 20:55"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.22 21:40"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8547,7 +8547,7 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .tl { list-style: none; margin: 0.2rem 0 0.6rem; padding: 0; }
 [data-testid="stMarkdownContainer"]:has(> .tl) { background: #ffffff; border: 1px solid #e3e8ef; border-radius: 16px; padding: 1.1rem 1.2rem 0.3rem; }
 .st-key-today_wrap [data-testid="stMarkdownContainer"]:has(> .tl) { background: transparent; border: 0; padding: 0.2rem 0 0; }
-.tl-row { display: grid; grid-template-columns: 4.4rem 1.4rem minmax(0, 1fr); column-gap: 0.6rem; }
+.tl-row { display: grid; grid-template-columns: 3.3rem 1.1rem minmax(0, 1fr); column-gap: 0.55rem; }  /* 시각 칸은 글자 폭만큼만 (빈 자리 없이) */
 .tl-time { text-align: right; padding-top: 0.1rem; font-variant-numeric: tabular-nums; }
 .tl-time time { display: block; font-size: 1.06rem; font-weight: 700; color: #15233d; letter-spacing: -0.02em; }
 .tl-time .day { display: block; font-size: 0.72rem; color: #5f6b7d; min-height: 0.95rem; }
@@ -8558,7 +8558,7 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .tl-row:last-child .tl-mark::before { bottom: calc(100% - 0.9rem); }
 .tl-mark::after { content: ""; position: absolute; left: 50%; top: 0.55rem; width: 0.7rem; height: 0.7rem; margin-left: -0.35rem; border-radius: 50%; background: #ffffff; border: 2px solid #1f3a68; box-sizing: border-box; }
 .tl-row.ex .tl-mark::after { background: #d9480f; border-color: #d9480f; box-shadow: 0 0 0 3px #fbe3d6; }
-.tl-body { padding: 0.1rem 0 1.1rem; max-width: 42em; min-width: 0; }
+.tl-body { padding: 0.05rem 0 0.95rem; max-width: 42em; min-width: 0; }
 .tl-body > a { font-family: "MaruBuri", "Nanum Myeongjo", serif; font-weight: 800; font-size: 1.1rem; line-height: 1.45; color: #15233d; text-decoration: none; word-break: keep-all; }
 .tl-body > a:hover { color: #1f3a68; text-decoration: underline; text-underline-offset: 3px; }
 .tl-body .meta { margin-top: 0.2rem; font-size: 0.8rem; color: #5f6b7d; }
@@ -8572,11 +8572,23 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .tl-body li a:hover { color: #1f3a68; text-decoration: underline; }
 .tl-body li span { color: #5f6b7d; font-size: 0.78rem; margin-left: 0.35rem; }
 @media (max-width: 640px) {
-  .tl-row { grid-template-columns: 3.1rem 1rem minmax(0, 1fr); column-gap: 0.5rem; }
-  .tl-time time { font-size: 0.95rem; }
-  .tl-body > a { font-size: 1rem; }
-  [data-testid="stMarkdownContainer"]:has(> .tl) { padding: 0.9rem 0.8rem 0.2rem; }
+  .tl-row { grid-template-columns: 2.55rem 0.8rem minmax(0, 1fr); column-gap: 0.4rem; }  /* 휴대폰: 시각을 왼쪽에 붙이고 제목 폭을 넓게 */
+  .tl-time { text-align: left; }
+  .tl-time time { font-size: 0.86rem; letter-spacing: -0.03em; }
+  .tl-time .day { font-size: 0.66rem; }
+  .tl-mark::after { width: 0.6rem; height: 0.6rem; margin-left: -0.3rem; top: 0.5rem; }
+  .tl-row.ex .tl-mark::after { box-shadow: 0 0 0 2px #fbe3d6; }
+  .tl-body { padding-bottom: 0.8rem; }
+  .tl-body > a { font-size: 0.98rem; line-height: 1.4; }
+  .tl-body .meta { font-size: 0.76rem; }
+  [data-testid="stMarkdownContainer"]:has(> .tl) { padding: 0.8rem 0.7rem 0.1rem; }
+  .st-key-today_wrap [data-testid="stVerticalBlockBorderWrapper"] { padding-left: 0.1rem; padding-right: 0.1rem; }
 }
+/* 시간줄 위아래 빈 줄 줄이기: '단독 N건' 이름표와 목록을 붙이고, 목록 끝 여백을 덜어 낸다 */
+.tl { margin-bottom: 0; }
+.tl > li.tl-row { margin: 0 !important; padding: 0 !important; }  /* 마크다운 기본 줄 간격 때문에 세로줄이 끊기지 않게 */
+[data-testid="stElementContainer"]:has(.tl) { margin-top: -0.55rem; }
+.td-lbl { margin: 0.6rem 0 0.2rem !important; }
 /* 오늘의 현황 섹터 머리: 왼쪽 막대 없이 이름을 크게, 건수는 숫자만(단독은 주황) */
 .td-head .n { font-size: 1.45rem !important; }
 .td-head .n::before { display: none !important; }
