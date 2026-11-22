@@ -6,7 +6,7 @@ import time
 
 from playwright.sync_api import sync_playwright
 
-APP_URL = "https://dartjoongang.streamlit.app/"
+APP_URL = "https://dartjoongang.streamlit.app/?me=1"  # me=1: 사용 통계에서 본인(자동 깨우기)으로 빼고 센다
 TITLE = "산업 취재 도우미"
 WAIT_SEC = 240
 

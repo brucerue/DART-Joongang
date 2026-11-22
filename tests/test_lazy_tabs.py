@@ -3,6 +3,7 @@ REPO = str(_pl.Path(__file__).resolve().parents[1])  # 저장소 폴더 (tests/r
 FIX = str(_pl.Path(__file__).resolve().parent / "fixtures")  # 시험용 자료
 import os, sys, types, requests
 os.environ.setdefault("DART_API_KEY", "x"*40)
+os.environ["APPS_SCRIPT_URL"] = "https://script.google.com/macros/s/FAKE/exec?key=K"  # 사용 기록(접속·탭 열기)도 가짜로 받아 확인
 import pandas as pd
 CSV = "corp_code,corp_name,stock_code\n" + "\n".join([f"0{i:07d},비상장사{i}," for i in range(52000)] + ["00126380,삼성전자,005930"]) + "\n"
 class R:
@@ -13,7 +14,10 @@ def fake_get(url, *a, **k):
     if "corp_codes.csv" in url:
         r = requests.models.Response(); r.status_code = 200; r._content = CSV.encode("utf-8"); return r
     return R()
-requests.get = fake_get
+POSTS = []
+def fake_post(url, *a, **k):
+    POSTS.append((k.get("json") or {}).get("items", [{}])[0].get("f")); return R()
+requests.get = fake_get; requests.post = fake_post
 class FakeDart:
     def __init__(self, key): self.corp_codes = pd.DataFrame({"corp_code": ["00126380"], "corp_name": ["삼성전자"], "stock_code": ["005930"]})
     def __getattr__(self, n): return lambda *a, **k: pd.DataFrame()
@@ -30,7 +34,11 @@ at = AppTest.from_file(REPO + "/app.py", default_timeout=300); at.run()
 check(not at.exception, f"오류 없음 {[str(e.value)[:150] for e in at.exception]}")
 keys = {getattr(w, "key", None) for w in at.radio} | {getattr(w, "key", None) for w in at.get("button_group")}
 check(at.session_state["main_tab"] == "오늘의 현황" and "fin_mode" not in keys and "news_mode" not in keys and "px_mode" not in keys, "처음엔 첫 탭(오늘의 현황)만 그림")
+import time as _t; _t.sleep(0.5)
+check("접속" in POSTS and "탭 열기: 오늘의 현황" not in POSTS, f"처음 들어오면 '접속'만 (첫 화면은 탭 열기로 안 셈) {POSTS}")
 at.session_state["main_tab"] = "재무 분석"; at.run()
+_t.sleep(0.5)
+check("탭 열기: 재무 분석" in POSTS and POSTS.count("접속") == 1, f"탭을 옮기면 '탭 열기', 접속은 한 번만 {POSTS}")
 check(not at.exception and [r for r in at.radio if r.key == "fin_mode"] and not [r for r in at.radio if r.key == "news_mode"], "재무 분석으로 옮기면 그 탭만")
 at.radio(key="fin_mode").set_value("국내").run()
 at.radio(key="ind_top").set_value("차·배터리").run()

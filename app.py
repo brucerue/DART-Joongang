@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.22 09:45"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.22 10:00"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -530,6 +530,9 @@ USE_NAVER = (load_secret("USE_NAVER") or "1").strip().lower() in ("1", "true", "
 # 본인 사용은 관리자 주소(?lab=1)로 열면 저절로 따로 세고, 일반 주소로 쓸 때는 끝에 ?me=1을 붙이면 된다.
 APPS_SCRIPT_URL = (load_secret("APPS_SCRIPT_URL") or "").strip()
 USE_LOG_THROTTLE = 10 * 60  # once=True인 기록은 세션마다 이 시간에 한 번만
+
+
+VISIT_LOG = "접속"  # 세션 처음 들어올 때 한 번 남기는 기록 (첫 화면 '오늘의 현황'은 이걸로 세고 '탭 열기'로 세지 않음)
 
 
 def use_session():
@@ -12437,7 +12440,8 @@ def render_usage_stats():
         st.warning("'오늘'을 보려면 Apps Script를 새 버전으로 배포해야 해요. 지금은 최근 30일이 보여요.")
     day_rows, all_feats = stats.get("days") or [], stats.get("features") or []
     ai_rows = [f for f in all_feats if str(f["f"]).startswith(AI_LOG_PREFIX)]  # AI 호출 기록은 기능 순위와 따로
-    feat_rows = [f for f in all_feats if not str(f["f"]).startswith(AI_LOG_PREFIX)]
+    visit_rows = [f for f in all_feats if f["f"] == VISIT_LOG]  # 접속(들어오기만 해도 한 번)은 기능 순위와 따로
+    feat_rows = [f for f in all_feats if not str(f["f"]).startswith(AI_LOG_PREFIX) and f["f"] != VISIT_LOG]
     ai_total = sum(f["n"] for f in ai_rows)
     if not day_rows:
         st.info("아직 기록이 없어요. 기능을 쓰면 곧 쌓여요.")
@@ -12446,7 +12450,10 @@ def render_usage_stats():
     total_n = sum(d[k_n] for d in day_rows)
     if not stats.get("days_exclude_ai"):  # 예전 Apps Script(재배포 전)는 날짜별 합계에 AI 호출 기록이 섞여 있어 빼 준다
         total_n -= sum(f[k_n] for f in ai_rows)
+    visits = sum(f[k_n] for f in visit_rows)
+    total_n -= visits
     st.markdown(cb_cards([
+        ("접속", f"{visits:,}번", f"{span} · 들어온 횟수(2026.11.22부터)", "flat"),
         ("사용 횟수", f"{total_n:,}건", span, "flat"),
         ("하루 평균 세션", f"{sum(d[k_s] for d in day_rows) / max(len(day_rows), 1):.1f}개", "기록 있는 날 기준", "flat"),
         ("가장 많이 쓴 기능", (max(feat_rows, key=lambda f: f[k_n])["f"] if feat_rows else "-"), None, "flat"),
@@ -12511,7 +12518,12 @@ TAB_RENDER = {"오늘의 현황": render_today, "기업 브리핑": render_brief
               "정기보고서": render_periodic, "재계 순위": render_chaebol}
 if LAZY_TABS:  # 탭을 열 때마다 사용 기록에 한 줄 (조회 버튼을 안 눌러도 어떤 탭을 보는지 알 수 있게)
     _open_tab = st.session_state.get("main_tab") or TAB_NAMES[0]
-    if st.session_state.get("_tab_logged") != _open_tab:
+    if "_tab_logged" not in st.session_state:  # 처음 들어온 것은 '접속'으로 따로 센다. 첫 화면(오늘의 현황)은 들어오기만 해도 열리므로 '탭 열기'로 세지 않는다
+        log_use(VISIT_LOG)
+        if _open_tab != TAB_NAMES[0]:  # 주소로 다른 탭을 바로 연 경우는 그 탭 열기도 남긴다
+            log_use(f"탭 열기: {_open_tab}")
+        st.session_state["_tab_logged"] = _open_tab
+    elif st.session_state.get("_tab_logged") != _open_tab:  # 탭을 직접 눌러 옮긴 것만 '탭 열기'
         st.session_state["_tab_logged"] = _open_tab
         log_use(f"탭 열기: {_open_tab}")
 for _name in TAB_NAMES:
