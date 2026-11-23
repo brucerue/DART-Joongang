@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.23 09:46"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.23 17:02"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -2081,7 +2081,9 @@ def board_summary(jo):
 
 
 def is_total(text):
-    return str(text or "").replace(" ", "") in ("합계", "총계", "계", "전체", "소계", "합 계")
+    """합계 칸인지: '합계'·'성별합계'·'총계'·'소계'·'계'·'전체' (2026.11.23: 삼성전자 2025 사업보고서는 사업부문 칸이 '성별합계'라 두 번 셌음)"""
+    t = str(text or "").replace(" ", "")
+    return t in ("계", "전체") or any(w in t for w in ("합계", "총계", "소계"))
 
 
 def parse_years(text):
@@ -2093,30 +2095,53 @@ def parse_years(text):
     return float(m.group(1)) + (int(m.group(2)) / 12 if m.group(2) else 0)
 
 
+def _weighted_by_staff(rows, col, conv):
+    """직원 수(sm)로 가중 평균. 값이 없거나 직원 수가 0인 줄은 뺀다."""
+    w = [(conv(r.get(col)), to_int(r.get("sm")) or 0) for r in rows]
+    w = [(v, n) for v, n in w if v is not None and n]
+    return sum(v * n for v, n in w) / sum(n for _, n in w) if w else None
+
+
 def employee_stats(jo):
-    """직원 현황 -> {count, avg(1인 평균 급여, 원), tenure(평균 근속, 년), contract(계약직 비중 %), female(여성 비중 %)}.
-    사업부문·성별로 나뉜 표에서 합계 줄은 빼고 더한다."""
-    rows = dart_rows(jo, ["sm", "fyer_salary_totamt"])
-    detail = [r for r in rows if not is_total(r.get("fo_bbm")) and not is_total(r.get("sexdstn"))]
-    if not detail:  # 성별 합계만 있는 경우 -> 부문별 합계 줄을 더함
-        detail = [r for r in rows if not is_total(r.get("fo_bbm"))]
-    if not detail:  # 전체 합계 한 줄만 있는 경우
-        detail = rows
-    count = sum(to_int(r.get("sm")) or 0 for r in detail)
-    total = sum(to_int(r.get("fyer_salary_totamt")) or 0 for r in detail)
-    out = {"count": count or None, "avg": total / count if count and total else None,
-           "tenure": None, "contract": None, "female": None}
+    """직원 현황 -> {count, avg(1인 평균 급여, 원), avg_how(계산 방식), tenure(평균 근속, 년), contract(계약직 비중 %), female(여성 비중 %)}.
+    - 직원 수: 합계 줄을 뺀 세부 줄의 합(세부 줄이 없으면 합계 줄). '성별합계' 줄이 섞여도 두 번 세지 않는다.
+    - 1인 평균 급여: 보고서의 '1인 평균 급여액'(jan_salary_am)을 쓴다(기사가 쓰는 값). 전체 합계 줄에 있으면 그 값,
+      없으면 세부 줄 → 합계 줄(성별합계 등) 순으로 직원 수 가중 평균, 어디에도 없으면 급여 총액 ÷ 직원 수.
+      (2026.11.23 사업보고서 분석기에서 실제 자료로 확인: SK하이닉스 2025 남 1억9800만·여 1억5900만 → 1억8500만원, 삼성전자 12만8881명)"""
+    rows = dart_rows(jo, ["sm"])
+    out = {"count": None, "avg": None, "avg_how": None, "tenure": None, "contract": None, "female": None}
+    if not rows:
+        return out
+    tot = [r for r in rows if is_total(r.get("fo_bbm")) or is_total(r.get("sexdstn"))]
+    detail = [r for r in rows if r not in tot]
+    grand = [r for r in tot if (is_total(r.get("fo_bbm")) or not str(r.get("fo_bbm") or "").strip())
+             and (is_total(r.get("sexdstn")) or not str(r.get("sexdstn") or "").strip())]
+    base = detail or tot
+    count = sum(to_int(r.get("sm")) or 0 for r in base) or None
+    if grand and to_int(grand[0].get("sm")) and not detail:
+        count = to_int(grand[0].get("sm"))
+    out["count"] = count
+    if grand and to_int(grand[0].get("jan_salary_am")):
+        out["avg"], out["avg_how"] = to_int(grand[0]["jan_salary_am"]), "보고서 합계 값"
+    else:
+        for group in (detail, tot):
+            have = [r for r in group if to_int(r.get("jan_salary_am"))]
+            if have:
+                out["avg"], out["avg_how"] = _weighted_by_staff(have, "jan_salary_am", to_int), "1인 평균 급여액의 직원 수 가중 평균"
+                break
+    if out["avg"] is None and count:
+        src = detail if any(to_int(r.get("fyer_salary_totamt")) for r in detail) else tot
+        total = sum(to_int(r.get("fyer_salary_totamt")) or 0 for r in src)
+        if total:
+            out["avg"], out["avg_how"] = total / count, "급여 총액 ÷ 직원 수"
     if not count:
         return out
-    weighted = [(parse_years(r.get("avrg_cnwk_sdytrn")), to_int(r.get("sm")) or 0) for r in detail]
-    weighted = [(y, n) for y, n in weighted if y is not None and n]
-    if weighted:
-        out["tenure"] = sum(y * n for y, n in weighted) / sum(n for _, n in weighted)
-    if any(r.get("cnttk_co") not in (None, "", "-") for r in detail):
-        out["contract"] = sum(to_int(r.get("cnttk_co")) or 0 for r in detail) / count * 100
-    sexes = [str(r.get("sexdstn") or "").strip() for r in detail]
+    out["tenure"] = _weighted_by_staff(detail, "avrg_cnwk_sdytrn", parse_years) or _weighted_by_staff(tot, "avrg_cnwk_sdytrn", parse_years)
+    if any(r.get("cnttk_co") not in (None, "", "-") for r in base):
+        out["contract"] = sum(to_int(r.get("cnttk_co")) or 0 for r in base) / count * 100
+    sexes = [str(r.get("sexdstn") or "").strip() for r in base]
     if any(x.startswith("여") for x in sexes) and any(x.startswith("남") for x in sexes):
-        out["female"] = sum(to_int(r.get("sm")) or 0 for r, x in zip(detail, sexes) if x.startswith("여")) / count * 100
+        out["female"] = sum(to_int(r.get("sm")) or 0 for r, x in zip(base, sexes) if x.startswith("여")) / count * 100
     return out
 
 
@@ -5016,7 +5041,7 @@ def render_pay():
         st.info("분기보고서에 기재되지 않았거나 직원 현황 공시를 찾지 못했어요." if quarter else "직원 현황 공시를 찾지 못했어요.")
     else:
         half = " · 반기보고서는 상반기 급여 기준" if res["report"].startswith("반기") else ""
-        st.caption(f"평균 연봉 높은 순 · 평균 연봉 = 급여 총액 ÷ 직원 수 · 증감·전년比는 전년 같은 보고서 기준{half}")
+        st.caption(f"평균 연봉 높은 순 · 평균 연봉 = 보고서의 성별·부문별 '1인 평균 급여액'을 직원 수로 가중 평균(없으면 급여 총액 ÷ 직원 수) · 증감·전년比는 전년 같은 보고서 기준{half}")
         st.dataframe(
             emp.style.map(change_style, subset=["증감(명)", "연봉 전년比"]), hide_index=True,
             height=(len(emp) + 1) * 35 + 3,
