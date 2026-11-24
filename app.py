@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.23 17:02"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.24 11:38"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -8624,7 +8624,8 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 </style>
 """
 
-st.set_page_config(page_title="산업 취재 도우미", layout="wide")
+_FAVICON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "favicon.png")  # 탭·북마크 아이콘: 남색 네모에 '산' (2026.11.24)
+st.set_page_config(page_title="산업 취재 도우미", layout="wide", page_icon=_FAVICON if os.path.exists(_FAVICON) else None)
 
 
 
