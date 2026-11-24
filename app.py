@@ -483,9 +483,9 @@ TEAM_PRESETS = {
 }
 if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS 리터럴은 텔레그램 팀 명령과 같이 쓰므로 건드리지 않는다)
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
-PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
+PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr", "bemil.chosun.com")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지 · bemil: 조선일보 밀리터리 커뮤니티(기사 아님, 2026.11.24)
 
-LAST_UPDATED = "2026.11.24 14:01"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.24 14:09"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
