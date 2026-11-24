@@ -485,7 +485,7 @@ if LAB_ON:  # 준비 중인 팀은 관리자 주소에서만 (위 TEAM_PRESETS �
     TEAM_PRESETS = {**TEAM_PRESETS, **LAB_TEAMS}
 PUBLISHER_BLOCK = ("mlbpark.donga.com", "view.mk.co.kr")  # 뷰타임스: 더구루 등 외부 매체 제휴 기사가 매일경제로 잡히는 것 방지
 
-LAST_UPDATED = "2026.11.24 11:38"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
+LAST_UPDATED = "2026.11.24 14:01"  # 화면 아래 크레딧의 updated 날짜·시간(한국 시간). 앱을 고칠 때마다 직접 바꿔주세요
 
 KST = timezone(timedelta(hours=9))  # 서버가 해외에 있어도 한국 날짜 기준으로 동작
 TODAY = datetime.now(KST).date()
@@ -3674,7 +3674,7 @@ def is_new(item, now):
     return item["dt"].astimezone(KST).date() >= now.astimezone(KST).date() - timedelta(days=1)
 
 
-EXCL_PREFIX_RE = re.compile(r"^\s*(?:[\[\(<【〈]\s*단독\s*[\]\)>】〉]|단독\s*[:,\-…]?)\s*")  # 제목 앞 '[단독]' (시간줄에선 주황 점으로 보여 줘서 뺀다)
+EXCL_PREFIX_RE = re.compile(r"^\s*(?:[\[\(<【〈]\s*단독\s*[\]\)>】〉]|단독\s*[:,\-…]?)\s*")  # 제목 앞 단독 표기(여러 모양)를 떼고 같은 모양 '[단독]'으로 다시 붙인다
 
 
 def news_html(clusters, now=None):
@@ -3694,12 +3694,13 @@ def news_html(clusters, now=None):
         rep, others = c["rep"], c["others"]
         dt = rep["dt"].astimezone(KST)
         excl = rep.get("kind") == "단독" or is_exclusive(rep["title"])
-        title = EXCL_PREFIX_RE.sub("", rep["title"]) if excl else rep["title"]
+        title = EXCL_PREFIX_RE.sub("", rep["title"]) if excl else rep["title"]  # '[단독]'은 아래에서 주황 글자로 앞에 다시 붙인다
         day = "" if dt.date() == prev_day else day_label(dt.date())
         prev_day = dt.date()
         tags = f'<span class="tag">{html.escape(", ".join(rep["tags"]))}</span>' if rep.get("tags") else ""
         extra = f'<span class="more">외 {len(others)}건</span>' if others else ""
-        body = (f'<a href="{href(rep)}" target="_blank" rel="noopener noreferrer">{html.escape(title)}</a>'
+        tag = '<span class="ex-tag">[단독]</span> ' if excl else ""  # 2026.11.24: 점만으로는 단독이 눈에 잘 안 들어와 제목 앞에 다시 붙임
+        body = (f'<a href="{href(rep)}" target="_blank" rel="noopener noreferrer">{tag}{html.escape(title)}</a>'
                 f'<div class="meta">{html.escape(rep["publisher"])}{tags}{extra}</div>')
         if others:
             sub = "".join(f'<li><a href="{href(o)}" target="_blank" rel="noopener noreferrer">{html.escape(o["title"])}</a>'
@@ -8314,7 +8315,6 @@ def render_overseas():
 
 STYLE = """
 <style>
-@import url("https://fonts.googleapis.com/css2?family=Nanum+Myeongjo:wght@700;800&display=swap");
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
 
 html, body, [class*="st-"], button, input, textarea {
@@ -8584,7 +8584,8 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
 .tl-mark::after { content: ""; position: absolute; left: 50%; top: 0.55rem; width: 0.7rem; height: 0.7rem; margin-left: -0.35rem; border-radius: 50%; background: #ffffff; border: 2px solid #1f3a68; box-sizing: border-box; }
 .tl-row.ex .tl-mark::after { background: #d9480f; border-color: #d9480f; box-shadow: 0 0 0 3px #fbe3d6; }
 .tl-body { padding: 0.05rem 0 0.95rem; max-width: 42em; min-width: 0; }
-.tl-body > a { font-family: "MaruBuri", "Nanum Myeongjo", serif; font-weight: 800; font-size: 1.1rem; line-height: 1.45; color: #15233d; text-decoration: none; word-break: keep-all; }
+.tl-body > a { font-weight: 700; font-size: 1.06rem; line-height: 1.5; letter-spacing: -0.01em; color: #15233d; text-decoration: none; word-break: keep-all; }  /* 제목도 앱 글꼴(Pretendard) 그대로 — 2026.11.24 명조가 어색해서 되돌림 */
+.tl-body > a .ex-tag { color: #d9480f; }
 .tl-body > a:hover { color: #1f3a68; text-decoration: underline; text-underline-offset: 3px; }
 .tl-body .meta { margin-top: 0.2rem; font-size: 0.8rem; color: #5f6b7d; }
 .tl-body .meta .tag { margin-left: 0.5rem; color: #1f3a68; font-weight: 600; }
@@ -8604,7 +8605,7 @@ h1 a { display: none !important; }  /* 제목 옆 링크 아이콘 숨김 */
   .tl-mark::after { width: 0.6rem; height: 0.6rem; margin-left: -0.3rem; top: 0.5rem; }
   .tl-row.ex .tl-mark::after { box-shadow: 0 0 0 2px #fbe3d6; }
   .tl-body { padding-bottom: 0.8rem; }
-  .tl-body > a { font-size: 0.98rem; line-height: 1.4; }
+  .tl-body > a { font-size: 0.97rem; line-height: 1.45; }
   .tl-body .meta { font-size: 0.76rem; }
   [data-testid="stMarkdownContainer"]:has(> .tl) { padding: 0.8rem 0.7rem 0.1rem; }
   .st-key-today_wrap [data-testid="stVerticalBlockBorderWrapper"] { padding-left: 0.1rem; padding-right: 0.1rem; }
