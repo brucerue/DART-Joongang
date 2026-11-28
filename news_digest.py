@@ -204,23 +204,35 @@ def google_blocked(e):
     return code in (429, 503) or isinstance(e, (requests.Timeout, requests.ConnectionError))
 
 
+def google_down():
+    """지금 '구글이 막혀 쉬는 중'인지 (국내·외신 검색이 같이 씀)"""
+    return time.monotonic() < GOOGLE_STATE["down_until"]
+
+
+def google_note(e):
+    """구글 검색 한 번의 결과를 기록: 성공(None)이면 연속 막힘을 0으로, 막힘이 GOOGLE_BLOCK_STREAK번 이어지면 GOOGLE_COOLDOWN초 쉬기"""
+    if e is None:
+        GOOGLE_STATE["streak"] = 0
+    elif google_blocked(e):
+        GOOGLE_STATE["streak"] += 1
+        if GOOGLE_STATE["streak"] >= GOOGLE_BLOCK_STREAK:
+            GOOGLE_STATE["down_until"] = time.monotonic() + GOOGLE_COOLDOWN
+            GOOGLE_STATE["streak"] = 0
+
+
 def google_search(terms, domains, extra, cutoff):
     chunks = [tuple(domains[i:i + SITE_CHUNK]) for i in range(0, len(domains), SITE_CHUNK)]
     jobs = [(t, c) for t in terms for c in chunks]
 
     def one(job):
-        if time.monotonic() < GOOGLE_STATE["down_until"]:
+        if google_down():
             return [], "구글 뉴스가 잠시 막혀 이번 회차는 건너뜀"
         try:
             got = google_fetch(job[0], job[1], extra, cutoff)
         except Exception as e:  # 일부 실패는 건너뜀
-            if google_blocked(e):
-                GOOGLE_STATE["streak"] += 1
-                if GOOGLE_STATE["streak"] >= GOOGLE_BLOCK_STREAK:
-                    GOOGLE_STATE["down_until"] = time.monotonic() + GOOGLE_COOLDOWN
-                    GOOGLE_STATE["streak"] = 0
+            google_note(e)
             return [], str(e)
-        GOOGLE_STATE["streak"] = 0
+        google_note(None)
         return got, None
 
     with ThreadPoolExecutor(max_workers=6) as pool:

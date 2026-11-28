@@ -54,6 +54,46 @@ GEMINI_DEFAULT_MODEL = "gemini-3.6-flash"  # app.py의 GEMINI_MODEL 기본값과
 GEMINI_LITE_MODEL = "gemini-3.5-flash-lite"
 
 
+GOOGLE_SKIP = "구글 뉴스가 잠시 막혀 건너뜀"
+GLOBAL_NIGHT_EVERY = 2  # 밤(한국시간 8~19시 밖)에는 외신을 이 시간마다만 모은다 (구글이 밤에 막는 일이 잦아 검색 수를 줄임, 2026.11.28)
+BLOCK_ALERT_STREAK = 3  # 실패가 전부 '구글이 막음'이면 이만큼 연달아 막혀야 실패 알림을 보낸다
+BLOCK_FILE = "gblock.json"  # 연달아 막힌 회차 수 (data 브랜치)
+
+
+def global_due(now):
+    """이번 회차에 외신을 모을지: 낮(8~19시)은 매시, 밤은 GLOBAL_NIGHT_EVERY시간마다"""
+    return 8 <= now.hour <= 19 or now.hour % GLOBAL_NIGHT_EVERY == 0
+
+
+def google_block_error(msg):
+    """실패 한 줄이 '구글이 막음'(503·429·응답 없음 또는 그래서 건너뜀)인지"""
+    if msg.startswith("외신 "):
+        tail = msg.rsplit(": ", 1)[-1]
+        return tail == GOOGLE_SKIP or tail.endswith((" 503", " 429")) or "Timeout" in tail or "Connection" in tail
+    if "구글 뉴스" not in msg:
+        return False
+    return any(w in msg for w in ("잠시 막혀", "503", "429", "timed out", "Timeout", "Connection"))
+
+
+def block_verdict(errors, limit, out_dir):
+    """-> (실패로 끝낼지, 안내 문구). 거의 전부 실패했어도 원인이 모두 구글 막힘이면 BLOCK_ALERT_STREAK회 연속일 때만 실패로.
+    연속 횟수는 out_dir/BLOCK_FILE에 적는다(정상 회차엔 0으로)."""
+    path = os.path.join(out_dir, BLOCK_FILE)
+    streak = int(load_json(path).get("streak", 0) or 0)
+    total = bool(errors) and len(errors) >= limit
+    blocked = total and all(google_block_error(e) for e in errors)
+    streak = streak + 1 if blocked else 0
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"streak": streak}, f)
+    if not total:
+        return False, ""
+    if not blocked:
+        return True, "거의 전부 실패 — 실패 알림"
+    if streak >= BLOCK_ALERT_STREAK:
+        return True, f"구글 뉴스가 {streak}회 연속 막음 — 실패 알림"
+    return False, f"구글 뉴스가 막아 이번 회차는 거의 못 모음({streak}회 연속, {BLOCK_ALERT_STREAK}회부터 알림) — 다음 회차가 48시간을 다시 훑어 메움"
+
+
 def collect_global(out_dir, now, errors, gmap=None):
     """외신을 모아 섹터별 파일(global/·korea/)에 최근 7일 쌓는다. 기업별 = 해외 섹터 기업의 별칭이 제목에 든 기사,
     한국 관련 = 한국 낱말 + 섹터 낱말로 본문까지 찾은 기사. 새 제목은 Gemini로 한글 제목을 붙인다(GEMINI_API_KEY 없으면 건너뜀 — 앱이 볼 때 옮김).
@@ -67,14 +107,21 @@ def collect_global(out_dir, now, errors, gmap=None):
     def one(job):  # (종류, 섹터, 기업 또는 한국 검색식, 언론사 묶음) 하나 — 언론사·섹터 낱말이 많아 나눠 검색
         kind, sec, term, chunk = job
         core = gc.company_core(term) if kind == "global" else term
+        label = f"외신 {sec}/{term if kind == 'global' else '한국'}"
+        if nd.google_down():  # 구글이 막혀 쉬는 중이면 묻지 않고 건너뜀 (국내 검색과 같은 기록)
+            errors.append(f"{label}: {GOOGLE_SKIP}")
+            return job, None
         try:
             r = requests.get(gc.GNEWS_URL, params={"q": gc.query(core, 2, chunk), "hl": "en-US", "gl": "US", "ceid": "US:en"},
                              headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
             r.raise_for_status()
             items = gc.parse_rss(r.content, chunk, 2, now, gc.aliases(term) if kind == "global" else None)
         except Exception as e:
-            errors.append(f"외신 {sec}/{term if kind == 'global' else '한국'}: {type(e).__name__}")
+            nd.google_note(e)
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            errors.append(f"{label}: {type(e).__name__}" + (f" {code}" if code else ""))
             return job, None
+        nd.google_note(None)
         if kind == "korea":
             items = [i for i in items if not gc.korea_noise(i["title"], i.get("publisher", ""))]
         return job, items
@@ -388,6 +435,9 @@ def main():
         grows = sorted((r for r in gstore.values() if r["d"] >= general_from), key=lambda r: r["d"], reverse=True)
         with open(gpath, "w", encoding="utf-8") as f:
             json.dump({"updated": now.strftime(FMT), "sector": sector, "items": grows}, f, ensure_ascii=False, separators=(",", ":"))
+    if "외신" in modes and not global_due(now):
+        modes = [m for m in modes if m != "외신"]
+        print(f"외신: 밤에는 {GLOBAL_NIGHT_EVERY}시간마다만 모아 이번 회차는 건너뜀")
     if "외신" in modes:
         g_added, g_ko = collect_global(args.out, now, errors, gmap)
         print(f"외신: 새로 {g_added}건, 한글 제목 {g_ko}건")
@@ -420,7 +470,10 @@ def main():
     print(f"수집 완료: 다시 올라온 기사 {removed}건 지움, 새로 {added}건, 보관 {len(rows)}건(이전 {before}건), 일반 새로 {general_n}건, 실패 {len(errors)}곳")
     for e in errors:
         print("  실패:", e, file=sys.stderr)
-    if errors and len(errors) >= len(SECTORS) * len([m for m in modes if m != "외신"]) + (150 if "외신" in modes else 0):  # 거의 전부 실패했으면 오류로 끝내 알림이 가게 한다
+    fail, note = block_verdict(errors, len(SECTORS) * len([m for m in modes if m != "외신"]) + (150 if "외신" in modes else 0), args.out)
+    if note:
+        print(note)
+    if fail:  # 거의 전부 실패했으면 오류로 끝내 알림이 가게 한다 (구글 막힘만이면 연속일 때만)
         sys.exit(1)
 
 
