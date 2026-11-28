@@ -1,0 +1,410 @@
+{
+ "date": "2026-04-28",
+ "oid": "023",
+ "paper": "조선일보",
+ "collected_at": "2026-11-10T01:15",
+ "pages_found": 24,
+ "status": "ok",
+ "items": [
+  {
+   "pg": "A1",
+   "title": "[단독] 15범도 “출마”… 의원 후보 36%가 전과",
+   "url": "https://n.news.naver.com/article/023/0003973436"
+  },
+  {
+   "pg": "A1",
+   "title": "김정관 “삼성전자 이익, 노사만의 몫인가… 미래 경쟁력과 조화 필요”",
+   "url": "https://n.news.naver.com/article/023/0003973431"
+  },
+  {
+   "pg": "A1",
+   "title": "1년 만에 2.5배 커졌다… 한국증시 시총 6000조",
+   "url": "https://n.news.naver.com/article/023/0003973430"
+  },
+  {
+   "pg": "A2",
+   "title": "비싼 칩값 감당 힘들어… IT 중소 업체들 무너진다",
+   "url": "https://n.news.naver.com/article/023/0003973429"
+  },
+  {
+   "pg": "A3",
+   "title": "선거 때만 잠깐 보여지는 범죄 기록… “알 권리 위해 당선자는 상시 공개해야”",
+   "url": "https://n.news.naver.com/article/023/0003973428"
+  },
+  {
+   "pg": "A4",
+   "title": "조응천, 추미애 맞서 출마… ‘범야권 단일화’ 주목",
+   "url": "https://n.news.naver.com/article/023/0003973425"
+  },
+  {
+   "pg": "A4",
+   "title": "출마 여부 뜸들였던 하정우, 결국 나온다… 부산 북갑 3파전 구도",
+   "url": "https://n.news.naver.com/article/023/0003973426"
+  },
+  {
+   "pg": "A4",
+   "title": "서울서 與野 지지율 좁혀지자… 정원오·오세훈 공방 격화",
+   "url": "https://n.news.naver.com/article/023/0003973427"
+  },
+  {
+   "pg": "A5",
+   "title": "“7조 데이터센터 유치했다, 울산을 AI 수도로”",
+   "url": "https://n.news.naver.com/article/023/0003973424"
+  },
+  {
+   "pg": "A5",
+   "title": "민주당, 李 측근 김용 공천 배제… 하남갑 이광재·안산갑 김남국",
+   "url": "https://n.news.naver.com/article/023/0003973423"
+  },
+  {
+   "pg": "A6",
+   "title": "美 ‘북핵 실시간 추적’ 위성 정보, 한달째 한국과 공유 안해",
+   "url": "https://n.news.naver.com/article/023/0003973421"
+  },
+  {
+   "pg": "A6",
+   "title": "美 탱크가 왜 거기서… 北, 러 파병 기념관에 전시",
+   "url": "https://n.news.naver.com/article/023/0003973420"
+  },
+  {
+   "pg": "A6",
+   "title": "구글, 연내 서울에 AI 캠퍼스 만든다",
+   "url": "https://n.news.naver.com/article/023/0003973422"
+  },
+  {
+   "pg": "A8",
+   "title": "美 총격범 “고위직부터 표적… 기관총 들고와도 몰랐을 것”",
+   "url": "https://n.news.naver.com/article/023/0003973419"
+  },
+  {
+   "pg": "A8",
+   "title": "美·이란 협상 삐걱대는 사이… 이스라엘·레바논은 또 충돌",
+   "url": "https://n.news.naver.com/article/023/0003973418"
+  },
+  {
+   "pg": "A8",
+   "title": "트럼프 “이란 송유관 사흘뒤 포화, 내부 폭발”",
+   "url": "https://n.news.naver.com/article/023/0003973417"
+  },
+  {
+   "pg": "A10",
+   "title": "[핫코너] 절 버리려고 호텔에 보냈나요",
+   "url": "https://n.news.naver.com/article/023/0003973416"
+  },
+  {
+   "pg": "A10",
+   "title": "밤에만 깔리는 노란천막 속엔… 수백억짜리 짝퉁시장",
+   "url": "https://n.news.naver.com/article/023/0003973414"
+  },
+  {
+   "pg": "A10",
+   "title": "檢 “과거사 재심때 백지 구형 대신에 무죄·면소 낼 것”",
+   "url": "https://n.news.naver.com/article/023/0003973413"
+  },
+  {
+   "pg": "A10",
+   "title": "[단독] 전문 분야도 아니면서… “특검 출신” 앞세워 영업하는 변호사들",
+   "url": "https://n.news.naver.com/article/023/0003973438"
+  },
+  {
+   "pg": "A12",
+   "title": "학교 운동부 지도자, 폭력·성폭력 은폐하면 봐주지 않고 바로 해고",
+   "url": "https://n.news.naver.com/article/023/0003973412"
+  },
+  {
+   "pg": "A12",
+   "title": "인터넷·위성통신 다 끊겨도… ‘최후 보루’ 기상 무선 팩스 있다",
+   "url": "https://n.news.naver.com/article/023/0003973411"
+  },
+  {
+   "pg": "A12",
+   "title": "[단독] 동네 돌봄에 자녀 맡기라더니… 센터 60%가 “자리 없어요”",
+   "url": "https://n.news.naver.com/article/023/0003973437"
+  },
+  {
+   "pg": "A14",
+   "title": "태연히 샐러드 먹고… 와인 슬쩍 챙기고… 총성 울린 워싱턴 만찬장의 간 큰 남녀",
+   "url": "https://n.news.naver.com/article/023/0003973291"
+  },
+  {
+   "pg": "A14",
+   "title": "이스라엘, UAE에 ‘아이언돔’ 보호막 펼쳤다",
+   "url": "https://n.news.naver.com/article/023/0003973407"
+  },
+  {
+   "pg": "A14",
+   "title": "“네타냐후 몰아내자” 다시 손잡은 이스라엘 두 전직 총리",
+   "url": "https://n.news.naver.com/article/023/0003973406"
+  },
+  {
+   "pg": "A14",
+   "title": "트럼프 뒤끝? 포클랜드 영국령 지지 철회하나",
+   "url": "https://n.news.naver.com/article/023/0003973409"
+  },
+  {
+   "pg": "A16",
+   "title": "[일사일언] 말하지 말고 함께 느껴 보세요",
+   "url": "https://n.news.naver.com/article/023/0003973386"
+  },
+  {
+   "pg": "A16",
+   "title": "세종문화회관·서울시향이 앞다퉈 찾는 스무 살 작곡가",
+   "url": "https://n.news.naver.com/article/023/0003973387"
+  },
+  {
+   "pg": "A16",
+   "title": "심장 박동기 달고 8번 수술에도 붓 안 놓은… “한국 최고의 모더니스트”",
+   "url": "https://n.news.naver.com/article/023/0003973389"
+  },
+  {
+   "pg": "A16",
+   "title": "간만에 장편 소설이 본심에… 기발한 상상으로 현실 꼬집어",
+   "url": "https://n.news.naver.com/article/023/0003973388"
+  },
+  {
+   "pg": "A18",
+   "title": "맛집·명소는 식상… ‘무계획’ 여행 예능 뜬다",
+   "url": "https://n.news.naver.com/article/023/0003973391"
+  },
+  {
+   "pg": "A18",
+   "title": "[이번 주 뭐 볼까] 당신이 갑자기 1500억원 금괴를 갖게 된다면?",
+   "url": "https://n.news.naver.com/article/023/0003973390"
+  },
+  {
+   "pg": "A18",
+   "title": "웃고, 설레고, 화내는 유미에게서 ‘나’를 봤다",
+   "url": "https://n.news.naver.com/article/023/0003973392"
+  },
+  {
+   "pg": "A19",
+   "title": "[제30회 LG배 조선일보 기왕전] 잡을 수 없었다",
+   "url": "https://n.news.naver.com/article/023/0003973385"
+  },
+  {
+   "pg": "A19",
+   "title": "[TV조선] 쌀밥 사랑과 소화불량",
+   "url": "https://n.news.naver.com/article/023/0003973384"
+  },
+  {
+   "pg": "A21",
+   "title": "本紙 박성원·장경식 기자 ‘이달의 보도사진상’ 수상",
+   "url": "https://n.news.naver.com/article/023/0003973402"
+  },
+  {
+   "pg": "A21",
+   "title": "[부음] 연우무대·차이무 창단 이상우 연출가",
+   "url": "https://n.news.naver.com/article/023/0003973398"
+  },
+  {
+   "pg": "A21",
+   "title": "이범헌 한국문화예술위원장",
+   "url": "https://n.news.naver.com/article/023/0003973403"
+  },
+  {
+   "pg": "A21",
+   "title": "미국 보수층 낚은 ‘금발이 너무해’… ‘MAGA 걸’ 알고 보니 20대 印 남성",
+   "url": "https://n.news.naver.com/article/023/0003973401"
+  },
+  {
+   "pg": "A23",
+   "title": "막판 스퍼트 위해 일주일에 241㎞ 강훈련",
+   "url": "https://n.news.naver.com/article/023/0003973394"
+  },
+  {
+   "pg": "A23",
+   "title": "4안타 이정후, 이제는 ‘3할 타자’",
+   "url": "https://n.news.naver.com/article/023/0003973397"
+  },
+  {
+   "pg": "A23",
+   "title": "‘돌풍’ 소노, 3연승으로 LG 꺾고 창단 첫 챔프전 진출",
+   "url": "https://n.news.naver.com/article/023/0003973396"
+  },
+  {
+   "pg": "A23",
+   "title": "코르다, 2년 만에 또 ‘풍덩’",
+   "url": "https://n.news.naver.com/article/023/0003973395"
+  },
+  {
+   "pg": "A23",
+   "title": "[오늘의 경기] 2026년 4월 28일",
+   "url": "https://n.news.naver.com/article/023/0003973393"
+  },
+  {
+   "pg": "A25",
+   "title": "[카페 2030] 앵무새 무덤에 싹이 틀 무렵에는",
+   "url": "https://n.news.naver.com/article/023/0003973347"
+  },
+  {
+   "pg": "A25",
+   "title": "[류호정의 톱밥 먹는 중입니다] [20] 결정 피로 시대에 ‘주문 제작’을 선택하는 것",
+   "url": "https://n.news.naver.com/article/023/0003973348"
+  },
+  {
+   "pg": "A25",
+   "title": "[기고] 균형발전 위해 지방 기업·취업자에게 낮은 세금 차등 적용을",
+   "url": "https://n.news.naver.com/article/023/0003973349"
+  },
+  {
+   "pg": "A25",
+   "title": "[이기호의 유머란 무엇인가] 고통을 넘어서는 사랑과 유머의 힘",
+   "url": "https://n.news.naver.com/article/023/0003973345"
+  },
+  {
+   "pg": "A25",
+   "title": "[리빙포인트] 얼음 틀에 허브 넣어 얼려보세요",
+   "url": "https://n.news.naver.com/article/023/0003973351"
+  },
+  {
+   "pg": "A26",
+   "title": "[전문기자의 窓] ‘겸허히’란 말이 은폐하는 것",
+   "url": "https://n.news.naver.com/article/023/0003973352"
+  },
+  {
+   "pg": "A26",
+   "title": "[만물상] 마라톤 부족",
+   "url": "https://n.news.naver.com/article/023/0003973338"
+  },
+  {
+   "pg": "A26",
+   "title": "[문지혁의 슬기로운 문학생활] [30] ‘카프카’와 스승의 가르침",
+   "url": "https://n.news.naver.com/article/023/0003973353"
+  },
+  {
+   "pg": "A26",
+   "title": "[한삼희의 환경칼럼] 석유국가 vs 전기국가",
+   "url": "https://n.news.naver.com/article/023/0003973356"
+  },
+  {
+   "pg": "A27",
+   "title": "[사설] 전세값 폭등에 물량도 44% 급감, 서민 주거 위기",
+   "url": "https://n.news.naver.com/article/023/0003973361"
+  },
+  {
+   "pg": "A27",
+   "title": "[우정아의 아트 스토리] [629] 성모의 죽음은 왜 초라한가",
+   "url": "https://n.news.naver.com/article/023/0003973355"
+  },
+  {
+   "pg": "A27",
+   "title": "[태평로] 트럼프式 핵합의가 가져올 미래",
+   "url": "https://n.news.naver.com/article/023/0003973354"
+  },
+  {
+   "pg": "A27",
+   "title": "[사설] ‘절대 권력, 절대 부패’ 보여주는 잇단 돈 선거 파문",
+   "url": "https://n.news.naver.com/article/023/0003973357"
+  },
+  {
+   "pg": "A27",
+   "title": "[사설] “작업 걸지 말라”더니 AI수석 출마, 국민 속이는 것",
+   "url": "https://n.news.naver.com/article/023/0003973360"
+  },
+  {
+   "pg": "B1",
+   "title": "뇌종양 신약 후보 물질, AI가 6개월 만에 개발",
+   "url": "https://n.news.naver.com/article/023/0003973364"
+  },
+  {
+   "pg": "B1",
+   "title": "고성장 지속? 호황 정점?… ‘삼전닉스’ 쥔 538만 개미의 고심",
+   "url": "https://n.news.naver.com/article/023/0003973363"
+  },
+  {
+   "pg": "B2",
+   "title": "배달 앱 ‘사용 가능 가게’ 아이콘 추가… 편의점, 일제히 생필품 위주 할인 행사",
+   "url": "https://n.news.naver.com/article/023/0003973365"
+  },
+  {
+   "pg": "B2",
+   "title": "“2년 걸리던 기업 분쟁 판정 3개월 내 종결 노력”",
+   "url": "https://n.news.naver.com/article/023/0003973367"
+  },
+  {
+   "pg": "B2",
+   "title": "구조 개혁 빠진 경제부총리의 성장론",
+   "url": "https://n.news.naver.com/article/023/0003973366"
+  },
+  {
+   "pg": "B2",
+   "title": "자영업자 사잇돌 대출 한도 1000만원 늘리고...카드사도 사잇돌 취급",
+   "url": "https://n.news.naver.com/article/023/0003973282"
+  },
+  {
+   "pg": "B3",
+   "title": "친환경 정책에 발목잡히나… 수소연료전지 ‘비상’",
+   "url": "https://n.news.naver.com/article/023/0003973370"
+  },
+  {
+   "pg": "B3",
+   "title": "‘처음처럼’ 20도짜리 나온다… 애주가 틈새 시장 공략",
+   "url": "https://n.news.naver.com/article/023/0003973369"
+  },
+  {
+   "pg": "B3",
+   "title": "‘1년 공석’ 전력거래소 이사장에 김성진 前산업부 대변인",
+   "url": "https://n.news.naver.com/article/023/0003973371"
+  },
+  {
+   "pg": "B3",
+   "title": "“中서 출시·생산할 모든 현대차… CATL 배터리 공급 방안 추진”",
+   "url": "https://n.news.naver.com/article/023/0003973368"
+  },
+  {
+   "pg": "B4",
+   "title": "“워라밸보다 성장 기회가 중요”… 당근, 플랫폼 재직자 평판 1위",
+   "url": "https://n.news.naver.com/article/023/0003973374"
+  },
+  {
+   "pg": "B4",
+   "title": "위고비 ‘먹는 비만약’ 경쟁서 초반 압승",
+   "url": "https://n.news.naver.com/article/023/0003973373"
+  },
+  {
+   "pg": "B4",
+   "title": "ASML, 올해 EUV 장비 36% 증산",
+   "url": "https://n.news.naver.com/article/023/0003973376"
+  },
+  {
+   "pg": "B4",
+   "title": "脫헬륨 냉각 기술 찾아라… 양자컴 ‘콜드 러시’",
+   "url": "https://n.news.naver.com/article/023/0003973372"
+  },
+  {
+   "pg": "B6",
+   "title": "종전 기대감·기관 매수세… 반등하는 비트코인",
+   "url": "https://n.news.naver.com/article/023/0003973379"
+  },
+  {
+   "pg": "B6",
+   "title": "나스닥 액티브 ETF 신바람… 올해 수익률 30~40%대",
+   "url": "https://n.news.naver.com/article/023/0003973378"
+  },
+  {
+   "pg": "B6",
+   "title": "임원 보수, 기업 성과 지표와 연계해 공개해야",
+   "url": "https://n.news.naver.com/article/023/0003973377"
+  },
+  {
+   "pg": "B6",
+   "title": "“차량 5부제 참여하면 보험료 2% 할인해 줘”",
+   "url": "https://n.news.naver.com/article/023/0003973380"
+  },
+  {
+   "pg": "B7",
+   "title": "와인 바꿔치기 등 미쉐린 식당서 ‘뒤통수’ 맞지 않으려면…",
+   "url": "https://n.news.naver.com/article/023/0003973383"
+  },
+  {
+   "pg": "B7",
+   "title": "2035년 1조8000억달러… 돈 되는 우주항공 산업 투자법",
+   "url": "https://n.news.naver.com/article/023/0003973382"
+  },
+  {
+   "pg": "B7",
+   "title": "동학 개미의 스승 “반도체 다음 주도주는 건설·조선·자동차”",
+   "url": "https://n.news.naver.com/article/023/0003973381"
+  }
+ ]
+}
